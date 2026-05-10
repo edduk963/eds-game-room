@@ -4,10 +4,12 @@ import { navigate } from '../main.js';
 import { MSG } from '../shared/messages.js';
 import { bootTugOfWar } from '../game/bootTugOfWar.js';
 import * as haptics from '../haptics.js';
+import { initEdgeMode } from '../game/edgeMode.js';
 
 let currentGame = null;
 let scoreThrottle = 0;
 let vibeLoopInterval = null;
+let edgeModeInstance = null;
 
 function computeVibeIntensity(myScore, oppScore) {
   if (!state.startAt) return 0;
@@ -86,6 +88,27 @@ export function renderTugOfWar(root) {
     onEnd,
   });
 
+  if (state.edgeMode) {
+    let savedHaptics = null;
+    edgeModeInstance = initEdgeMode({
+      role: state.role,
+      myLives: state.edgeLives,
+      containerEl: root,
+      onPause: () => {
+        const scene = currentGame?.scene?.getScene('tugofwar');
+        if (scene) scene.pauseScene();
+        stopVibeLoop();
+        savedHaptics = haptics.pauseHaptics();
+      },
+      onResume: () => {
+        const scene = currentGame?.scene?.getScene('tugofwar');
+        if (scene) scene.resumeScene();
+        haptics.resumeHaptics(savedHaptics);
+        startVibeLoop();
+      },
+    });
+  }
+
   const onOppScore = (ev) => {
     const newScore = ev.detail.value;
     const scene = currentGame?.scene?.getScene('tugofwar');
@@ -107,6 +130,7 @@ export function renderTugOfWar(root) {
   function cleanup() {
     socket.removeEventListener(MSG.OPP_SCORE, onOppScore);
     socket.removeEventListener(MSG.PEER_LEFT, onPeerLeft);
+    if (edgeModeInstance) { edgeModeInstance.destroy(); edgeModeInstance = null; }
     stopVibeLoop();
     if (currentGame) { currentGame.destroy(true); currentGame = null; }
     haptics.stopAll();

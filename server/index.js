@@ -96,13 +96,15 @@ wss.on('connection', (ws) => {
       s.seed = (Math.random() * 0xffffffff) >>> 0;
       s.host.finalScore = null;
       if (s.guest) s.guest.finalScore = null;
-      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar'];
+      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice'];
       const gameType = validGameTypes.includes(msg.gameType) ? msg.gameType : 'galactic';
       const rounds = Number.isInteger(msg.rounds) && msg.rounds >= 2 && msg.rounds <= 5 ? msg.rounds : 3;
       const mode = msg.mode === 'hard' ? 'hard' : 'easy';
       const validDurations = [15, 30, 60, 120, 300, 600];
       const forfeitDuration = validDurations.includes(msg.forfeitDuration) ? msg.forfeitDuration : 30;
-      broadcast(s, { type: 'begin', seed: s.seed, startAt: Date.now() + 6000, gameType, rounds, mode, forfeitDuration });
+      const edgeMode = !!msg.edgeMode;
+      const edgeLives = Number.isInteger(msg.edgeLives) && msg.edgeLives >= 1 && msg.edgeLives <= 10 ? msg.edgeLives : 3;
+      broadcast(s, { type: 'begin', seed: s.seed, startAt: Date.now() + 6000, gameType, rounds, mode, forfeitDuration, edgeMode, edgeLives });
       return;
     }
 
@@ -122,7 +124,7 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.type === 'lobby_config' && role === 'host') {
-      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar'];
+      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice'];
       const validDurations = [15, 30, 60, 120, 300, 600];
       broadcast(s, {
         type: 'lobby_config',
@@ -130,7 +132,30 @@ wss.on('connection', (ws) => {
         rounds: Number.isInteger(msg.rounds) && msg.rounds >= 2 && msg.rounds <= 5 ? msg.rounds : 3,
         mode: msg.mode === 'hard' ? 'hard' : 'easy',
         forfeitDuration: validDurations.includes(msg.forfeitDuration) ? msg.forfeitDuration : 30,
+        edgeMode: !!msg.edgeMode,
+        edgeLives: Number.isInteger(msg.edgeLives) && msg.edgeLives >= 1 && msg.edgeLives <= 10 ? msg.edgeLives : 3,
       }, ws);
+      return;
+    }
+
+    if (msg.type === 'edge_pause' && s.status === 'playing') {
+      const duration = Math.floor(Math.random() * 61);
+      broadcast(s, { type: 'edge_pause', duration, byRole: role });
+      return;
+    }
+
+    if (msg.type === 'dice_roll' && Number.isInteger(msg.value) && msg.value >= 1 && msg.value <= 6) {
+      broadcast(s, { type: 'dice_opp_roll', value: msg.value }, ws);
+      return;
+    }
+
+    if (msg.type === 'dice_intensity' && Number.isFinite(msg.level)) {
+      broadcast(s, { type: 'dice_intensity', level: Math.max(0, Math.min(1, msg.level)) }, ws);
+      return;
+    }
+
+    if (msg.type === 'dice_next') {
+      broadcast(s, { type: 'dice_next' }, ws);
       return;
     }
 

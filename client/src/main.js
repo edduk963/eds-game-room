@@ -8,6 +8,7 @@ import { renderResults } from './screens/results.js';
 import { renderMastermind } from './screens/mastermind.js';
 import { renderEndurance } from './screens/endurance.js';
 import { renderTugOfWar } from './screens/tugofwar.js';
+import { renderDice } from './screens/dice.js';
 
 const app = document.getElementById('app');
 
@@ -61,6 +62,11 @@ function route() {
     return;
   }
 
+  if (hash === '#/dice') {
+    renderDice(app);
+    return;
+  }
+
   if (hash === '#/results') {
     renderResults(app);
     return;
@@ -84,8 +90,14 @@ socket.addEventListener('begin', (ev) => {
   state.gameRounds = ev.detail.rounds || 3;
   state.gameMode = ev.detail.mode || 'easy';
   state.forfeitDuration = ev.detail.forfeitDuration || 30;
+  state.edgeMode = !!ev.detail.edgeMode;
+  state.edgeLives = ev.detail.edgeLives || 3;
   const gt = state.gameType;
-  navigate(gt === 'mastermind' ? '#/mastermind' : gt === 'endurance' ? '#/endurance' : gt === 'tugofwar' ? '#/tugofwar' : '#/game');
+  if (gt === 'mastermind') navigate('#/mastermind');
+  else if (gt === 'endurance') navigate('#/endurance');
+  else if (gt === 'tugofwar') navigate('#/tugofwar');
+  else if (gt === 'dice') navigate('#/dice');
+  else navigate('#/game');
 });
 
 route();

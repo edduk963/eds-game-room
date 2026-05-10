@@ -179,6 +179,23 @@ export function testVibe(level) {
   });
 }
 
+export function pauseHaptics() {
+  const saved = { vibeSeconds, forfeitSeconds, shootVibeSeconds };
+  if (vibeTickInterval)    { clearInterval(vibeTickInterval);    vibeTickInterval    = null; }
+  if (forfeitTickInterval) { clearInterval(forfeitTickInterval); forfeitTickInterval = null; }
+  if (shootVibeInterval)   { clearInterval(shootVibeInterval);   shootVibeInterval   = null; }
+  vibeSeconds = 0; forfeitSeconds = 0; shootVibeSeconds = 0;
+  if (device) device.stop().catch(() => {});
+  return saved;
+}
+
+export function resumeHaptics(saved) {
+  if (!saved) return;
+  if (saved.vibeSeconds > 0) addVibeSeconds(saved.vibeSeconds);
+  if (saved.forfeitSeconds > 0) startForfeitVibe(saved.forfeitSeconds);
+  if (saved.shootVibeSeconds > 0) addShootVibe(shootVibeIntensity || 0.5, saved.shootVibeSeconds);
+}
+
 export function stopAll() {
   if (vibeTickInterval)    { clearInterval(vibeTickInterval);    vibeTickInterval    = null; }
   if (forfeitTickInterval) { clearInterval(forfeitTickInterval); forfeitTickInterval = null; }

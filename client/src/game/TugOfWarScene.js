@@ -331,6 +331,23 @@ export class TugOfWarScene extends Phaser.Scene {
     if (remaining <= 0) this._end();
   }
 
+  pauseScene() {
+    if (!this.gameStarted || this.gameOver || this._edgePaused) return;
+    this._edgePaused = true;
+    this._edgePausedAt = Date.now();
+    this.physics.pause();
+    this.time.paused = true;
+  }
+
+  resumeScene() {
+    if (!this._edgePaused) return;
+    this._edgePaused = false;
+    const elapsed = Date.now() - this._edgePausedAt;
+    this.endsAt += elapsed;
+    this.time.paused = false;
+    this.physics.resume();
+  }
+
   _end() {
     if (this.gameOver) return;
     this.gameOver = true;

@@ -306,6 +306,23 @@ export class MainScene extends Phaser.Scene {
     this.endsAt += seconds * 1000;
   }
 
+  pauseScene() {
+    if (!this.gameStarted || this.gameOver || this._edgePaused) return;
+    this._edgePaused = true;
+    this._edgePausedAt = Date.now();
+    this.physics.pause();
+    this.time.paused = true;
+  }
+
+  resumeScene() {
+    if (!this._edgePaused) return;
+    this._edgePaused = false;
+    const elapsed = Date.now() - this._edgePausedAt;
+    this.endsAt += elapsed;
+    this.time.paused = false;
+    this.physics.resume();
+  }
+
   _flashBanner(text, color, x, y) {
     x ??= this.player.x;
     y ??= this.player.y - 30;

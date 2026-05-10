@@ -19,4 +19,9 @@ export const MSG = {
   FORFEIT_TOGGLE: 'forfeit_toggle',
   VIBE_TEST: 'vibe_test',
   LOBBY_CONFIG: 'lobby_config',
+  EDGE_PAUSE: 'edge_pause',
+  DICE_ROLL: 'dice_roll',
+  DICE_OPP_ROLL: 'dice_opp_roll',
+  DICE_INTENSITY: 'dice_intensity',
+  DICE_NEXT: 'dice_next',
 };

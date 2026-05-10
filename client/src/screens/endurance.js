@@ -4,9 +4,11 @@ import { navigate } from '../main.js';
 import { MSG } from '../shared/messages.js';
 import { bootEndurance } from '../game/bootEndurance.js';
 import * as haptics from '../haptics.js';
+import { initEdgeMode } from '../game/edgeMode.js';
 
 let currentGame = null;
 let scoreThrottle = 0;
+let edgeModeInstance = null;
 
 export function renderEndurance(root) {
   root.innerHTML = `
@@ -69,6 +71,25 @@ export function renderEndurance(root) {
     onEnd,
   });
 
+  if (state.edgeMode) {
+    let savedHaptics = null;
+    edgeModeInstance = initEdgeMode({
+      role: state.role,
+      myLives: state.edgeLives,
+      containerEl: root,
+      onPause: () => {
+        const scene = currentGame?.scene?.getScene('endurance');
+        if (scene) scene.pauseScene();
+        savedHaptics = haptics.pauseHaptics();
+      },
+      onResume: () => {
+        const scene = currentGame?.scene?.getScene('endurance');
+        if (scene) scene.resumeScene();
+        haptics.resumeHaptics(savedHaptics);
+      },
+    });
+  }
+
   let prevOppScore = 0;
   const onOppScore = (ev) => {
     const newScore = ev.detail.value;
@@ -96,6 +117,7 @@ export function renderEndurance(root) {
     socket.removeEventListener(MSG.OPP_SCORE, onOppScore);
     socket.removeEventListener(MSG.PEER_LEFT, onPeerLeft);
     socket.removeEventListener(MSG.VIBE_ADD, onOppVibeAdd);
+    if (edgeModeInstance) { edgeModeInstance.destroy(); edgeModeInstance = null; }
     if (currentGame) { currentGame.destroy(true); currentGame = null; }
     haptics.stopAll();
   }

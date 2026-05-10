@@ -3,6 +3,7 @@ import { state } from '../state.js';
 import { navigate } from '../main.js';
 import { MSG } from '../shared/messages.js';
 import * as haptics from '../haptics.js';
+import { initEdgeMode } from '../game/edgeMode.js';
 import { makeRng } from '../game/seededRng.js';
 import {
   getBaseConfig, nextRoundConfig, generateCode, evaluateGuess,
@@ -39,6 +40,9 @@ export function renderMastermind(root) {
   let timerInterval = null;
   let forfeitInterval = null;
   let myRoundsSolved = 0;
+  let edgeModeInstance = null;
+  let edgePaused = false;
+  let savedHaptics = null;
 
   const myName = state.myName || 'You';
   const oppName = (state.role === 'host' ? state.guestName : state.hostName) || 'Opponent';
@@ -458,6 +462,7 @@ export function renderMastermind(root) {
   // --- Input ---
 
   function onKeyDown(e) {
+    if (edgePaused) return;
     if (e.ctrlKey && e.shiftKey && e.key === 'D') {
       e.preventDefault();
       const existing = root.querySelector('#mm-debug-code');
@@ -562,11 +567,29 @@ export function renderMastermind(root) {
     socket.removeEventListener(MSG.MM_ROUND_END, onMmRoundEnd);
     socket.removeEventListener(MSG.MM_ROUND_READY, onMmRoundReady);
     socket.removeEventListener(MSG.PEER_LEFT, onPeerLeft);
+    if (edgeModeInstance) { edgeModeInstance.destroy(); edgeModeInstance = null; }
     haptics.stopAll();
   };
   window.addEventListener('hashchange', cleanup, { once: true });
 
-  _showMastermindInstructions(state, startCountdown);
+  _showMastermindInstructions(state, () => {
+    if (state.edgeMode) {
+      edgeModeInstance = initEdgeMode({
+        role: state.role,
+        myLives: state.edgeLives,
+        containerEl: root,
+        onPause: () => {
+          edgePaused = true;
+          savedHaptics = haptics.pauseHaptics();
+        },
+        onResume: () => {
+          edgePaused = false;
+          haptics.resumeHaptics(savedHaptics);
+        },
+      });
+    }
+    startCountdown();
+  });
 }
 
 function escapeHtml(s) {

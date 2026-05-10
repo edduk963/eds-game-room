@@ -14,6 +14,8 @@ export function renderLobby(root) {
   let selectedRounds = 3;
   let selectedMode = 'easy';
   let selectedForfeit = 30;
+  let selectedEdgeMode = false;
+  let selectedEdgeLives = 3;
 
   root.innerHTML = `
     <div class="card">
@@ -48,6 +50,10 @@ export function renderLobby(root) {
           <div class="name">Tug of War</div>
           <div class="desc">Both devices vibe continuously. The losing player feels it more. Pool grows every 10s to 100%.</div>
         </div>
+        <div class="game-tile game-tile-selectable" data-game="dice">
+          <div class="name">Dice</div>
+          <div class="desc">Roll dice each round. Loser suffers escalating forfeit vibe — starts 15s and doubles on each loss.</div>
+        </div>
       </div>
       <div id="mm-config" style="display:none">
         <div class="mm-rounds-row">
@@ -78,6 +84,23 @@ export function renderLobby(root) {
           <button class="mm-rounds-btn ghost" data-forfeit="600">10min</button>
         </div>
       </div>
+      <div class="mm-rounds-row" style="margin-top:16px;">
+        <span>Edge mode:</span>
+        <div class="mm-rounds-btns" id="edge-btns">
+          <button class="mm-rounds-btn mm-rounds-selected" data-edge="off">Off</button>
+          <button class="mm-rounds-btn ghost" data-edge="on">On</button>
+        </div>
+      </div>
+      <div id="edge-lives-row" class="mm-rounds-row" style="display:none;margin-top:8px;">
+        <span>Lives (E key):</span>
+        <div class="mm-rounds-btns" id="edge-lives-btns">
+          <button class="mm-rounds-btn ghost" data-lives="1">1</button>
+          <button class="mm-rounds-btn ghost" data-lives="2">2</button>
+          <button class="mm-rounds-btn mm-rounds-selected" data-lives="3">3</button>
+          <button class="mm-rounds-btn ghost" data-lives="5">5</button>
+          <button class="mm-rounds-btn ghost" data-lives="10">10</button>
+        </div>
+      </div>
       <div class="actions">
         <button class="ghost" id="copy">Copy link</button>
         <button class="ghost" id="leave">Leave</button>
@@ -101,6 +124,9 @@ export function renderLobby(root) {
   const roundsBtns = root.querySelector('#rounds-btns');
   const modeBtns = root.querySelector('#mode-btns');
   const forfeitBtns = root.querySelector('#forfeit-btns');
+  const edgeBtns = root.querySelector('#edge-btns');
+  const edgeLivesBtns = root.querySelector('#edge-lives-btns');
+  const edgeLivesRow = root.querySelector('#edge-lives-row');
 
   function paintOptions() {
     root.querySelectorAll('.game-tile-selectable').forEach(t =>
@@ -122,6 +148,17 @@ export function renderLobby(root) {
       b.classList.toggle('mm-rounds-selected', sel);
       b.classList.toggle('ghost', !sel);
     });
+    edgeBtns.querySelectorAll('[data-edge]').forEach(b => {
+      const sel = (b.dataset.edge === 'on') === selectedEdgeMode;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+    });
+    edgeLivesRow.style.display = selectedEdgeMode ? 'flex' : 'none';
+    edgeLivesBtns.querySelectorAll('[data-lives]').forEach(b => {
+      const sel = parseInt(b.dataset.lives, 10) === selectedEdgeLives;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+    });
   }
 
   const sendConfig = () => socket.send({
@@ -130,6 +167,8 @@ export function renderLobby(root) {
     rounds: selectedRounds,
     mode: selectedMode,
     forfeitDuration: selectedForfeit,
+    edgeMode: selectedEdgeMode,
+    edgeLives: selectedEdgeLives,
   });
 
   socket.connect();
@@ -156,10 +195,12 @@ export function renderLobby(root) {
   };
 
   const onLobbyConfig = (ev) => {
-    selectedGame    = ev.detail.gameType      || selectedGame;
-    selectedRounds  = ev.detail.rounds        || selectedRounds;
-    selectedMode    = ev.detail.mode          || selectedMode;
-    selectedForfeit = ev.detail.forfeitDuration || selectedForfeit;
+    selectedGame      = ev.detail.gameType        || selectedGame;
+    selectedRounds    = ev.detail.rounds          || selectedRounds;
+    selectedMode      = ev.detail.mode            || selectedMode;
+    selectedForfeit   = ev.detail.forfeitDuration || selectedForfeit;
+    if (ev.detail.edgeMode !== undefined) selectedEdgeMode = !!ev.detail.edgeMode;
+    if (ev.detail.edgeLives)              selectedEdgeLives = ev.detail.edgeLives;
     paintOptions();
   };
 
@@ -214,8 +255,26 @@ export function renderLobby(root) {
     sendConfig();
   });
 
+  edgeBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-edge]');
+    if (!btn) return;
+    selectedEdgeMode = btn.dataset.edge === 'on';
+    paintOptions();
+    sendConfig();
+  });
+
+  edgeLivesBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-lives]');
+    if (!btn) return;
+    selectedEdgeLives = parseInt(btn.dataset.lives, 10);
+    paintOptions();
+    sendConfig();
+  });
+
   startBtn.addEventListener('click', () => {
-    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit });
+    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives });
   });
 
   root.querySelector('#copy').addEventListener('click', async () => {

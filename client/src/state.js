@@ -14,6 +14,8 @@ export const state = {
   gameRounds: 3,
   gameMode: 'easy',
   forfeitDuration: 30,
+  edgeMode: false,
+  edgeLives: 3,
 };
 
 export function reset() {
@@ -31,4 +33,6 @@ export function reset() {
   state.gameRounds = 3;
   state.gameMode = 'easy';
   state.forfeitDuration = 30;
+  state.edgeMode = false;
+  state.edgeLives = 3;
 }
