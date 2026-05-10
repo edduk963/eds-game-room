@@ -1,9 +1,11 @@
 import { socket } from '../net/socket.js';
 import { MSG } from '../shared/messages.js';
+import { canEdge } from './edgeAssignment.js';
 
-export function initEdgeMode({ role, myLives, onPause, onResume, containerEl }) {
+export function initEdgeMode({ role, myLives, assignment, onPause, onResume, containerEl }) {
   let myLivesLeft = myLives;
   let oppLivesLeft = myLives;
+  let currentAssignment = assignment || 'both';
   let isPaused = false;
   let pauseQueue = [];
   let countdownInterval = null;
@@ -25,14 +27,18 @@ export function initEdgeMode({ role, myLives, onPause, onResume, containerEl }) 
   }
 
   function _updateLives() {
+    const myActive = canEdge(currentAssignment, role);
+    const oppRole = role === 'host' ? 'guest' : 'host';
+    const oppActive = canEdge(currentAssignment, oppRole);
     livesBar.innerHTML =
-      `<span class="edge-lives-you">E: ${_hearts(myLivesLeft)}</span>` +
-      `<span class="edge-lives-opp">Opp E: ${_hearts(oppLivesLeft)}</span>`;
+      `<span class="edge-lives-you${myActive ? '' : ' edge-inactive'}">E: ${_hearts(myLivesLeft)}</span>` +
+      `<span class="edge-lives-opp${oppActive ? '' : ' edge-inactive'}">Opp E: ${_hearts(oppLivesLeft)}</span>`;
   }
 
   function _onKey(e) {
     if (!active) return;
     if (e.key !== 'e' && e.key !== 'E') return;
+    if (!canEdge(currentAssignment, role)) return;
     if (myLivesLeft <= 0) return;
     myLivesLeft--;
     _updateLives();
@@ -92,6 +98,11 @@ export function initEdgeMode({ role, myLives, onPause, onResume, containerEl }) 
     if (pauseQueue.length > 0) _startPause(pauseQueue.shift());
   }
 
+  function setAssignment(assignment) {
+    currentAssignment = assignment;
+    _updateLives();
+  }
+
   function destroy() {
     active = false;
     document.removeEventListener('keydown', _onKey);
@@ -102,5 +113,5 @@ export function initEdgeMode({ role, myLives, onPause, onResume, containerEl }) 
     if (isPaused) onResume();
   }
 
-  return { destroy };
+  return { destroy, setAssignment };
 }

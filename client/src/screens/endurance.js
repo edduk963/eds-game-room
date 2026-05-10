@@ -5,6 +5,7 @@ import { MSG } from '../shared/messages.js';
 import { bootEndurance } from '../game/bootEndurance.js';
 import * as haptics from '../haptics.js';
 import { initEdgeMode } from '../game/edgeMode.js';
+import { showEdgeReadyOverlay } from '../game/edgeAssignment.js';
 
 let currentGame = null;
 let scoreThrottle = 0;
@@ -71,23 +72,33 @@ export function renderEndurance(root) {
     onEnd,
   });
 
+  function _startEdgeAndInstructions(assignment) {
+    if (state.edgeMode) {
+      let savedHaptics = null;
+      edgeModeInstance = initEdgeMode({
+        role: state.role,
+        myLives: state.edgeLives,
+        assignment,
+        containerEl: root,
+        onPause: () => {
+          const scene = currentGame?.scene?.getScene('endurance');
+          if (scene) scene.pauseScene();
+          savedHaptics = haptics.pauseHaptics();
+        },
+        onResume: () => {
+          const scene = currentGame?.scene?.getScene('endurance');
+          if (scene) scene.resumeScene();
+          haptics.resumeHaptics(savedHaptics);
+        },
+      });
+    }
+    _showEnduranceInstructions(state);
+  }
+
   if (state.edgeMode) {
-    let savedHaptics = null;
-    edgeModeInstance = initEdgeMode({
-      role: state.role,
-      myLives: state.edgeLives,
-      containerEl: root,
-      onPause: () => {
-        const scene = currentGame?.scene?.getScene('endurance');
-        if (scene) scene.pauseScene();
-        savedHaptics = haptics.pauseHaptics();
-      },
-      onResume: () => {
-        const scene = currentGame?.scene?.getScene('endurance');
-        if (scene) scene.resumeScene();
-        haptics.resumeHaptics(savedHaptics);
-      },
-    });
+    showEdgeReadyOverlay({ role: state.role, seed: state.seed, roundIndex: 0, onReady: _startEdgeAndInstructions });
+  } else {
+    _showEnduranceInstructions(state);
   }
 
   let prevOppScore = 0;

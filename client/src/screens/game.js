@@ -5,6 +5,7 @@ import { MSG } from '../shared/messages.js';
 import { bootGame } from '../game/boot.js';
 import * as haptics from '../haptics.js';
 import { initEdgeMode } from '../game/edgeMode.js';
+import { showEdgeReadyOverlay } from '../game/edgeAssignment.js';
 
 let currentGame = null;
 let scoreThrottle = 0;
@@ -75,23 +76,33 @@ export function renderGame(root) {
     onEnd,
   });
 
+  function _startEdgeAndInstructions(assignment) {
+    if (state.edgeMode) {
+      let savedHaptics = null;
+      edgeModeInstance = initEdgeMode({
+        role: state.role,
+        myLives: state.edgeLives,
+        assignment,
+        containerEl: root,
+        onPause: () => {
+          const scene = currentGame?.scene?.getScene('main');
+          if (scene) scene.pauseScene();
+          savedHaptics = haptics.pauseHaptics();
+        },
+        onResume: () => {
+          const scene = currentGame?.scene?.getScene('main');
+          if (scene) scene.resumeScene();
+          haptics.resumeHaptics(savedHaptics);
+        },
+      });
+    }
+    _showGameInstructions(state);
+  }
+
   if (state.edgeMode) {
-    let savedHaptics = null;
-    edgeModeInstance = initEdgeMode({
-      role: state.role,
-      myLives: state.edgeLives,
-      containerEl: root,
-      onPause: () => {
-        const scene = currentGame?.scene?.getScene('main');
-        if (scene) scene.pauseScene();
-        savedHaptics = haptics.pauseHaptics();
-      },
-      onResume: () => {
-        const scene = currentGame?.scene?.getScene('main');
-        if (scene) scene.resumeScene();
-        haptics.resumeHaptics(savedHaptics);
-      },
-    });
+    showEdgeReadyOverlay({ role: state.role, seed: state.seed, roundIndex: 0, onReady: _startEdgeAndInstructions });
+  } else {
+    _showGameInstructions(state);
   }
 
   let prevOppScore = 0;

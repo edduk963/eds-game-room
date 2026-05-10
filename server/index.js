@@ -139,8 +139,13 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.type === 'edge_pause' && s.status === 'playing') {
-      const duration = Math.floor(Math.random() * 61);
+      const duration = Math.floor(Math.random() * 30) + 1;
       broadcast(s, { type: 'edge_pause', duration, byRole: role });
+      return;
+    }
+
+    if (msg.type === 'edge_ready') {
+      broadcast(s, { type: 'edge_ready' }, ws);
       return;
     }
 

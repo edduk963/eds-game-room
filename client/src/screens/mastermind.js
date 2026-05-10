@@ -4,6 +4,7 @@ import { navigate } from '../main.js';
 import { MSG } from '../shared/messages.js';
 import * as haptics from '../haptics.js';
 import { initEdgeMode } from '../game/edgeMode.js';
+import { showEdgeReadyOverlay } from '../game/edgeAssignment.js';
 import { makeRng } from '../game/seededRng.js';
 import {
   getBaseConfig, nextRoundConfig, generateCode, evaluateGuess,
@@ -455,7 +456,14 @@ export function renderMastermind(root) {
     } else {
       roundConfig = nextRoundConfig(roundConfig, bothSucceeded);
       code = generateCode(rng, roundConfig.slots);
-      startRound();
+      if (state.edgeMode) {
+        showEdgeReadyOverlay({ role: state.role, seed: state.seed, roundIndex, onReady: (assignment) => {
+          if (edgeModeInstance) edgeModeInstance.setAssignment(assignment);
+          startRound();
+        }});
+      } else {
+        startRound();
+      }
     }
   }
 
@@ -572,24 +580,31 @@ export function renderMastermind(root) {
   };
   window.addEventListener('hashchange', cleanup, { once: true });
 
-  _showMastermindInstructions(state, () => {
-    if (state.edgeMode) {
-      edgeModeInstance = initEdgeMode({
-        role: state.role,
-        myLives: state.edgeLives,
-        containerEl: root,
-        onPause: () => {
-          edgePaused = true;
-          savedHaptics = haptics.pauseHaptics();
-        },
-        onResume: () => {
-          edgePaused = false;
-          haptics.resumeHaptics(savedHaptics);
-        },
-      });
-    }
-    startCountdown();
-  });
+  function _initEdgeModeInstance(assignment) {
+    edgeModeInstance = initEdgeMode({
+      role: state.role,
+      myLives: state.edgeLives,
+      assignment,
+      containerEl: root,
+      onPause: () => {
+        edgePaused = true;
+        savedHaptics = haptics.pauseHaptics();
+      },
+      onResume: () => {
+        edgePaused = false;
+        haptics.resumeHaptics(savedHaptics);
+      },
+    });
+  }
+
+  if (state.edgeMode) {
+    showEdgeReadyOverlay({ role: state.role, seed: state.seed, roundIndex: 0, onReady: (assignment) => {
+      _initEdgeModeInstance(assignment);
+      _showMastermindInstructions(state, startCountdown);
+    }});
+  } else {
+    _showMastermindInstructions(state, startCountdown);
+  }
 }
 
 function escapeHtml(s) {

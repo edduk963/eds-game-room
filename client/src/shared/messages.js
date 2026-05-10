@@ -20,6 +20,7 @@ export const MSG = {
   VIBE_TEST: 'vibe_test',
   LOBBY_CONFIG: 'lobby_config',
   EDGE_PAUSE: 'edge_pause',
+  EDGE_READY: 'edge_ready',
   DICE_ROLL: 'dice_roll',
   DICE_OPP_ROLL: 'dice_opp_roll',
   DICE_INTENSITY: 'dice_intensity',

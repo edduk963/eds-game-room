@@ -4,6 +4,7 @@ import { navigate } from '../main.js';
 import { MSG } from '../shared/messages.js';
 import * as haptics from '../haptics.js';
 import { initEdgeMode } from '../game/edgeMode.js';
+import { showEdgeReadyOverlay } from '../game/edgeAssignment.js';
 
 const DICE_FACES = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
 
@@ -22,7 +23,7 @@ export function renderDice(root) {
   let edgeModeInstance = null;
   let edgePaused = false;
   let savedHaptics = null;
-  let savedForfeitRemaining = 0;
+  let diceRoundIndex = 0;
 
   function forfeitSecondsForLoss(losses) {
     return 15 * Math.pow(2, losses);
@@ -197,7 +198,16 @@ export function renderDice(root) {
       clearInterval(countdownInterval);
       countdownInterval = null;
       haptics.stopAll();
-      resetRound();
+      diceRoundIndex++;
+      if (state.edgeMode) {
+        rollArea.style.display = 'none';
+        showEdgeReadyOverlay({ role: state.role, seed: state.seed, roundIndex: diceRoundIndex, onReady: (assignment) => {
+          if (edgeModeInstance) edgeModeInstance.setAssignment(assignment);
+          resetRound();
+        }});
+      } else {
+        resetRound();
+      }
     }
   }
 
@@ -260,16 +270,16 @@ export function renderDice(root) {
   socket.addEventListener(MSG.DICE_NEXT, onDiceNext);
   socket.addEventListener(MSG.PEER_LEFT, onPeerLeft);
 
-  // --- Edge mode ---
-  if (state.edgeMode) {
+  // --- Edge mode init (called once with first assignment) ---
+  function _initEdge(assignment) {
     edgeModeInstance = initEdgeMode({
       role: state.role,
       myLives: state.edgeLives,
+      assignment,
       containerEl: root,
       onPause: () => {
         edgePaused = true;
         rollBtn.disabled = true;
-        savedForfeitRemaining = haptics.getForfeitSeconds();
         savedHaptics = haptics.pauseHaptics();
       },
       onResume: () => {
@@ -278,6 +288,14 @@ export function renderDice(root) {
         haptics.resumeHaptics(savedHaptics);
       },
     });
+  }
+
+  if (state.edgeMode) {
+    rollArea.style.display = 'none';
+    showEdgeReadyOverlay({ role: state.role, seed: state.seed, roundIndex: 0, onReady: (assignment) => {
+      _initEdge(assignment);
+      rollArea.style.display = '';
+    }});
   }
 
   // --- Vibe connect ---
