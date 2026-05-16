@@ -5,6 +5,7 @@ import { MSG } from '../shared/messages.js';
 import * as haptics from '../haptics.js';
 import { initEdgeMode } from '../game/edgeMode.js';
 import { showEdgeReadyOverlay } from '../game/edgeAssignment.js';
+import { initVibeBattery } from '../vibeBattery.js';
 
 const DICE_FACES = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
 
@@ -21,6 +22,7 @@ export function renderDice(root) {
   let nextReadySent = false;
   let nextReadyReceived = false;
   let edgeModeInstance = null;
+  let vibeBatteryInstance = initVibeBattery(root);
   let edgePaused = false;
   let savedHaptics = null;
   let diceRoundIndex = 0;
@@ -315,7 +317,10 @@ export function renderDice(root) {
   });
 
   root.querySelector('#dice-leave').addEventListener('click', () => {
-    navigate('#/');
+    state.myFinal = null;
+    state.oppFinal = null;
+    state.seed = null;
+    navigate(`#/session/${state.sessionId}`);
   });
 
   updateLossDisplays();
@@ -323,6 +328,7 @@ export function renderDice(root) {
   window.addEventListener('hashchange', () => {
     clearInterval(countdownInterval);
     if (edgeModeInstance) { edgeModeInstance.destroy(); edgeModeInstance = null; }
+    if (vibeBatteryInstance) { vibeBatteryInstance.destroy(); vibeBatteryInstance = null; }
     socket.removeEventListener(MSG.DICE_OPP_ROLL, onOppRoll);
     socket.removeEventListener(MSG.DICE_INTENSITY, onDiceIntensity);
     socket.removeEventListener(MSG.DICE_NEXT, onDiceNext);

@@ -1,4 +1,4 @@
-import { ButtplugClient } from 'buttplug';
+import { ButtplugClient, ButtplugBrowserWebsocketClientConnector } from 'buttplug';
 import { ButtplugWasmClientConnector } from 'buttplug-wasm/dist/buttplug-wasm.mjs';
 
 let client = null;
@@ -7,7 +7,7 @@ let stopTimer = null;
 let vibeSeconds = 0;
 let vibeTickInterval = null;
 
-export async function connect() {
+export async function connect(mode = 'bluetooth') {
   if (client) {
     try { await client.disconnect(); } catch {}
     client = null;
@@ -27,7 +27,10 @@ export async function connect() {
     client = null;
   });
 
-  await client.connect(new ButtplugWasmClientConnector());
+  const connector = mode === 'intiface'
+    ? new ButtplugBrowserWebsocketClientConnector('ws://localhost:12345')
+    : new ButtplugWasmClientConnector();
+  await client.connect(connector);
   await client.startScanning();
 
   const already = client.devices;
@@ -100,6 +103,11 @@ export async function losePattern() {
 
 export const isConnected = () => device !== null;
 
+export async function getBattery() {
+  if (!device || !device.hasBattery) return null;
+  try { return Math.round((await device.battery()) * 100); } catch { return null; }
+}
+
 let forfeitSeconds = 0;
 let forfeitIntensity = 1.0;
 let forfeitTickInterval = null;
@@ -125,13 +133,35 @@ let _pendingIntensity = 1.0;
 export function setForfeitIntensity(level) {
   forfeitIntensity = Math.max(0, Math.min(1, level));
   _pendingIntensity = forfeitIntensity;
+  if (_pendingIntensity === 0) {
+    if (_intensityRaf) { cancelAnimationFrame(_intensityRaf); _intensityRaf = 0; }
+    if (device) device.stop().catch(() => {});
+    return;
+  }
   if (_intensityRaf) return;
   _intensityRaf = requestAnimationFrame(() => {
     _intensityRaf = 0;
-    if (!forfeitTickInterval || !device) return;
-    if (_pendingIntensity === 0) device.stop().catch(() => {});
-    else device.vibrate(_pendingIntensity).catch(() => {});
+    if (!device || !forfeitTickInterval || _pendingIntensity === 0) return;
+    device.vibrate(_pendingIntensity).catch(() => {}).then(() => {
+      if (_pendingIntensity === 0 && device) device.stop().catch(() => {});
+    });
   });
+}
+
+export function addForfeitSeconds(n) {
+  if (!device) return;
+  forfeitSeconds += n;
+  vibe(forfeitIntensity);
+  if (!forfeitTickInterval) {
+    forfeitTickInterval = setInterval(() => {
+      forfeitSeconds = Math.max(0, forfeitSeconds - 0.1);
+      if (forfeitSeconds <= 0) {
+        clearInterval(forfeitTickInterval);
+        forfeitTickInterval = null;
+        if (device) device.stop().catch(() => {});
+      }
+    }, 100);
+  }
 }
 
 export const isForfeitActive = () => forfeitSeconds > 0;
@@ -170,12 +200,18 @@ let _testLevel = 0;
 
 export function testVibe(level) {
   _testLevel = Math.max(0, Math.min(1, level));
+  if (_testLevel === 0) {
+    if (_testRaf) { cancelAnimationFrame(_testRaf); _testRaf = 0; }
+    if (device) device.stop().catch(() => {});
+    return;
+  }
   if (_testRaf) return;
   _testRaf = requestAnimationFrame(() => {
     _testRaf = 0;
-    if (!device) return;
-    if (_testLevel === 0) device.stop().catch(() => {});
-    else device.vibrate(_testLevel).catch(() => {});
+    if (!device || _testLevel === 0) return;
+    device.vibrate(_testLevel).catch(() => {}).then(() => {
+      if (_testLevel === 0 && device) device.stop().catch(() => {});
+    });
   });
 }
 

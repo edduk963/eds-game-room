@@ -27,7 +27,6 @@ export function showEdgeReadyOverlay({ role, seed, roundIndex, onReady }) {
   const assignment = getEdgeAssignment(seed, roundIndex);
   const myCanEdge = canEdge(assignment, role);
   let myReady = false;
-  let oppReady = false;
   let settled = false;
 
   const overlay = document.createElement('div');
@@ -55,16 +54,15 @@ export function showEdgeReadyOverlay({ role, seed, roundIndex, onReady }) {
     if (settled) return;
     settled = true;
     overlay.remove();
-    socket.removeEventListener(MSG.EDGE_READY, onOppReady);
+    socket.removeEventListener(MSG.EDGE_GO, onGo);
     onReady(assignment);
   }
 
-  function onOppReady() {
-    oppReady = true;
-    if (myReady) proceed();
+  function onGo() {
+    proceed();
   }
 
-  socket.addEventListener(MSG.EDGE_READY, onOppReady);
+  socket.addEventListener(MSG.EDGE_GO, onGo);
 
   btn.addEventListener('click', () => {
     if (myReady) return;
@@ -72,13 +70,12 @@ export function showEdgeReadyOverlay({ role, seed, roundIndex, onReady }) {
     btn.disabled = true;
     waitEl.style.visibility = 'visible';
     socket.send({ type: MSG.EDGE_READY });
-    if (oppReady) proceed();
   });
 
   const onNav = () => {
     settled = true;
     overlay.remove();
-    socket.removeEventListener(MSG.EDGE_READY, onOppReady);
+    socket.removeEventListener(MSG.EDGE_GO, onGo);
   };
   window.addEventListener('hashchange', onNav, { once: true });
 

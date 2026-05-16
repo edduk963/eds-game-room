@@ -16,6 +16,11 @@ export const state = {
   forfeitDuration: 30,
   edgeMode: false,
   edgeLives: 3,
+  hiloMode: 'submission',
+  hiloCycles: 1,
+  hiloDeckSize: 1,
+  hiloVibeRamp: 10,
+  hiloLives: 3,
 };
 
 export function reset() {
@@ -35,4 +40,9 @@ export function reset() {
   state.forfeitDuration = 30;
   state.edgeMode = false;
   state.edgeLives = 3;
+  state.hiloMode = 'submission';
+  state.hiloCycles = 1;
+  state.hiloDeckSize = 1;
+  state.hiloVibeRamp = 10;
+  state.hiloLives = 3;
 }

@@ -5,6 +5,7 @@ import { MSG } from '../shared/messages.js';
 import * as haptics from '../haptics.js';
 import { initEdgeMode } from '../game/edgeMode.js';
 import { showEdgeReadyOverlay } from '../game/edgeAssignment.js';
+import { initVibeBattery } from '../vibeBattery.js';
 import { makeRng } from '../game/seededRng.js';
 import {
   getBaseConfig, nextRoundConfig, generateCode, evaluateGuess,
@@ -42,6 +43,7 @@ export function renderMastermind(root) {
   let forfeitInterval = null;
   let myRoundsSolved = 0;
   let edgeModeInstance = null;
+  let vibeBatteryInstance = initVibeBattery(root);
   let edgePaused = false;
   let savedHaptics = null;
 
@@ -576,6 +578,7 @@ export function renderMastermind(root) {
     socket.removeEventListener(MSG.MM_ROUND_READY, onMmRoundReady);
     socket.removeEventListener(MSG.PEER_LEFT, onPeerLeft);
     if (edgeModeInstance) { edgeModeInstance.destroy(); edgeModeInstance = null; }
+    if (vibeBatteryInstance) { vibeBatteryInstance.destroy(); vibeBatteryInstance = null; }
     haptics.stopAll();
   };
   window.addEventListener('hashchange', cleanup, { once: true });
@@ -648,25 +651,36 @@ function _showMastermindInstructions(state, onReady) {
       </div>
       <p class="instructions-forfeit">Loser pays forfeit: <strong>${forfeitSecs}s</strong> vibe after the game.</p>
       <button id="inst-ready">Got it — I'm ready!</button>
-      <p class="instructions-waiting" id="inst-timer"></p>
+      <p class="instructions-waiting" id="inst-wait" style="visibility:hidden">Waiting for opponent…</p>
     </div>
   `;
   document.body.appendChild(overlay);
 
-  const timerEl = overlay.querySelector('#inst-timer');
-  const tick = () => {
-    const secs = Math.max(0, Math.ceil((state.startAt - Date.now()) / 1000));
-    if (timerEl) timerEl.textContent = secs > 0 ? `Game starts in ${secs}s` : 'Starting…';
-    if (secs <= 0 && overlay.parentNode) { overlay.remove(); onReady(); }
-  };
-  tick();
-  const iv = setInterval(() => { tick(); if (!overlay.parentNode) clearInterval(iv); }, 500);
+  const readyBtn = overlay.querySelector('#inst-ready');
+  const waitEl = overlay.querySelector('#inst-wait');
+  let settled = false;
 
-  overlay.querySelector('#inst-ready').addEventListener('click', () => {
-    clearInterval(iv);
+  function proceed(startAt) {
+    if (settled) return;
+    settled = true;
+    state.startAt = startAt;
+    socket.removeEventListener(MSG.INST_GO, onGo);
     overlay.remove();
     onReady();
+  }
+
+  const onGo = (ev) => proceed(ev.detail.startAt);
+  socket.addEventListener(MSG.INST_GO, onGo);
+
+  readyBtn.addEventListener('click', () => {
+    readyBtn.disabled = true;
+    waitEl.style.visibility = 'visible';
+    socket.send({ type: MSG.INST_READY });
   });
 
-  window.addEventListener('hashchange', () => { clearInterval(iv); overlay.remove(); }, { once: true });
+  window.addEventListener('hashchange', () => {
+    settled = true;
+    socket.removeEventListener(MSG.INST_GO, onGo);
+    overlay.remove();
+  }, { once: true });
 }

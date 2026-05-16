@@ -6,10 +6,12 @@ import { bootGame } from '../game/boot.js';
 import * as haptics from '../haptics.js';
 import { initEdgeMode } from '../game/edgeMode.js';
 import { showEdgeReadyOverlay } from '../game/edgeAssignment.js';
+import { initVibeBattery } from '../vibeBattery.js';
 
 let currentGame = null;
 let scoreThrottle = 0;
 let edgeModeInstance = null;
+let vibeBatteryInstance = null;
 
 export function renderGame(root) {
   root.innerHTML = `
@@ -20,6 +22,7 @@ export function renderGame(root) {
       <div id="game-root"></div>
     </div>`;
   const host = root.querySelector('#game-root');
+  vibeBatteryInstance = initVibeBattery(root);
 
   root.querySelector('#back-to-lobby').addEventListener('click', () => {
     state.myFinal = null;
@@ -28,8 +31,6 @@ export function renderGame(root) {
     state.startAt = null;
     navigate(`#/session/${state.sessionId}`);
   });
-
-  _showGameInstructions(state);
 
   const myName = (state.role === 'host' ? state.hostName : state.guestName) || 'You';
   const opponentName = (state.role === 'host' ? state.guestName : state.hostName) || 'Opponent';
@@ -62,19 +63,21 @@ export function renderGame(root) {
     setTimeout(() => navigate('#/results'), 1500);
   };
 
-  currentGame = bootGame({
-    parent: host,
-    seed: state.seed,
-    startAt: state.startAt,
-    myName,
-    opponentName,
-    onScore,
-    onVibeAdd,
-    onVibeOpponent,
-    onVTimeAdd,
-    onClockExtend,
-    onEnd,
-  });
+  function bootAndGo() {
+    currentGame = bootGame({
+      parent: host,
+      seed: state.seed,
+      startAt: state.startAt,
+      myName,
+      opponentName,
+      onScore,
+      onVibeAdd,
+      onVibeOpponent,
+      onVTimeAdd,
+      onClockExtend,
+      onEnd,
+    });
+  }
 
   function _startEdgeAndInstructions(assignment) {
     if (state.edgeMode) {
@@ -96,13 +99,13 @@ export function renderGame(root) {
         },
       });
     }
-    _showGameInstructions(state);
+    _showGameInstructions(state, bootAndGo);
   }
 
   if (state.edgeMode) {
     showEdgeReadyOverlay({ role: state.role, seed: state.seed, roundIndex: 0, onReady: _startEdgeAndInstructions });
   } else {
-    _showGameInstructions(state);
+    _showGameInstructions(state, bootAndGo);
   }
 
   let prevOppScore = 0;
@@ -140,12 +143,13 @@ export function renderGame(root) {
     socket.removeEventListener(MSG.VIBE_ADD, onOppVibeAdd);
     socket.removeEventListener(MSG.CLOCK_EXTEND, onOppClockExtend);
     if (edgeModeInstance) { edgeModeInstance.destroy(); edgeModeInstance = null; }
+    if (vibeBatteryInstance) { vibeBatteryInstance.destroy(); vibeBatteryInstance = null; }
     if (currentGame) { currentGame.destroy(true); currentGame = null; }
     haptics.stopAll();
   }
 }
 
-function _showGameInstructions(state) {
+function _showGameInstructions(state, onReady) {
   const forfeitSecs = state.forfeitDuration ?? 30;
   const overlay = document.createElement('div');
   overlay.className = 'instructions-overlay';
@@ -176,24 +180,36 @@ function _showGameInstructions(state) {
       </div>
       <p class="instructions-forfeit">Loser pays forfeit: <strong>${forfeitSecs}s</strong> vibe after the game.</p>
       <button id="inst-ready">Got it — I'm ready!</button>
-      <p class="instructions-waiting" id="inst-timer"></p>
+      <p class="instructions-waiting" id="inst-wait" style="visibility:hidden">Waiting for opponent…</p>
     </div>
   `;
   document.body.appendChild(overlay);
 
-  const timerEl = overlay.querySelector('#inst-timer');
-  const tick = () => {
-    const secs = Math.max(0, Math.ceil((state.startAt - Date.now()) / 1000));
-    if (timerEl) timerEl.textContent = secs > 0 ? `Game starts in ${secs}s` : 'Starting…';
-    if (secs <= 0 && overlay.parentNode) overlay.remove();
-  };
-  tick();
-  const iv = setInterval(() => { tick(); if (!overlay.parentNode) clearInterval(iv); }, 500);
+  const readyBtn = overlay.querySelector('#inst-ready');
+  const waitEl = overlay.querySelector('#inst-wait');
+  let settled = false;
 
-  overlay.querySelector('#inst-ready').addEventListener('click', () => {
-    clearInterval(iv);
+  function proceed(startAt) {
+    if (settled) return;
+    settled = true;
+    state.startAt = startAt;
+    socket.removeEventListener(MSG.INST_GO, onGo);
     overlay.remove();
+    onReady();
+  }
+
+  const onGo = (ev) => proceed(ev.detail.startAt);
+  socket.addEventListener(MSG.INST_GO, onGo);
+
+  readyBtn.addEventListener('click', () => {
+    readyBtn.disabled = true;
+    waitEl.style.visibility = 'visible';
+    socket.send({ type: MSG.INST_READY });
   });
 
-  window.addEventListener('hashchange', () => { clearInterval(iv); overlay.remove(); }, { once: true });
+  window.addEventListener('hashchange', () => {
+    settled = true;
+    socket.removeEventListener(MSG.INST_GO, onGo);
+    overlay.remove();
+  }, { once: true });
 }

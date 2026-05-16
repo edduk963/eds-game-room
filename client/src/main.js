@@ -9,6 +9,7 @@ import { renderMastermind } from './screens/mastermind.js';
 import { renderEndurance } from './screens/endurance.js';
 import { renderTugOfWar } from './screens/tugofwar.js';
 import { renderDice } from './screens/dice.js';
+import { renderHilo } from './screens/hilo.js';
 
 const app = document.getElementById('app');
 
@@ -67,6 +68,12 @@ function route() {
     return;
   }
 
+  if (hash === '#/hilo') {
+    if (!state.seed) { navigate('#/'); return; }
+    renderHilo(app);
+    return;
+  }
+
   if (hash === '#/results') {
     renderResults(app);
     return;
@@ -92,11 +99,17 @@ socket.addEventListener('begin', (ev) => {
   state.forfeitDuration = ev.detail.forfeitDuration || 30;
   state.edgeMode = !!ev.detail.edgeMode;
   state.edgeLives = ev.detail.edgeLives || 3;
+  state.hiloMode = ev.detail.hiloMode || 'submission';
+  state.hiloCycles = ev.detail.hiloCycles ?? 1;
+  state.hiloDeckSize = ev.detail.hiloDeckSize ?? 1;
+  state.hiloVibeRamp = ev.detail.hiloVibeRamp || 10;
+  state.hiloLives = ev.detail.hiloLives || 3;
   const gt = state.gameType;
   if (gt === 'mastermind') navigate('#/mastermind');
   else if (gt === 'endurance') navigate('#/endurance');
   else if (gt === 'tugofwar') navigate('#/tugofwar');
   else if (gt === 'dice') navigate('#/dice');
+  else if (gt === 'hilo') navigate('#/hilo');
   else navigate('#/game');
 });
 

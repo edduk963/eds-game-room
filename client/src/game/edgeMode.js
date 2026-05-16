@@ -36,10 +36,10 @@ export function initEdgeMode({ role, myLives, assignment, onPause, onResume, con
   }
 
   function _onKey(e) {
-    if (!active) return;
+    if (!active || e.repeat) return;
     if (e.key !== 'e' && e.key !== 'E') return;
     if (!canEdge(currentAssignment, role)) return;
-    if (myLivesLeft <= 0) return;
+    if (myLivesLeft <= 0 || isPaused) return;
     myLivesLeft--;
     _updateLives();
     socket.send({ type: MSG.EDGE_PAUSE });

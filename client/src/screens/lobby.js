@@ -16,6 +16,11 @@ export function renderLobby(root) {
   let selectedForfeit = 30;
   let selectedEdgeMode = false;
   let selectedEdgeLives = 3;
+  let selectedHiloMode = 'submission';
+  let selectedHiloCycles = 1;
+  let selectedHiloDeckSize = 1;
+  let selectedHiloVibeRamp = 10;
+  let selectedHiloLives = 3;
 
   root.innerHTML = `
     <div class="card">
@@ -54,6 +59,62 @@ export function renderLobby(root) {
           <div class="name">Dice</div>
           <div class="desc">Roll dice each round. Loser suffers escalating forfeit vibe — starts 15s and doubles on each loss.</div>
         </div>
+        <div class="game-tile game-tile-selectable" data-game="hilo">
+          <div class="name">Hi-Lo</div>
+          <div class="desc">Turn-based card guessing. Correct guesses vibe your opponent — intensity builds with each card, duration scales with difficulty.</div>
+        </div>
+      </div>
+      <div id="hilo-config" style="display:none">
+        <div class="mm-rounds-row">
+          <span>Mode:</span>
+          <div class="mm-rounds-btns" id="hilo-mode-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-hilo-mode="submission">Submission</button>
+            <button class="mm-rounds-btn ghost" data-hilo-mode="fixed">Escape</button>
+            <button class="mm-rounds-btn ghost" data-hilo-mode="random">Random</button>
+          </div>
+        </div>
+        <div id="hilo-cycles-row" class="mm-rounds-row" style="margin-top:4px;display:none;">
+          <span>Rounds:</span>
+          <div class="mm-rounds-btns" id="hilo-cycles-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-hilo-cycles="1">1</button>
+            <button class="mm-rounds-btn ghost" data-hilo-cycles="2">2</button>
+            <button class="mm-rounds-btn ghost" data-hilo-cycles="3">3</button>
+            <button class="mm-rounds-btn ghost" data-hilo-cycles="4">4</button>
+            <button class="mm-rounds-btn ghost" data-hilo-cycles="5">5</button>
+            <button class="mm-rounds-btn ghost" data-hilo-cycles="6">6</button>
+            <button class="mm-rounds-btn ghost" data-hilo-cycles="0">Random</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row" style="margin-top:4px;">
+          <span>Deck size:</span>
+          <div class="mm-rounds-btns" id="hilo-deck-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-hilo-deck="1">1</button>
+            <button class="mm-rounds-btn ghost" data-hilo-deck="2">2</button>
+            <button class="mm-rounds-btn ghost" data-hilo-deck="3">3</button>
+            <button class="mm-rounds-btn ghost" data-hilo-deck="4">4</button>
+            <button class="mm-rounds-btn ghost" data-hilo-deck="5">5</button>
+            <button class="mm-rounds-btn ghost" data-hilo-deck="6">6</button>
+            <button class="mm-rounds-btn ghost" data-hilo-deck="0">Random</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row" style="margin-top:4px;">
+          <span>Vibe ramp:</span>
+          <div class="mm-rounds-btns" id="hilo-ramp-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-hilo-ramp="10">10%</button>
+            <button class="mm-rounds-btn ghost" data-hilo-ramp="15">15%</button>
+            <button class="mm-rounds-btn ghost" data-hilo-ramp="20">20%</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row" style="margin-top:4px;">
+          <span>Lives:</span>
+          <div class="mm-rounds-btns" id="hilo-lives-btns">
+            <button class="mm-rounds-btn ghost" data-hilo-lives="1">1</button>
+            <button class="mm-rounds-btn ghost" data-hilo-lives="2">2</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-hilo-lives="3">3</button>
+            <button class="mm-rounds-btn ghost" data-hilo-lives="5">5</button>
+            <button class="mm-rounds-btn ghost" data-hilo-lives="10">10</button>
+          </div>
+        </div>
       </div>
       <div id="mm-config" style="display:none">
         <div class="mm-rounds-row">
@@ -73,7 +134,7 @@ export function renderLobby(root) {
           </div>
         </div>
       </div>
-      <div class="mm-rounds-row" style="margin-top:16px;">
+      <div id="forfeit-row" class="mm-rounds-row" style="margin-top:16px;">
         <span>Forfeit vibe:</span>
         <div class="mm-rounds-btns" id="forfeit-btns">
           <button class="mm-rounds-btn ghost" data-forfeit="15">15s</button>
@@ -84,7 +145,7 @@ export function renderLobby(root) {
           <button class="mm-rounds-btn ghost" data-forfeit="600">10min</button>
         </div>
       </div>
-      <div class="mm-rounds-row" style="margin-top:16px;">
+      <div id="edge-mode-row" class="mm-rounds-row" style="margin-top:16px;">
         <span>Edge mode:</span>
         <div class="mm-rounds-btns" id="edge-btns">
           <button class="mm-rounds-btn mm-rounds-selected" data-edge="off">Off</button>
@@ -106,9 +167,10 @@ export function renderLobby(root) {
         <button class="ghost" id="leave">Leave</button>
         <button id="start" disabled>Start</button>
       </div>
-      <div class="vibe-row" style="margin-top:16px;display:flex;align-items:center;gap:12px;">
-        <button id="btn-vibe">Connect Vibe</button>
-        <span id="vibe-hint" style="font-size:12px;color:#888;">Connects via browser Bluetooth — Chrome/Edge only</span>
+      <div class="vibe-row" style="margin-top:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <button id="btn-vibe-bt">Connect via Bluetooth</button>
+        <button class="ghost" id="btn-vibe-intiface">Connect via Intiface</button>
+        <span id="vibe-hint" style="font-size:12px;color:#888;">Bluetooth: Chrome/Edge only &nbsp;·&nbsp; Intiface: requires Intiface Central running locally</span>
       </div>
       <div style="margin-top:8px;">
         <button class="ghost" id="btn-test-vibe" style="font-size:13px;padding:8px 14px;">Test Vibe</button>
@@ -121,18 +183,54 @@ export function renderLobby(root) {
   const errEl = root.querySelector('#err');
   const gameList = root.querySelector('#game-list');
   const mmConfig = root.querySelector('#mm-config');
+  const hiloConfig = root.querySelector('#hilo-config');
   const roundsBtns = root.querySelector('#rounds-btns');
   const modeBtns = root.querySelector('#mode-btns');
+  const forfeitRow = root.querySelector('#forfeit-row');
+  const edgeModeRow = root.querySelector('#edge-mode-row');
   const forfeitBtns = root.querySelector('#forfeit-btns');
   const edgeBtns = root.querySelector('#edge-btns');
   const edgeLivesBtns = root.querySelector('#edge-lives-btns');
   const edgeLivesRow = root.querySelector('#edge-lives-row');
+  const hiloModeBtns = root.querySelector('#hilo-mode-btns');
+  const hiloCyclesBtns = root.querySelector('#hilo-cycles-btns');
+  const hiloCyclesRow = root.querySelector('#hilo-cycles-row');
+  const hiloDeckBtns = root.querySelector('#hilo-deck-btns');
+  const hiloRampBtns = root.querySelector('#hilo-ramp-btns');
+  const hiloLivesBtns = root.querySelector('#hilo-lives-btns');
 
   function paintOptions() {
     root.querySelectorAll('.game-tile-selectable').forEach(t =>
       t.classList.toggle('selected', t.dataset.game === selectedGame)
     );
     mmConfig.style.display = selectedGame === 'mastermind' ? 'block' : 'none';
+    hiloConfig.style.display = selectedGame === 'hilo' ? 'block' : 'none';
+    hiloCyclesRow.style.display = selectedHiloMode === 'fixed' ? 'flex' : 'none';
+    hiloModeBtns.querySelectorAll('[data-hilo-mode]').forEach(b => {
+      const sel = b.dataset.hiloMode === selectedHiloMode;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+    });
+    hiloCyclesBtns.querySelectorAll('[data-hilo-cycles]').forEach(b => {
+      const sel = parseInt(b.dataset.hiloCycles, 10) === selectedHiloCycles;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+    });
+    hiloDeckBtns.querySelectorAll('[data-hilo-deck]').forEach(b => {
+      const sel = parseInt(b.dataset.hiloDeck, 10) === selectedHiloDeckSize;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+    });
+    hiloRampBtns.querySelectorAll('[data-hilo-ramp]').forEach(b => {
+      const sel = parseInt(b.dataset.hiloRamp, 10) === selectedHiloVibeRamp;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+    });
+    hiloLivesBtns.querySelectorAll('[data-hilo-lives]').forEach(b => {
+      const sel = parseInt(b.dataset.hiloLives, 10) === selectedHiloLives;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+    });
     roundsBtns.querySelectorAll('[data-rounds]').forEach(b => {
       const sel = parseInt(b.dataset.rounds, 10) === selectedRounds;
       b.classList.toggle('mm-rounds-selected', sel);
@@ -143,6 +241,10 @@ export function renderLobby(root) {
       b.classList.toggle('mm-rounds-selected', sel);
       b.classList.toggle('ghost', !sel);
     });
+    const isHilo = selectedGame === 'hilo';
+    forfeitRow.style.display   = isHilo ? 'none' : '';
+    edgeModeRow.style.display  = isHilo ? 'none' : '';
+    if (isHilo) edgeLivesRow.style.display = 'none';
     forfeitBtns.querySelectorAll('[data-forfeit]').forEach(b => {
       const sel = parseInt(b.dataset.forfeit, 10) === selectedForfeit;
       b.classList.toggle('mm-rounds-selected', sel);
@@ -169,6 +271,11 @@ export function renderLobby(root) {
     forfeitDuration: selectedForfeit,
     edgeMode: selectedEdgeMode,
     edgeLives: selectedEdgeLives,
+    hiloMode: selectedHiloMode,
+    hiloCycles: selectedHiloCycles,
+    hiloDeckSize: selectedHiloDeckSize,
+    hiloVibeRamp: selectedHiloVibeRamp,
+    hiloLives: selectedHiloLives,
   });
 
   socket.connect();
@@ -178,9 +285,8 @@ export function renderLobby(root) {
     const hadGuest = !!state.guestName;
     state.hostName = ev.detail.host?.name || null;
     state.guestName = ev.detail.guest?.name || null;
-    // When a guest first joins, push current config so their UI is in sync
     if (state.role === 'host' && !hadGuest && state.guestName) sendConfig();
-    paint();
+    paint(); // paint() now calls paintOptions() internally
   };
   const onJoined = (ev) => { state.role = ev.detail.role; paint(); };
   const onError = (ev) => {
@@ -201,6 +307,11 @@ export function renderLobby(root) {
     selectedForfeit   = ev.detail.forfeitDuration || selectedForfeit;
     if (ev.detail.edgeMode !== undefined) selectedEdgeMode = !!ev.detail.edgeMode;
     if (ev.detail.edgeLives)              selectedEdgeLives = ev.detail.edgeLives;
+    if (ev.detail.hiloMode)                    selectedHiloMode = ev.detail.hiloMode;
+    if (ev.detail.hiloCycles !== undefined)    selectedHiloCycles = ev.detail.hiloCycles;
+    if (ev.detail.hiloDeckSize !== undefined)  selectedHiloDeckSize = ev.detail.hiloDeckSize;
+    if (ev.detail.hiloVibeRamp)               selectedHiloVibeRamp = ev.detail.hiloVibeRamp;
+    if (ev.detail.hiloLives)                   selectedHiloLives = ev.detail.hiloLives;
     paintOptions();
   };
 
@@ -274,7 +385,52 @@ export function renderLobby(root) {
   });
 
   startBtn.addEventListener('click', () => {
-    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives });
+    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives, hiloMode: selectedHiloMode, hiloCycles: selectedHiloCycles, hiloDeckSize: selectedHiloDeckSize, hiloVibeRamp: selectedHiloVibeRamp, hiloLives: selectedHiloLives });
+  });
+
+  hiloModeBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-hilo-mode]');
+    if (!btn) return;
+    selectedHiloMode = btn.dataset.hiloMode;
+    paintOptions();
+    sendConfig();
+  });
+
+  hiloCyclesBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-hilo-cycles]');
+    if (!btn) return;
+    selectedHiloCycles = parseInt(btn.dataset.hiloCycles, 10);
+    paintOptions();
+    sendConfig();
+  });
+
+  hiloDeckBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-hilo-deck]');
+    if (!btn) return;
+    selectedHiloDeckSize = parseInt(btn.dataset.hiloDeck, 10);
+    paintOptions();
+    sendConfig();
+  });
+
+  hiloRampBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-hilo-ramp]');
+    if (!btn) return;
+    selectedHiloVibeRamp = parseInt(btn.dataset.hiloRamp, 10);
+    paintOptions();
+    sendConfig();
+  });
+
+  hiloLivesBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-hilo-lives]');
+    if (!btn) return;
+    selectedHiloLives = parseInt(btn.dataset.hiloLives, 10);
+    paintOptions();
+    sendConfig();
   });
 
   root.querySelector('#copy').addEventListener('click', async () => {
@@ -290,33 +446,35 @@ export function renderLobby(root) {
     navigate('#/');
   });
 
-  const vibeBtn = root.querySelector('#btn-vibe');
+  const vibeBtBtn = root.querySelector('#btn-vibe-bt');
+  const vibeIntifaceBtn = root.querySelector('#btn-vibe-intiface');
   const vibeHint = root.querySelector('#vibe-hint');
   if (haptics.isConnected()) {
-    vibeBtn.textContent = '📳 Connected — click to reconnect';
-    vibeHint.textContent = '';
+    vibeHint.textContent = '📳 Connected';
   }
-  vibeBtn.addEventListener('click', async () => {
-    vibeBtn.textContent = 'Connecting…';
-    vibeBtn.disabled = true;
-    vibeHint.textContent = 'Make sure Intiface Central is open and scanning.';
+
+  async function connectVibe(mode, btn) {
+    const other = btn === vibeBtBtn ? vibeIntifaceBtn : vibeBtBtn;
+    const originalLabel = btn.textContent;
+    btn.textContent = 'Connecting…';
+    btn.disabled = true;
+    other.disabled = true;
+    vibeHint.textContent = mode === 'intiface'
+      ? 'Make sure Intiface Central is running on port 12345.'
+      : 'Approve the Bluetooth pairing dialog in the browser.';
     try {
-      const dev = await haptics.connect();
-      if (dev) {
-        vibeBtn.textContent = '📳 Connected — click to reconnect';
-        vibeBtn.disabled = false;
-        vibeHint.textContent = `Device ready: ${dev.name}`;
-      } else {
-        vibeBtn.textContent = haptics.isConnected() ? '📳 Connected — click to reconnect' : 'Connect Vibe';
-        vibeBtn.disabled = false;
-        vibeHint.textContent = 'No device found — try again.';
-      }
+      const dev = await haptics.connect(mode);
+      vibeHint.textContent = dev ? `📳 ${dev.name} ready` : 'No device found — try again.';
     } catch (err) {
-      vibeBtn.textContent = 'Connect Vibe';
-      vibeBtn.disabled = false;
       vibeHint.textContent = `Failed: ${err.message ?? err}`;
     }
-  });
+    btn.textContent = haptics.isConnected() ? '📳 Connected — reconnect' : originalLabel;
+    btn.disabled = false;
+    other.disabled = false;
+  }
+
+  vibeBtBtn.addEventListener('click', () => connectVibe('bluetooth', vibeBtBtn));
+  vibeIntifaceBtn.addEventListener('click', () => connectVibe('intiface', vibeIntifaceBtn));
 
   root.querySelector('#btn-test-vibe').addEventListener('click', () => {
     openTestVibeOverlay(state, socket, haptics);
@@ -338,6 +496,7 @@ export function renderLobby(root) {
     startBtn.textContent = state.role === 'host'
       ? (canStart ? 'Start' : 'Waiting for guest…')
       : 'Waiting for host…';
+    paintOptions();
   }
   paint();
 }

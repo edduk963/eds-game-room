@@ -96,7 +96,11 @@ wss.on('connection', (ws) => {
       s.seed = (Math.random() * 0xffffffff) >>> 0;
       s.host.finalScore = null;
       if (s.guest) s.guest.finalScore = null;
-      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice'];
+      s.hostEdgeReady = false;
+      s.guestEdgeReady = false;
+      s.hostInstReady = false;
+      s.guestInstReady = false;
+      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo'];
       const gameType = validGameTypes.includes(msg.gameType) ? msg.gameType : 'galactic';
       const rounds = Number.isInteger(msg.rounds) && msg.rounds >= 2 && msg.rounds <= 5 ? msg.rounds : 3;
       const mode = msg.mode === 'hard' ? 'hard' : 'easy';
@@ -104,7 +108,14 @@ wss.on('connection', (ws) => {
       const forfeitDuration = validDurations.includes(msg.forfeitDuration) ? msg.forfeitDuration : 30;
       const edgeMode = !!msg.edgeMode;
       const edgeLives = Number.isInteger(msg.edgeLives) && msg.edgeLives >= 1 && msg.edgeLives <= 10 ? msg.edgeLives : 3;
-      broadcast(s, { type: 'begin', seed: s.seed, startAt: Date.now() + 6000, gameType, rounds, mode, forfeitDuration, edgeMode, edgeLives });
+      const validHiloModes = ['submission', 'fixed', 'random'];
+      const hiloMode = validHiloModes.includes(msg.hiloMode) ? msg.hiloMode : 'submission';
+      const hiloCycles = Number.isInteger(msg.hiloCycles) && msg.hiloCycles >= 0 && msg.hiloCycles <= 6 ? msg.hiloCycles : 1;
+      const hiloDeckSize = Number.isInteger(msg.hiloDeckSize) && msg.hiloDeckSize >= 0 && msg.hiloDeckSize <= 6 ? msg.hiloDeckSize : 1;
+      const validHiloRamps = [10, 15, 20];
+      const hiloVibeRamp = validHiloRamps.includes(msg.hiloVibeRamp) ? msg.hiloVibeRamp : 10;
+      const hiloLives = Number.isInteger(msg.hiloLives) && msg.hiloLives >= 1 && msg.hiloLives <= 10 ? msg.hiloLives : 3;
+      broadcast(s, { type: 'begin', seed: s.seed, startAt: null, gameType, rounds, mode, forfeitDuration, edgeMode, edgeLives, hiloMode, hiloCycles, hiloDeckSize, hiloVibeRamp, hiloLives });
       return;
     }
 
@@ -124,8 +135,9 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.type === 'lobby_config' && role === 'host') {
-      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice'];
+      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo'];
       const validDurations = [15, 30, 60, 120, 300, 600];
+      const validHiloModes = ['submission', 'fixed', 'random'];
       broadcast(s, {
         type: 'lobby_config',
         gameType: validGameTypes.includes(msg.gameType) ? msg.gameType : 'galactic',
@@ -134,6 +146,11 @@ wss.on('connection', (ws) => {
         forfeitDuration: validDurations.includes(msg.forfeitDuration) ? msg.forfeitDuration : 30,
         edgeMode: !!msg.edgeMode,
         edgeLives: Number.isInteger(msg.edgeLives) && msg.edgeLives >= 1 && msg.edgeLives <= 10 ? msg.edgeLives : 3,
+        hiloMode: validHiloModes.includes(msg.hiloMode) ? msg.hiloMode : 'submission',
+        hiloCycles: Number.isInteger(msg.hiloCycles) && msg.hiloCycles >= 0 && msg.hiloCycles <= 6 ? msg.hiloCycles : 1,
+        hiloDeckSize: Number.isInteger(msg.hiloDeckSize) && msg.hiloDeckSize >= 0 && msg.hiloDeckSize <= 6 ? msg.hiloDeckSize : 1,
+        hiloVibeRamp: [10, 15, 20].includes(msg.hiloVibeRamp) ? msg.hiloVibeRamp : 10,
+        hiloLives: Number.isInteger(msg.hiloLives) && msg.hiloLives >= 1 && msg.hiloLives <= 10 ? msg.hiloLives : 3,
       }, ws);
       return;
     }
@@ -145,7 +162,24 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.type === 'edge_ready') {
-      broadcast(s, { type: 'edge_ready' }, ws);
+      if (role === 'host') s.hostEdgeReady = true;
+      else s.guestEdgeReady = true;
+      if (s.hostEdgeReady && s.guestEdgeReady) {
+        s.hostEdgeReady = false;
+        s.guestEdgeReady = false;
+        broadcast(s, { type: 'edge_go' });
+      }
+      return;
+    }
+
+    if (msg.type === 'inst_ready') {
+      if (role === 'host') s.hostInstReady = true;
+      else if (role === 'guest') s.guestInstReady = true;
+      if (s.hostInstReady && s.guestInstReady) {
+        s.hostInstReady = false;
+        s.guestInstReady = false;
+        broadcast(s, { type: 'inst_go', startAt: Date.now() + 3000 });
+      }
       return;
     }
 
@@ -191,8 +225,49 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    if (msg.type === 'vibe_battery' && Number.isFinite(msg.level)) {
+      broadcast(s, { type: 'opp_vibe_battery', level: Math.max(0, Math.min(100, msg.level | 0)) }, ws);
+      return;
+    }
+
     if (msg.type === 'forfeit_toggle') {
       broadcast(s, { type: 'forfeit_toggle', running: !!msg.running });
+      return;
+    }
+
+    if (msg.type === 'hilo_guess' && (msg.guess === 'higher' || msg.guess === 'lower')) {
+      broadcast(s, { type: 'hilo_guess', guess: msg.guess }, ws);
+      return;
+    }
+
+    if (msg.type === 'hilo_spacebar') {
+      broadcast(s, { type: 'hilo_spacebar' }, ws);
+      return;
+    }
+
+    const validPowerUpTypes = ['doubleTime', 'freeLife', 'allOrNothing', 'peek', 'skip', 'freeze'];
+    if (msg.type === 'hilo_powerup_use' && validPowerUpTypes.includes(msg.powerUpType)) {
+      broadcast(s, { type: 'hilo_powerup_use', powerUpType: msg.powerUpType }, ws);
+      return;
+    }
+
+    if (msg.type === 'hilo_submit') {
+      broadcast(s, { type: 'hilo_submit' }, ws);
+      return;
+    }
+
+    if (msg.type === 'hilo_play_again') {
+      broadcast(s, { type: 'hilo_play_again', confirm: !!msg.confirm }, ws);
+      return;
+    }
+
+    if (msg.type === 'hilo_vibe_level' && Number.isFinite(msg.level)) {
+      broadcast(s, { type: 'hilo_vibe_level', level: Math.max(0, Math.min(1, msg.level)) }, ws);
+      return;
+    }
+
+    if (msg.type === 'hilo_vibe_stop') {
+      broadcast(s, { type: 'hilo_vibe_stop' }, ws);
       return;
     }
 

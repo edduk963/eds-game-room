@@ -589,6 +589,23 @@ button.ghost {
 
 .tv-hint { font-size: 12px; color: var(--muted); text-align: center; margin: 4px 0 0; }
 
+/* ── Vibe battery bar ── */
+
+.vibe-battery-bar {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 12px;
+  font-size: 13px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.vbb-you { color: var(--accent); }
+.vbb-opp { color: var(--gold); }
+.vbb-sep { opacity: 0.4; }
+
 /* ── Edge mode ── */
 
 .edge-lives-bar {
@@ -863,4 +880,291 @@ button.ghost {
 .dice-next-btn {
   align-self: center;
   margin-top: 4px;
+}
+
+/* ── Hi-Lo game ── */
+
+.hilo-root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  max-width: 620px;
+  padding: 20px;
+}
+
+.hilo-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+
+.hilo-scorebar {
+  flex: 1;
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+  font-size: 14px;
+  flex-wrap: wrap;
+}
+
+.hilo-score-me    { color: var(--accent); }
+.hilo-score-opp   { color: var(--gold); }
+.hilo-score-sep   { color: #2a3556; font-weight: 700; }
+
+.hilo-arena {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.hilo-deck-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.hilo-deck-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.hilo-card-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.hilo-card-slot { min-height: 160px; display: flex; align-items: center; }
+.hilo-peek-slot { position: relative; }
+.hilo-peek-label {
+  font-size: 10px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+/* Playing card */
+.hilo-card {
+  width: 110px;
+  height: 160px;
+  background: #f8f9fc;
+  border: 2px solid #ccc;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 8px;
+  color: #111;
+  font-weight: 700;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+  user-select: none;
+}
+
+.hilo-card-red { color: #cc1111; }
+
+.hilo-card-corner {
+  font-size: 14px;
+  line-height: 1.2;
+  font-weight: 700;
+}
+
+.hilo-card-corner-br {
+  align-self: flex-end;
+  transform: rotate(180deg);
+}
+
+.hilo-card-center {
+  font-size: 46px;
+  line-height: 1;
+  text-align: center;
+  align-self: center;
+}
+
+.hilo-card-back {
+  background: linear-gradient(135deg, #1a2342 25%, #131a2c 75%);
+  border: 2px solid #25304d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+}
+
+.hilo-deck-count {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.hilo-turn-label {
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+  min-height: 24px;
+}
+
+.hilo-turn-me  { color: var(--accent); }
+.hilo-turn-opp { color: var(--muted); }
+
+.hilo-feedback {
+  font-size: 14px;
+  text-align: center;
+  min-height: 20px;
+  font-weight: 600;
+}
+
+.hilo-feedback-accent { color: var(--accent); }
+.hilo-feedback-warn   { color: var(--warn); }
+.hilo-feedback-neutral { color: var(--muted); }
+
+.hilo-guess-btns {
+  display: flex;
+  gap: 16px;
+}
+
+.hilo-guess-btn {
+  font-size: 18px;
+  font-weight: 700;
+  padding: 14px 32px;
+  border-radius: 10px;
+  border: 0;
+  cursor: pointer;
+  transition: transform 80ms ease, opacity 80ms ease;
+}
+
+.hilo-higher {
+  background: var(--accent);
+  color: #042;
+}
+
+.hilo-lower {
+  background: var(--warn);
+  color: #fff;
+}
+
+.hilo-spacebar-hint {
+  font-size: 14px;
+  color: var(--warn);
+  text-align: center;
+  padding: 8px 14px;
+  background: rgba(255,85,119,0.1);
+  border: 1px solid rgba(255,85,119,0.3);
+  border-radius: 8px;
+}
+
+.hilo-spacebar-hint kbd {
+  background: rgba(255,85,119,0.3);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.hilo-freeze-notice {
+  font-size: 14px;
+  color: #7fd8ff;
+  text-align: center;
+  padding: 8px 14px;
+  background: rgba(127,216,255,0.1);
+  border: 1px solid rgba(127,216,255,0.3);
+  border-radius: 8px;
+}
+
+.hilo-vibe-indicator {
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(255,85,119,0.12);
+}
+
+.hilo-powerups {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hilo-pu-section { display: flex; flex-direction: column; gap: 6px; }
+.hilo-pu-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+.hilo-pu-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.hilo-pu-btn {
+  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  background: rgba(92,255,212,0.12);
+  color: var(--accent);
+  border: 1px solid rgba(92,255,212,0.3);
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 100ms;
+}
+
+.hilo-pu-btn:hover:not(:disabled) { background: rgba(92,255,212,0.22); }
+.hilo-pu-disabled { opacity: 0.45; cursor: not-allowed; }
+
+.hilo-submit-row { width: 100%; display: flex; justify-content: flex-end; }
+
+/* Overlays */
+.hilo-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5,10,28,0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 600;
+  padding: 24px;
+}
+
+.hilo-overlay-box {
+  background: #0d1326;
+  border: 1px solid #2a3556;
+  border-radius: 18px;
+  padding: 32px 36px;
+  max-width: 460px;
+  width: 100%;
+}
+
+.hilo-overlay-box h2 { margin: 0 0 16px; font-size: 22px; text-align: center; }
+
+.hilo-round-scores {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.hilo-round-score-cell {
+  background: #131a2c;
+  border: 1px solid #25304d;
+  border-radius: 10px;
+  padding: 16px;
+  text-align: center;
+}
+
+.hilo-round-score-name { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.hilo-round-score-lives { font-size: 18px; color: var(--warn); margin-bottom: 2px; min-height: 22px; }
+.hilo-round-score-pts { font-size: 28px; font-weight: 700; }
+
+.hilo-forfeit-flavour {
+  text-align: center;
+  font-size: 15px;
+  color: var(--warn);
+  font-style: italic;
+  margin: 0 0 8px;
+  line-height: 1.4;
 }
