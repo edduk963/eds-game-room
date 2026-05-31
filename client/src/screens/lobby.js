@@ -10,7 +10,7 @@ export function renderLobby(root) {
     return;
   }
 
-  let selectedGame = 'galactic';
+  let selectedGame = state.devMode ? (state.devPreselect || 'splitloot') : 'galactic';
   let selectedRounds = 3;
   let selectedMode = 'easy';
   let selectedForfeit = 30;
@@ -21,6 +21,11 @@ export function renderLobby(root) {
   let selectedHiloDeckSize = 1;
   let selectedHiloVibeRamp = 10;
   let selectedHiloLives = 3;
+  let selectedHiloVibeTarget = 'both';
+  let selectedStlDifficulty = 'normal';
+  let selectedStlForfeitCards = ['truth', 'dare', 'control', 'strip', 'drink', 'surrender'];
+  let selectedWiWinCondition = 'normal';
+  let selectedWiSpellLimit = 5;
 
   root.innerHTML = `
     <div class="card">
@@ -36,9 +41,24 @@ export function renderLobby(root) {
           <div class="name">${state.guestName || 'waiting for player 2…'}</div>
           <div class="role">Guest</div>
         </div>
+        <div class="player ${state.guest2Name ? '' : 'empty'}" id="p-guest2">
+          <div class="name">${state.guest2Name || 'player 3 (optional)…'}</div>
+          <div class="role">Guest 2</div>
+        </div>
       </div>
       <h2>Choose a game</h2>
       <div class="game-list" id="game-list">
+        ${state.devMode ? `
+        <div class="game-tile game-tile-selectable" data-game="splitloot">
+          <div class="name">Split the Loot</div>
+          <div class="desc">Two-player vault escape. Collect loot, dodge guards, trigger hidden traps. Escape with enough loot or face the forfeits.</div>
+        </div>
+        <div class="game-tile game-tile-selectable" data-game="wizardisland">
+          <div class="name">Wizard Island</div>
+          <div class="desc">Roll dice to explore 8 islands, collect stat cards, cast spells, and battle each other and the Dark Wizard boss.</div>
+        </div>
+        ` : `
+        <div class="game-category-label">Vibe Games</div>
         <div class="game-tile game-tile-selectable selected" data-game="galactic">
           <div class="name">Galactic Salvage</div>
           <div class="desc">90 seconds. Shoot invaders, dodge debris, ignore civilians and decoys.</div>
@@ -63,6 +83,12 @@ export function renderLobby(root) {
           <div class="name">Hi-Lo</div>
           <div class="desc">Turn-based card guessing. Correct guesses vibe your opponent — intensity builds with each card, duration scales with difficulty.</div>
         </div>
+        <div class="game-category-label">Other Games</div>
+        <div class="game-tile game-tile-selectable" data-game="beatdealer">
+          <div class="name">Beat the Dealer</div>
+          <div class="desc">Play cards against the computer. Beat it to score — lose to it and face the forfeit. 10 rounds, 2 players.</div>
+        </div>
+        `}
       </div>
       <div id="hilo-config" style="display:none">
         <div class="mm-rounds-row">
@@ -115,6 +141,33 @@ export function renderLobby(root) {
             <button class="mm-rounds-btn ghost" data-hilo-lives="10">10</button>
           </div>
         </div>
+        <div class="mm-rounds-row" style="margin-top:4px;">
+          <span>Vibe target <span style="font-size:11px;color:var(--muted)">(3-player)</span>:</span>
+          <div class="mm-rounds-btns" id="hilo-vibe-target-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-hilo-vibe-target="both">Both vibers</button>
+            <button class="mm-rounds-btn ghost" data-hilo-vibe-target="highest_lives">Highest lives</button>
+            <button class="mm-rounds-btn ghost" data-hilo-vibe-target="random">Random</button>
+          </div>
+        </div>
+      </div>
+      <div id="stl-config" style="display:none">
+        <div class="mm-rounds-row">
+          <span>Difficulty:</span>
+          <div class="mm-rounds-btns" id="stl-diff-btns">
+            <button class="mm-rounds-btn ghost" data-stl-diff="easy">Easy</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-stl-diff="normal">Normal</button>
+            <button class="mm-rounds-btn ghost" data-stl-diff="hard">Hard</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row" style="margin-top:8px;flex-wrap:wrap;gap:6px;">
+          <span style="width:100%">Forfeit cards:</span>
+          <button class="mm-rounds-btn mm-rounds-selected" data-stl-card="truth">Truth</button>
+          <button class="mm-rounds-btn mm-rounds-selected" data-stl-card="dare">Dare</button>
+          <button class="mm-rounds-btn mm-rounds-selected" data-stl-card="drink">Drink</button>
+          <button class="mm-rounds-btn mm-rounds-selected" data-stl-card="strip">Strip</button>
+          <button class="mm-rounds-btn mm-rounds-selected" data-stl-card="control">Control</button>
+          <button class="mm-rounds-btn mm-rounds-selected" data-stl-card="surrender">Surrender</button>
+        </div>
       </div>
       <div id="mm-config" style="display:none">
         <div class="mm-rounds-row">
@@ -131,6 +184,25 @@ export function renderLobby(root) {
           <div class="mm-rounds-btns" id="mode-btns">
             <button class="mm-rounds-btn mm-rounds-selected" data-mode="easy" title="Dots appear in slot order — you can see exactly which positions are correct">Easy</button>
             <button class="mm-rounds-btn ghost" data-mode="hard" title="Dots are only a count — no timer">Hard</button>
+          </div>
+        </div>
+      </div>
+      <div id="wi-config" style="display:none">
+        <div class="mm-rounds-row">
+          <span>Win condition:</span>
+          <div class="mm-rounds-btns" id="wi-win-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-wi-win="normal">Normal</button>
+            <button class="mm-rounds-btn ghost" data-wi-win="endurance">Endurance</button>
+            <button class="mm-rounds-btn ghost" data-wi-win="timed">Timed</button>
+          </div>
+        </div>
+        <div id="wi-limit-row" class="mm-rounds-row" style="margin-top:4px;display:none;">
+          <span>Forfeit limit:</span>
+          <div class="mm-rounds-btns" id="wi-limit-btns">
+            <button class="mm-rounds-btn ghost" data-wi-limit="3">3</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-wi-limit="5">5</button>
+            <button class="mm-rounds-btn ghost" data-wi-limit="8">8</button>
+            <button class="mm-rounds-btn ghost" data-wi-limit="10">10</button>
           </div>
         </div>
       </div>
@@ -184,6 +256,7 @@ export function renderLobby(root) {
   const gameList = root.querySelector('#game-list');
   const mmConfig = root.querySelector('#mm-config');
   const hiloConfig = root.querySelector('#hilo-config');
+  const stlConfig = root.querySelector('#stl-config');
   const roundsBtns = root.querySelector('#rounds-btns');
   const modeBtns = root.querySelector('#mode-btns');
   const forfeitRow = root.querySelector('#forfeit-row');
@@ -198,6 +271,10 @@ export function renderLobby(root) {
   const hiloDeckBtns = root.querySelector('#hilo-deck-btns');
   const hiloRampBtns = root.querySelector('#hilo-ramp-btns');
   const hiloLivesBtns = root.querySelector('#hilo-lives-btns');
+  const wiConfig = root.querySelector('#wi-config');
+  const wiWinBtns = root.querySelector('#wi-win-btns');
+  const wiLimitRow = root.querySelector('#wi-limit-row');
+  const wiLimitBtns = root.querySelector('#wi-limit-btns');
 
   function paintOptions() {
     root.querySelectorAll('.game-tile-selectable').forEach(t =>
@@ -205,6 +282,29 @@ export function renderLobby(root) {
     );
     mmConfig.style.display = selectedGame === 'mastermind' ? 'block' : 'none';
     hiloConfig.style.display = selectedGame === 'hilo' ? 'block' : 'none';
+    stlConfig.style.display = selectedGame === 'splitloot' ? 'block' : 'none';
+    wiConfig.style.display = selectedGame === 'wizardisland' ? 'block' : 'none';
+    wiWinBtns.querySelectorAll('[data-wi-win]').forEach(b => {
+      const sel = b.dataset.wiWin === selectedWiWinCondition;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+    });
+    wiLimitRow.style.display = selectedWiWinCondition === 'endurance' ? 'flex' : 'none';
+    wiLimitBtns.querySelectorAll('[data-wi-limit]').forEach(b => {
+      const sel = parseInt(b.dataset.wiLimit, 10) === selectedWiSpellLimit;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+    });
+    stlConfig.querySelectorAll('[data-stl-diff]').forEach(b => {
+      const sel = b.dataset.stlDiff === selectedStlDifficulty;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+    });
+    stlConfig.querySelectorAll('[data-stl-card]').forEach(b => {
+      const sel = selectedStlForfeitCards.includes(b.dataset.stlCard);
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+    });
     hiloCyclesRow.style.display = selectedHiloMode === 'fixed' ? 'flex' : 'none';
     hiloModeBtns.querySelectorAll('[data-hilo-mode]').forEach(b => {
       const sel = b.dataset.hiloMode === selectedHiloMode;
@@ -231,6 +331,11 @@ export function renderLobby(root) {
       b.classList.toggle('mm-rounds-selected', sel);
       b.classList.toggle('ghost', !sel);
     });
+    root.querySelectorAll('[data-hilo-vibe-target]').forEach(b => {
+      const sel = b.dataset.hiloVibeTarget === selectedHiloVibeTarget;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+    });
     roundsBtns.querySelectorAll('[data-rounds]').forEach(b => {
       const sel = parseInt(b.dataset.rounds, 10) === selectedRounds;
       b.classList.toggle('mm-rounds-selected', sel);
@@ -242,9 +347,12 @@ export function renderLobby(root) {
       b.classList.toggle('ghost', !sel);
     });
     const isHilo = selectedGame === 'hilo';
-    forfeitRow.style.display   = isHilo ? 'none' : '';
-    edgeModeRow.style.display  = isHilo ? 'none' : '';
-    if (isHilo) edgeLivesRow.style.display = 'none';
+    const isStl = selectedGame === 'splitloot';
+    const isWi = selectedGame === 'wizardisland';
+    const isBtd = selectedGame === 'beatdealer';
+    forfeitRow.style.display   = (isHilo || isStl || isWi || isBtd) ? 'none' : '';
+    edgeModeRow.style.display  = (isHilo || isStl || isWi || isBtd) ? 'none' : '';
+    if (isHilo || isStl || isWi || isBtd) edgeLivesRow.style.display = 'none';
     forfeitBtns.querySelectorAll('[data-forfeit]').forEach(b => {
       const sel = parseInt(b.dataset.forfeit, 10) === selectedForfeit;
       b.classList.toggle('mm-rounds-selected', sel);
@@ -265,6 +373,7 @@ export function renderLobby(root) {
 
   const sendConfig = () => socket.send({
     type: MSG.LOBBY_CONFIG,
+    devMode: state.devMode,
     gameType: selectedGame,
     rounds: selectedRounds,
     mode: selectedMode,
@@ -276,6 +385,11 @@ export function renderLobby(root) {
     hiloDeckSize: selectedHiloDeckSize,
     hiloVibeRamp: selectedHiloVibeRamp,
     hiloLives: selectedHiloLives,
+    hiloVibeTarget: selectedHiloVibeTarget,
+    stlDifficulty: selectedStlDifficulty,
+    stlForfeitCards: selectedStlForfeitCards,
+    wiWinCondition: selectedWiWinCondition,
+    wiSpellLimit: selectedWiSpellLimit,
   });
 
   socket.connect();
@@ -285,22 +399,32 @@ export function renderLobby(root) {
     const hadGuest = !!state.guestName;
     state.hostName = ev.detail.host?.name || null;
     state.guestName = ev.detail.guest?.name || null;
+    state.guest2Name = ev.detail.guest2?.name || null;
     if (state.role === 'host' && !hadGuest && state.guestName) sendConfig();
-    paint(); // paint() now calls paintOptions() internally
+    paint();
   };
   const onJoined = (ev) => { state.role = ev.detail.role; paint(); };
   const onError = (ev) => {
     if (ev.detail.code === 'no_session') showError(errEl, 'That session no longer exists.');
     else if (ev.detail.code === 'session_full') showError(errEl, 'This session is already full.');
   };
-  const onPeerLeft = () => {
-    state.guestName = state.role === 'host' ? null : state.guestName;
-    state.hostName = state.role === 'guest' ? null : state.hostName;
+  const onPeerLeft = (ev) => {
+    const leftRole = ev.detail?.role;
+    if (leftRole === 'host') state.hostName = null;
+    else if (leftRole === 'guest') state.guestName = null;
+    else if (leftRole === 'guest2') state.guest2Name = null;
+    else {
+      // fallback for older server: clear based on my role
+      if (state.role === 'host') state.guestName = null;
+      else state.hostName = null;
+    }
     paint();
-    showError(errEl, 'Your opponent left.');
+    showError(errEl, 'A player left.');
   };
 
   const onLobbyConfig = (ev) => {
+    const modeChanged = ev.detail.devMode !== undefined && !!ev.detail.devMode !== state.devMode;
+    if (ev.detail.devMode !== undefined) state.devMode = !!ev.detail.devMode;
     selectedGame      = ev.detail.gameType        || selectedGame;
     selectedRounds    = ev.detail.rounds          || selectedRounds;
     selectedMode      = ev.detail.mode            || selectedMode;
@@ -312,6 +436,12 @@ export function renderLobby(root) {
     if (ev.detail.hiloDeckSize !== undefined)  selectedHiloDeckSize = ev.detail.hiloDeckSize;
     if (ev.detail.hiloVibeRamp)               selectedHiloVibeRamp = ev.detail.hiloVibeRamp;
     if (ev.detail.hiloLives)                   selectedHiloLives = ev.detail.hiloLives;
+    if (ev.detail.hiloVibeTarget)              selectedHiloVibeTarget = ev.detail.hiloVibeTarget;
+    if (ev.detail.stlDifficulty)               selectedStlDifficulty = ev.detail.stlDifficulty;
+    if (ev.detail.stlForfeitCards)             selectedStlForfeitCards = ev.detail.stlForfeitCards;
+    if (ev.detail.wiWinCondition)              selectedWiWinCondition = ev.detail.wiWinCondition;
+    if (ev.detail.wiSpellLimit !== undefined)  selectedWiSpellLimit = ev.detail.wiSpellLimit;
+    if (modeChanged) { renderLobby(root); return; }
     paintOptions();
   };
 
@@ -385,7 +515,42 @@ export function renderLobby(root) {
   });
 
   startBtn.addEventListener('click', () => {
-    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives, hiloMode: selectedHiloMode, hiloCycles: selectedHiloCycles, hiloDeckSize: selectedHiloDeckSize, hiloVibeRamp: selectedHiloVibeRamp, hiloLives: selectedHiloLives });
+    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives, hiloMode: selectedHiloMode, hiloCycles: selectedHiloCycles, hiloDeckSize: selectedHiloDeckSize, hiloVibeRamp: selectedHiloVibeRamp, hiloLives: selectedHiloLives, hiloVibeTarget: selectedHiloVibeTarget, stlDifficulty: selectedStlDifficulty, stlForfeitCards: selectedStlForfeitCards, wiWinCondition: selectedWiWinCondition, wiSpellLimit: selectedWiSpellLimit });
+  });
+
+  wiWinBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-wi-win]');
+    if (!btn) return;
+    selectedWiWinCondition = btn.dataset.wiWin;
+    paintOptions();
+    sendConfig();
+  });
+
+  wiLimitBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-wi-limit]');
+    if (!btn) return;
+    selectedWiSpellLimit = parseInt(btn.dataset.wiLimit, 10);
+    paintOptions();
+    sendConfig();
+  });
+
+  stlConfig.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const diffBtn = e.target.closest('[data-stl-diff]');
+    if (diffBtn) { selectedStlDifficulty = diffBtn.dataset.stlDiff; paintOptions(); sendConfig(); return; }
+    const cardBtn = e.target.closest('[data-stl-card]');
+    if (cardBtn) {
+      const card = cardBtn.dataset.stlCard;
+      if (selectedStlForfeitCards.includes(card)) {
+        selectedStlForfeitCards = selectedStlForfeitCards.filter(c => c !== card);
+      } else {
+        selectedStlForfeitCards = [...selectedStlForfeitCards, card];
+      }
+      paintOptions();
+      sendConfig();
+    }
   });
 
   hiloModeBtns.addEventListener('click', (e) => {
@@ -429,6 +594,15 @@ export function renderLobby(root) {
     const btn = e.target.closest('[data-hilo-lives]');
     if (!btn) return;
     selectedHiloLives = parseInt(btn.dataset.hiloLives, 10);
+    paintOptions();
+    sendConfig();
+  });
+
+  root.querySelector('#hilo-vibe-target-btns').addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-hilo-vibe-target]');
+    if (!btn) return;
+    selectedHiloVibeTarget = btn.dataset.hiloVibeTarget;
     paintOptions();
     sendConfig();
   });
@@ -483,6 +657,7 @@ export function renderLobby(root) {
   function paint() {
     const ph = root.querySelector('#p-host');
     const pg = root.querySelector('#p-guest');
+    const pg2 = root.querySelector('#p-guest2');
     if (ph) {
       ph.classList.toggle('empty', !state.hostName);
       ph.querySelector('.name').textContent = state.hostName || 'waiting…';
@@ -490,6 +665,10 @@ export function renderLobby(root) {
     if (pg) {
       pg.classList.toggle('empty', !state.guestName);
       pg.querySelector('.name').textContent = state.guestName || 'waiting for player 2…';
+    }
+    if (pg2) {
+      pg2.classList.toggle('empty', !state.guest2Name);
+      pg2.querySelector('.name').textContent = state.guest2Name || 'player 3 (optional)…';
     }
     const canStart = state.role === 'host' && state.hostName && state.guestName;
     startBtn.disabled = !canStart;
@@ -532,36 +711,49 @@ function _renderNameEntry(root) {
 }
 
 function showError(el, msg) {
-  el.innerHTML = `<div class="error">${msg.replace(/[<>&]/g, '')}</div>`;
+  el.innerHTML = `<div class="error">${escapeHtml(msg)}</div>`;
 }
 
 function openTestVibeOverlay(state, socket, haptics) {
-  const myName  = state.myName || 'You';
-  const oppName = (state.role === 'host' ? state.guestName : state.hostName) || 'Opponent';
+  const myRole = state.role;
+  const myName = state.myName || 'You';
+  const is3 = !!state.guest2Name;
+
+  const allPlayers = [
+    { role: 'host',   name: state.hostName   || 'Host' },
+    { role: 'guest',  name: state.guestName  || 'Guest' },
+  ];
+  if (is3) allPlayers.push({ role: 'guest2', name: state.guest2Name || 'Guest 2' });
+  const others = allPlayers.filter(p => p.role !== myRole);
+
+  const myPanel = `
+    <div class="tv-panel">
+      <div class="tv-panel-name">${escapeHtml(myName)}</div>
+      <div class="tv-panel-label">Your device</div>
+      <div class="tv-level" id="tv-my-level">0%</div>
+      <input type="range" id="tv-my-slider" min="0" max="100" value="0" class="tv-slider tv-slider-mine">
+      <div class="tv-panel-hint">${haptics.isConnected() ? '📳 Connected' : 'No device — connect first'}</div>
+    </div>`;
+
+  const otherPanels = others.map(p => `
+    <div class="tv-panel">
+      <div class="tv-panel-name">${escapeHtml(p.name)}</div>
+      <div class="tv-panel-label">Their device</div>
+      <div class="tv-level tv-level-opp" id="tv-opp-level-${p.role}">0%</div>
+      <input type="range" id="tv-opp-slider-${p.role}" min="0" max="100" value="0" class="tv-slider tv-slider-opp" data-target="${p.role}">
+      <div class="tv-panel-hint">Sends vibe to ${escapeHtml(p.name)}</div>
+    </div>`).join('');
 
   const overlay = document.createElement('div');
   overlay.className = 'instructions-overlay';
   overlay.innerHTML = `
-    <div class="instructions-box tv-box">
+    <div class="instructions-box tv-box${is3 ? ' tv-box-3' : ''}">
       <h2>Test Vibe</h2>
-      <p class="instructions-meta">Confirm both devices are working before the game starts.</p>
-      <div class="tv-panels">
-        <div class="tv-panel">
-          <div class="tv-panel-name">${escapeHtml(myName)}</div>
-          <div class="tv-panel-label">Your device</div>
-          <div class="tv-level" id="tv-my-level">0%</div>
-          <input type="range" id="tv-my-slider" min="0" max="100" value="0" class="tv-slider tv-slider-mine">
-          <div class="tv-panel-hint">${haptics.isConnected() ? '📳 Connected' : 'No device — connect first'}</div>
-        </div>
-        <div class="tv-panel">
-          <div class="tv-panel-name">${escapeHtml(oppName)}</div>
-          <div class="tv-panel-label">Their device</div>
-          <div class="tv-level tv-level-opp" id="tv-opp-level">0%</div>
-          <input type="range" id="tv-opp-slider" min="0" max="100" value="0" class="tv-slider tv-slider-opp">
-          <div class="tv-panel-hint">Sends vibe to opponent</div>
-        </div>
+      <p class="instructions-meta">Confirm all devices are working before the game starts.</p>
+      <div class="tv-panels${is3 ? ' tv-panels-3' : ''}">
+        ${myPanel}${otherPanels}
       </div>
-      <p class="tv-hint">Both players can open this screen independently.</p>
+      <p class="tv-hint">All players can open this screen independently.</p>
       <div class="actions" style="margin-top:16px;justify-content:center;">
         <button id="tv-close">Done</button>
       </div>
@@ -570,21 +762,23 @@ function openTestVibeOverlay(state, socket, haptics) {
   document.body.appendChild(overlay);
 
   const mySlider  = overlay.querySelector('#tv-my-slider');
-  const oppSlider = overlay.querySelector('#tv-opp-slider');
   const myLevelEl = overlay.querySelector('#tv-my-level');
-  const oppLevelEl = overlay.querySelector('#tv-opp-level');
 
   mySlider.addEventListener('input', () => {
     myLevelEl.textContent = `${mySlider.value}%`;
     haptics.testVibe(mySlider.value / 100);
   });
 
-  oppSlider.addEventListener('input', () => {
-    oppLevelEl.textContent = `${oppSlider.value}%`;
-    socket.send({ type: MSG.VIBE_TEST, level: oppSlider.value / 100 });
+  overlay.querySelectorAll('[data-target]').forEach(slider => {
+    slider.addEventListener('input', () => {
+      const target = slider.dataset.target;
+      const levelEl = overlay.querySelector(`#tv-opp-level-${target}`);
+      if (levelEl) levelEl.textContent = `${slider.value}%`;
+      socket.send({ type: MSG.VIBE_TEST, level: slider.value / 100, target });
+    });
   });
 
-  // Opponent controlling my device — apply and reflect in my slider
+  // Another player testing my device — apply and reflect in my slider
   const onVibeTest = (ev) => {
     const level = ev.detail.level;
     haptics.testVibe(level);
@@ -595,7 +789,7 @@ function openTestVibeOverlay(state, socket, haptics) {
 
   const close = () => {
     haptics.testVibe(0);
-    socket.send({ type: MSG.VIBE_TEST, level: 0 });
+    others.forEach(p => socket.send({ type: MSG.VIBE_TEST, level: 0, target: p.role }));
     socket.removeEventListener(MSG.VIBE_TEST, onVibeTest);
     overlay.remove();
   };

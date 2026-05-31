@@ -124,6 +124,16 @@ button.ghost {
 
 .game-list { display: grid; gap: 12px; margin-bottom: 16px; }
 
+.game-category-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 4px 0 2px;
+  margin-top: 4px;
+}
+
 .game-tile {
   display: flex;
   justify-content: space-between;
@@ -588,6 +598,9 @@ button.ghost {
 .tv-slider-opp  { accent-color: var(--warn); }
 
 .tv-hint { font-size: 12px; color: var(--muted); text-align: center; margin: 4px 0 0; }
+
+.tv-box-3 { max-width: 600px; }
+.tv-panels-3 { grid-template-columns: 1fr 1fr 1fr; }
 
 /* ── Vibe battery bar ── */
 
@@ -1167,4 +1180,465 @@ button.ghost {
   font-style: italic;
   margin: 0 0 8px;
   line-height: 1.4;
+}
+
+.hilo-status-bar {
+  width: 100%;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  background: rgba(10,14,35,0.7);
+  border-top: 1px solid rgba(255,255,255,0.07);
+  border-radius: 8px;
+}
+
+.hilo-sb-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.04);
+  min-width: 90px;
+  font-size: 13px;
+}
+
+.hilo-sb-guesser {
+  background: rgba(92,255,212,0.08);
+  border: 1px solid rgba(92,255,212,0.2);
+}
+
+.hilo-sb-name-me  { color: var(--accent); font-weight: 600; }
+.hilo-sb-name-opp { color: var(--gold); }
+.hilo-sb-lives    { font-size: 15px; color: var(--warn); min-height: 20px; }
+.hilo-sb-vibe     { font-size: 11px; color: var(--warn); font-weight: 700; }
+.hilo-sb-paused   { font-size: 11px; color: var(--muted); }
+
+/* ── Beat the Dealer ─────────────────────────────────────────── */
+
+.btd-root {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  max-width: 780px;
+  margin: 0 auto;
+}
+
+.btd-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.btd-header-title {
+  flex: 1;
+  text-align: center;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.btd-scoreline { font-size: 13px; color: var(--muted); }
+
+.btd-round-label {
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.btd-main {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.btd-arena { display: flex; gap: 14px; align-items: flex-start; }
+
+.btd-slot { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+
+.btd-slot-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Playing card */
+.btd-playing-card {
+  width: 76px;
+  height: 110px;
+  background: #f8f9fc;
+  border-radius: 9px;
+  border: 1px solid #bbc;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 5px 7px;
+  font-family: Georgia, serif;
+  font-weight: bold;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.35);
+  user-select: none;
+}
+
+.btd-playing-card.red   { color: #cc1111; }
+.btd-playing-card.black { color: #111; }
+
+.btd-playing-card.btd-card-lost {
+  outline: 3px solid var(--warn);
+  outline-offset: 2px;
+  box-shadow: 0 0 14px rgba(255,85,119,0.4);
+}
+
+.btd-playing-card.btd-card-won {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 14px rgba(92,255,212,0.3);
+}
+
+.btd-card-corner { font-size: 13px; line-height: 1; }
+.btd-card-br { align-self: flex-end; transform: rotate(180deg); }
+.btd-card-center { font-size: 30px; text-align: center; line-height: 1; align-self: center; }
+
+/* Card back */
+.btd-card-back {
+  width: 76px;
+  height: 110px;
+  border-radius: 9px;
+  border: 2px solid #2a3866;
+  background: repeating-linear-gradient(
+    45deg,
+    #18296a 0px, #18296a 5px,
+    #132060 5px, #132060 10px
+  );
+  box-shadow: 0 3px 10px rgba(0,0,0,0.4);
+}
+
+/* Empty slot */
+.btd-card-empty {
+  width: 76px;
+  height: 110px;
+  border: 2px dashed #2a3556;
+  border-radius: 9px;
+  background: rgba(255,255,255,0.02);
+}
+
+/* Forfeit pile */
+.btd-forfeit-pile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 130px;
+  max-width: 150px;
+}
+
+.btd-forfeit-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.btd-forfeit-card {
+  width: 130px;
+  min-height: 110px;
+  background: #111f11;
+  border: 2px solid #2a5a2a;
+  border-radius: 9px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #7dcc7d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 1.45;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.35);
+}
+
+.btd-forfeit-back {
+  width: 130px;
+  height: 110px;
+  border-radius: 9px;
+  border: 2px solid #2a5a2a;
+  background: repeating-linear-gradient(
+    45deg,
+    #111f11 0px, #111f11 5px,
+    #0d180d 5px, #0d180d 10px
+  );
+  box-shadow: 0 3px 10px rgba(0,0,0,0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  color: #2a5a2a;
+}
+
+.btd-forfeit-card.btd-override {
+  border-color: var(--gold);
+  color: var(--gold);
+  box-shadow: 0 0 14px rgba(255,204,68,0.3);
+}
+
+.btd-override-hint { font-size: 10px; color: var(--gold); letter-spacing: 0.05em; }
+
+/* Status */
+.btd-status { text-align: center; font-size: 14px; min-height: 42px; padding: 4px 8px; line-height: 1.5; }
+.btd-won  { color: var(--accent); font-weight: 600; }
+.btd-lost { color: var(--warn);   font-weight: 600; }
+
+.btd-actions { display: flex; justify-content: center; }
+
+/* Hand */
+.btd-hand-section { border-top: 1px solid #25304d; padding-top: 10px; }
+.btd-hand-label { font-size: 11px; color: var(--muted); margin-bottom: 8px; text-align: center; }
+
+.btd-hand {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.btd-hand-card {
+  width: 58px;
+  height: 84px;
+  background: #f8f9fc;
+  border-radius: 7px;
+  border: 1px solid #bbc;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 3px 5px;
+  font-family: Georgia, serif;
+  font-weight: bold;
+  font-size: 12px;
+  cursor: default;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+  user-select: none;
+}
+
+.btd-hand-card.red   { color: #cc1111; }
+.btd-hand-card.black { color: #111; }
+
+.btd-hand-card.btd-playable { cursor: pointer; transition: transform 0.12s; }
+.btd-hand-card.btd-playable:hover { transform: translateY(-12px); }
+
+/* Final screen */
+.btd-final { text-align: center; padding: 16px; }
+.btd-final h2 { font-size: 26px; color: var(--accent); margin: 0 0 12px; }
+.btd-final-scores { font-size: 17px; color: var(--ink); margin: 0 0 8px; }
+.btd-final-winner { font-size: 20px; font-weight: 700; color: var(--gold); margin: 0 0 20px; }
+
+/* Timer + D6 utility bar */
+.btd-utils {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 16px;
+  background: #0d1326;
+  border: 1px solid #25304d;
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+
+.btd-utils-timer,
+.btd-utils-d6,
+.btd-utils-vibe {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btd-vibe-level {
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  min-width: 42px;
+  text-align: center;
+}
+
+.btd-vibe-off {
+  font-size: 13px;
+  font-weight: 600;
+  color: #22c55e;
+  min-width: 52px;
+}
+
+.btd-utils-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.btd-timer-display {
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  min-width: 58px;
+  text-align: center;
+}
+
+.btd-utils-btns { display: flex; gap: 4px; }
+
+.btd-util-btn {
+  padding: 5px 10px;
+  font-size: 16px;
+  line-height: 1;
+  min-width: 36px;
+}
+
+.btd-d6-face {
+  font-size: 28px;
+  line-height: 1;
+  min-width: 36px;
+  text-align: center;
+}
+
+/* Cheat hint (barely visible) */
+.btd-cheat-hint {
+  font-size: 10px;
+  color: #333;
+  text-align: right;
+  user-select: none;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+/* ── Forfeit editor modal ─────────────────────────────────── */
+.btd-fe-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+.btd-fe-modal {
+  background: var(--panel);
+  border: 1px solid #2a3550;
+  border-radius: 10px;
+  width: min(480px, 94vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.btd-fe-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #2a3550;
+  font-weight: 600;
+  font-size: 14px;
+  gap: 8px;
+}
+.btd-fe-tag {
+  background: var(--gold);
+  color: #000;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.06em;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+.btd-fe-close {
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.btd-fe-list {
+  overflow-y: auto;
+  padding: 8px 0;
+}
+.btd-fe-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  font-size: 13px;
+  border-bottom: 1px solid #1d2640;
+}
+.btd-fe-row:last-child { border-bottom: none; }
+.btd-fe-row.btd-fe-current {
+  background: rgba(92,255,212,0.08);
+  color: var(--accent);
+  font-weight: 600;
+}
+.btd-fe-row.btd-fe-past {
+  opacity: 0.35;
+}
+.btd-fe-num {
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 22px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.btd-fe-text {
+  flex: 1;
+  line-height: 1.35;
+}
+.btd-fe-btns {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.btd-fe-btn {
+  font-size: 13px;
+  padding: 2px 7px;
+  line-height: 1;
+  cursor: pointer;
+}
+.btd-fe-btn:disabled {
+  opacity: 0.2;
+  cursor: default;
+}
+.btd-fe-row.btd-fe-next {
+  background: rgba(255, 204, 68, 0.06);
+}
+.btd-fe-btn-top {
+  color: var(--gold);
+}
+
+.btd-vibe-toggle {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.btd-vibe-on {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.btd-vibe-off-btn {
+  color: var(--muted);
+  opacity: 0.6;
 }
