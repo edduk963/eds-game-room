@@ -155,7 +155,7 @@ function _showGameInstructions(state, onReady) {
   overlay.className = 'instructions-overlay';
   overlay.innerHTML = `
     <div class="instructions-box">
-      <h2>Galactic Salvage</h2>
+      <h2>Space Shooter</h2>
       <div class="instructions-section">
         <div class="instructions-heading">Goal</div>
         <ul class="instructions-list">

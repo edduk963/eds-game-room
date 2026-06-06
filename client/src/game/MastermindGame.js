@@ -2,17 +2,38 @@ import { rngInt } from './seededRng.js';
 
 export const COLORS = ['R', 'G', 'B', 'W'];
 
-export function getBaseConfig() {
-  return { slots: 3, guesses: 5, timeMs: 30_000 };
+export const POWERUPS = [
+  { id: 'hint',         label: 'Hint',     cost: 3, desc: 'Reveal a code slot (both see it)' },
+  { id: 'zap',          label: 'Zap',      cost: 2, desc: 'Buzz your opponent right now' },
+  { id: 'skip',         label: 'Skip',     cost: 4, desc: "Skip opponent's next turn" },
+  { id: 'add_guess',    label: '+1 Guess', cost: 2, desc: 'Add an extra guess row to the board' },
+  { id: 'remove_guess', label: '−1 Guess', cost: 3, desc: 'Remove an empty guess from the board' },
+];
+
+export function chargesFromGuess(positions) {
+  return positions.filter(p => p === 'place').length;
 }
 
-export function nextRoundConfig(prev, bothSucceeded) {
-  const timeFactor = bothSucceeded ? 1.1 : 1.5;
-  return {
-    slots: prev.slots + 1,
-    guesses: prev.guesses + 1,
-    timeMs: Math.round(prev.timeMs * timeFactor),
-  };
+// First win = 30s, doubles with each win (30, 60, 120, 240…)
+export function calcVibeEarned(winCount) {
+  return 30 * Math.pow(2, winCount - 1);
+}
+
+function guessesForSlots(slots, mode) {
+  // Guesses scale proportionally with the clue length (slots).
+  // easy: slots  (positional feedback is strong, so fewer attempts)
+  // hard: slots*2 (count-only feedback, so twice the attempts to stay fair)
+  return mode === 'easy' ? slots : slots * 2;
+}
+
+export function getBaseConfig(mode = 'easy') {
+  const slots = 3;
+  return { slots, guesses: guessesForSlots(slots, mode) };
+}
+
+export function nextRoundConfig(prev, mode = 'easy') {
+  const slots = prev.slots + 1;
+  return { slots, guesses: guessesForSlots(slots, mode) };
 }
 
 export function generateCode(rng, slots) {

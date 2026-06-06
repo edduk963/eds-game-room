@@ -144,7 +144,7 @@ function _showEnduranceInstructions(state, onReady) {
   overlay.className = 'instructions-overlay';
   overlay.innerHTML = `
     <div class="instructions-box">
-      <h2>Galactic Salvage Endurance</h2>
+      <h2>Endurance</h2>
       <div class="instructions-section">
         <div class="instructions-heading">Goal</div>
         <ul class="instructions-list">

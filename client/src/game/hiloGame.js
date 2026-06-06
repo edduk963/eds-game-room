@@ -3,7 +3,7 @@ import { makeRng, rngInt } from './seededRng.js';
 export const SUITS = ['♠', '♥', '♦', '♣'];
 export const RED_SUITS = new Set(['♥', '♦']);
 export const VALUE_NAMES = ['', 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
-export const POWER_UP_TYPES = ['doubleTime', 'freeLife', 'allOrNothing', 'peek', 'skip', 'freeze'];
+export const POWER_UP_TYPES = ['doubleTime', 'freeLife', 'allOrNothing', 'peek', 'skip', 'freeze', 'surge', 'chain', 'maxIntensity', 'shield', 'mirror'];
 export const POWER_UP_LABELS = {
   doubleTime:    'Double Time',
   freeLife:      'Free Life',
@@ -11,6 +11,11 @@ export const POWER_UP_LABELS = {
   peek:          'Peek',
   skip:          'Skip',
   freeze:        'Freeze',
+  surge:         'Surge',
+  chain:         'Chain',
+  maxIntensity:  'Max Intensity',
+  shield:        'Shield',
+  mirror:        'Mirror',
 };
 
 export function buildDeck(rng, numDecks = 1) {

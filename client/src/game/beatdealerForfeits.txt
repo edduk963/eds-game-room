@@ -1,0 +1,22 @@
+# Beat the Dealer — Forfeit Cards
+# One forfeit per line. Blank lines and lines starting with # are ignored.
+# Each line may start with a difficulty tier in brackets: [1] easy, [2] medium, [3] hardest.
+# The dealer plays higher cards on higher-tier rounds, so harder forfeits are harder to avoid.
+# Lines with no [n] prefix default to tier 2.
+# Ctrl+Alt+1 through Ctrl+Alt+9 (host only) queues that line number as the next forfeit.
+
+[1] Edge once
+[2] +1 day denial
+[1] JO for 30 seconds
+[2] JO for 60 seconds
+[1] Do 10 star jumps
+[1] Do 10 press-ups
+[1] spank ass 5 times
+[2] Owe d6 edges
+[3] Owe 2d6 edges
+[3] After the game the other player can make you edge the value on your card, if you lost with a picture card then it can include cum - claim at a time of their choosing.
+[3] After the game the other player can vibe you for 2 min x value on the card you lost by - can be claimed at a time of their choosing
+[3] If the other player catches you online they can make you play a game on cam involving edging, jo, vibe and cum
+[2] Lose - other player will make you cum
+[3] After the game the other player can control you to cum d2 times and times of their choosing
+[3] You'll be denied excluding games for d6 days

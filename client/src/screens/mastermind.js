@@ -8,8 +8,8 @@ import { showEdgeReadyOverlay } from '../game/edgeAssignment.js';
 import { initVibeBattery } from '../vibeBattery.js';
 import { makeRng } from '../game/seededRng.js';
 import {
-  getBaseConfig, nextRoundConfig, generateCode, evaluateGuess,
-  evaluateGuessPositional, preForfeitSeconds, COLORS,
+  getBaseConfig, nextRoundConfig, generateCode, evaluateGuessPositional,
+  COLORS, POWERUPS, chargesFromGuess, calcVibeEarned,
 } from '../game/MastermindGame.js';
 
 const COLOR_STYLE = {
@@ -24,24 +24,39 @@ export function renderMastermind(root) {
   const gameMode = state.gameMode;
   const rng = makeRng(state.seed);
 
-  // Pre-generate forfeit seconds for all rounds (consumes first totalRounds RNG values)
-  const allForfeitSeconds = preForfeitSeconds(rng, totalRounds);
+  const hostGoesFirst = state.seed % 2 === 0;
+  const iAmHost = state.role === 'host';
 
-  // Per-round state
   let roundIndex = 0;
-  let roundConfig = getBaseConfig();
+  let roundConfig = getBaseConfig(gameMode);
   let code = generateCode(rng, roundConfig.slots);
-  let guessHistory = [];
+
+  // Shared board state
+  let guessHistory = [];   // { guess, feedback, by: 'mine'|'theirs' }[]
   let currentGuess = [];
-  let myRoundResult = null;
-  let oppRoundResult = null;
+  let roundWinner = null;  // 'mine' | 'theirs' | null
   let roundReadySent = false;
   let oppRoundReadyReceived = false;
-  let phase = 'countdown';
-  let timeRemaining = 0;
-  let timerInterval = null;
+  let phase = 'countdown'; // countdown | playing | won | lost | both-failed | done
+
+  // Turn state
+  let currentTurn = 'mine';
+  let myNextTurnSkipped = false;
+  let oppNextTurnSkipped = false;
+
+  // Powerup state
+  let myCharges = 0;
+  let myBanked = 0;        // seconds banked from previous wins
+  let hintedSlots = [];    // { index, color }[]
+
+  // Vibe choice state (set after winner decides bank/use)
+  let vibeChoiceMade = false;
+
   let forfeitInterval = null;
   let myRoundsSolved = 0;
+  let oppRoundsSolved = 0;
+  let gameEndReadySent = false;
+  let gameEndOppReady = false;
   let edgeModeInstance = null;
   let vibeBatteryInstance = initVibeBattery(root);
   let edgePaused = false;
@@ -50,13 +65,29 @@ export function renderMastermind(root) {
   const myName = state.myName || 'You';
   const oppName = (state.role === 'host' ? state.guestName : state.hostName) || 'Opponent';
 
+  // Mode + feedback-dot legend shown at the top of the board.
+  const _modeName = gameMode === 'hard' ? 'Hard' : 'Easy';
+  const _modeSub = gameMode === 'hard'
+    ? '— feedback dots are an unordered tally (no positions shown)'
+    : '— feedback dots line up with each slot';
+  const _legendItem = (cls, text) =>
+    `<span style="display:inline-flex;align-items:center;gap:6px;"><span class="mm-dot ${cls}"></span>${text}</span>`;
+  const _legend = gameMode === 'hard'
+    ? _legendItem('mm-dot-place', '# exactly right') +
+      _legendItem('mm-dot-color', '# right colour, wrong spot')
+    : _legendItem('mm-dot-place', 'right colour &amp; spot') +
+      _legendItem('mm-dot-color', 'right colour, wrong spot') +
+      _legendItem('mm-dot-empty', 'not in the code');
+  const modeBarHtml = `
+    <div id="mm-mode-bar" style="margin:6px 0 10px;padding:8px 12px;background:#141d33;border:1px solid #25304d;border-radius:8px;font-size:12px;color:var(--muted);">
+      <div style="color:var(--ink);font-size:13px;margin-bottom:6px;">Mode: <strong>${_modeName}</strong> <span style="color:var(--muted);font-weight:400;">${_modeSub}</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;">${_legend}</div>
+    </div>`;
+
   root.innerHTML = `
     <div id="mm-root" class="mm-root">
       <div class="mm-overlay" id="mm-countdown-overlay">
         <div class="mm-countdown-num" id="mm-cnum">3</div>
-      </div>
-      <div class="mm-overlay" id="mm-waiting-overlay" style="display:none">
-        <p class="mm-waiting-text">Waiting for opponent…</p>
       </div>
       <div class="mm-overlay mm-forfeit-overlay" id="mm-forfeit-overlay" style="display:none">
         <div id="mm-forfeit-content" class="mm-forfeit-content"></div>
@@ -66,10 +97,24 @@ export function renderMastermind(root) {
       </div>
       <div class="mm-header">
         <div id="mm-round-label" class="mm-round-label">Round 1 of ${totalRounds}</div>
-        <div id="mm-timer" class="mm-timer">0:30</div>
+        <div id="mm-charges" class="mm-charges">⚡ 0</div>
         <button id="mm-vibe-btn" class="mm-vibe-btn ghost">${haptics.isConnected() ? '📳 Connected' : 'Connect Vibe'}</button>
       </div>
-      <div id="mm-penalty-display" class="mm-penalty-display"></div>
+      <div id="mm-turn-indicator" class="mm-turn-indicator"></div>
+      ${modeBarHtml}
+      <div id="mm-vibe-gauge" class="mm-vibe-gauge" style="display:none">
+        <div class="mm-gauge-row">
+          <div class="mm-gauge-name" id="mm-gauge-my-name">You</div>
+          <div class="mm-gauge-bar-wrap"><div class="mm-gauge-bar" id="mm-gauge-my-bar" style="width:0%"></div></div>
+          <div class="mm-gauge-pct" id="mm-gauge-my-pct">0%</div>
+        </div>
+        <div class="mm-gauge-row">
+          <div class="mm-gauge-name" id="mm-gauge-opp-name">Opp</div>
+          <div class="mm-gauge-bar-wrap"><div class="mm-gauge-bar mm-gauge-bar-opp" id="mm-gauge-opp-bar" style="width:0%"></div></div>
+          <div class="mm-gauge-pct" id="mm-gauge-opp-pct">0%</div>
+        </div>
+      </div>
+      <div id="mm-hint-bar" class="mm-hint-bar" style="display:none"></div>
       <div id="mm-board" class="mm-board"></div>
       <div class="mm-input-area" id="mm-input-area">
         <div id="mm-current-row" class="mm-current-row"></div>
@@ -80,36 +125,65 @@ export function renderMastermind(root) {
         </div>
         <button id="mm-submit" disabled>Submit Guess</button>
       </div>
+      <div id="mm-powerup-bar" class="mm-powerup-bar"></div>
     </div>`;
 
   const countdownOverlay = root.querySelector('#mm-countdown-overlay');
-  const waitingOverlay = root.querySelector('#mm-waiting-overlay');
   const forfeitOverlay = root.querySelector('#mm-forfeit-overlay');
   const forfeitContent = root.querySelector('#mm-forfeit-content');
   const roundLabel = root.querySelector('#mm-round-label');
-  const timerEl = root.querySelector('#mm-timer');
-  const penaltyDisplay = root.querySelector('#mm-penalty-display');
+  const chargesEl = root.querySelector('#mm-charges');
+  const turnIndicator = root.querySelector('#mm-turn-indicator');
+  const hintBar = root.querySelector('#mm-hint-bar');
   const board = root.querySelector('#mm-board');
   const currentRow = root.querySelector('#mm-current-row');
   const inputArea = root.querySelector('#mm-input-area');
   const submitBtn = root.querySelector('#mm-submit');
+  const powerupBar = root.querySelector('#mm-powerup-bar');
 
   // --- Render helpers ---
 
   function renderHeader() {
     roundLabel.textContent = `Round ${roundIndex + 1} of ${totalRounds}`;
-    const mins = Math.floor(timeRemaining / 60);
-    const secs = timeRemaining % 60;
-    timerEl.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
-    timerEl.classList.toggle('mm-timer-urgent', timeRemaining <= 10 && timeRemaining > 0);
+    chargesEl.textContent = `⚡ ${myCharges}`;
   }
 
-  function renderPenalty() {
-    const fs = allForfeitSeconds[roundIndex];
-    penaltyDisplay.innerHTML =
-      `<span class="mm-pen-label">Fail penalty:</span> ` +
-      `<span class="mm-pen-val">${fs}s</span> ` +
-      `<span class="mm-pen-note">— 2×${fs * 2}s if only you fail</span>`;
+  function renderVibeGauge() {
+    const gaugeEl = root.querySelector('#mm-vibe-gauge');
+    if (!gaugeEl) return;
+    const maxPositions = roundConfig.guesses * roundConfig.slots;
+    const myWrong  = guessHistory.filter(g => g.by === 'mine'   && !g.feedback.every(p => p === 'place')).reduce((s, g) => s + g.feedback.filter(p => p !== 'place').length, 0);
+    const oppWrong = guessHistory.filter(g => g.by === 'theirs' && !g.feedback.every(p => p === 'place')).reduce((s, g) => s + g.feedback.filter(p => p !== 'place').length, 0);
+    if (myWrong === 0 && oppWrong === 0) { gaugeEl.style.display = 'none'; return; }
+    gaugeEl.style.display = 'block';
+    const myI  = Math.min(1, myWrong  / maxPositions);
+    const oppI = Math.min(1, oppWrong / maxPositions);
+    root.querySelector('#mm-gauge-my-name').textContent  = myName.slice(0, 6);
+    root.querySelector('#mm-gauge-opp-name').textContent = oppName.slice(0, 6);
+    root.querySelector('#mm-gauge-my-bar').style.width   = `${myI  * 100}%`;
+    root.querySelector('#mm-gauge-opp-bar').style.width  = `${oppI * 100}%`;
+    root.querySelector('#mm-gauge-my-pct').textContent   = `${Math.round(myI  * 100)}%`;
+    root.querySelector('#mm-gauge-opp-pct').textContent  = `${Math.round(oppI * 100)}%`;
+  }
+
+  function renderTurnIndicator() {
+    if (phase !== 'playing') { turnIndicator.textContent = ''; return; }
+    if (currentTurn === 'mine') {
+      turnIndicator.textContent = 'YOUR TURN';
+      turnIndicator.className = 'mm-turn-indicator mm-turn-mine';
+    } else {
+      turnIndicator.textContent = `${escapeHtml(oppName)}'s turn…`;
+      turnIndicator.className = 'mm-turn-indicator mm-turn-theirs';
+    }
+  }
+
+  function renderHints() {
+    if (hintedSlots.length === 0) { hintBar.style.display = 'none'; return; }
+    hintBar.style.display = 'flex';
+    hintBar.innerHTML = '<span class="mm-hint-label">Hints:</span>' +
+      hintedSlots.map(h =>
+        `<span class="mm-hint-chip">Slot ${h.index + 1}=<span class="mm-hint-color" style="background:${COLOR_STYLE[h.color].bg};color:${COLOR_STYLE[h.color].text};padding:0 4px;border-radius:3px;font-weight:700">${h.color}</span></span>`
+      ).join('');
   }
 
   function makeSlot(color) {
@@ -128,10 +202,7 @@ export function renderMastermind(root) {
     fb.className = 'mm-feedback';
     const order = gameMode === 'easy'
       ? positions
-      : [...positions].sort((a, b) => {
-          const rank = { place: 0, color: 1, empty: 2 };
-          return rank[a] - rank[b];
-        });
+      : [...positions].sort((a, b) => ({ place: 0, color: 1, empty: 2 }[a] - { place: 0, color: 1, empty: 2 }[b]));
     for (const p of order) {
       const d = document.createElement('span');
       d.className = `mm-dot mm-dot-${p}`;
@@ -143,32 +214,67 @@ export function renderMastermind(root) {
   function renderCurrentRow() {
     currentRow.innerHTML = '';
     for (let i = 0; i < roundConfig.slots; i++) {
-      currentRow.appendChild(makeSlot(currentGuess[i] || null));
+      const slot = makeSlot(currentGuess[i] || null);
+      // Highlight hinted slots
+      const hint = hintedSlots.find(h => h.index === i);
+      if (hint && !currentGuess[i]) {
+        slot.style.borderColor = COLOR_STYLE[hint.color].bg;
+        slot.style.borderWidth = '3px';
+        slot.style.borderStyle = 'dashed';
+      }
+      currentRow.appendChild(slot);
     }
-    submitBtn.disabled = currentGuess.length < roundConfig.slots;
+    const isMyTurn = currentTurn === 'mine' && phase === 'playing';
+    submitBtn.disabled = !isMyTurn || currentGuess.length < roundConfig.slots;
+    const palette = root.querySelector('.mm-color-palette');
+    if (palette) {
+      palette.style.opacity = isMyTurn ? '1' : '0.4';
+      palette.style.pointerEvents = isMyTurn ? '' : 'none';
+    }
   }
 
   function renderBoard() {
     board.innerHTML = '';
     const remaining = roundConfig.guesses - guessHistory.length;
-    // Empty placeholder rows (future guesses) at top
     for (let i = 0; i < remaining; i++) {
       const row = document.createElement('div');
       row.className = 'mm-guess-row mm-empty-row';
       for (let j = 0; j < roundConfig.slots; j++) row.appendChild(makeSlot(null));
       const fb = document.createElement('div');
       fb.className = 'mm-feedback';
-      board.prepend(row);
       row.appendChild(fb);
+      board.prepend(row);
     }
-    // History rows at bottom (oldest first)
-    for (let i = 0; i < guessHistory.length; i++) {
-      const { guess, feedback } = guessHistory[i];
+    for (const { guess, feedback, by } of guessHistory) {
       const row = document.createElement('div');
-      row.className = 'mm-guess-row mm-history-row';
+      row.className = `mm-guess-row mm-history-row mm-by-${by}`;
+      const nameTag = document.createElement('div');
+      nameTag.className = 'mm-row-name';
+      nameTag.textContent = by === 'mine' ? myName : oppName;
+      row.appendChild(nameTag);
       for (const c of guess) row.appendChild(makeSlot(c));
       row.appendChild(makeFeedback(feedback));
       board.appendChild(row);
+    }
+  }
+
+  function renderPowerups() {
+    powerupBar.innerHTML = '';
+    for (const pu of POWERUPS) {
+      const btn = document.createElement('button');
+      const canUse = myCharges >= pu.cost && currentTurn === 'mine' && phase === 'playing';
+      btn.className = 'mm-powerup-btn ghost' + (canUse ? '' : ' mm-powerup-disabled');
+      btn.disabled = !canUse;
+      btn.title = pu.desc;
+      btn.innerHTML = `<span class="pu-label">${pu.label}</span><span class="pu-cost">⚡${pu.cost}</span>`;
+      btn.addEventListener('click', () => usePowerup(pu.id));
+      powerupBar.appendChild(btn);
+    }
+    if (myBanked > 0) {
+      const bankedEl = document.createElement('div');
+      bankedEl.className = 'mm-banked-display';
+      bankedEl.textContent = `🏦 ${myBanked}s banked`;
+      powerupBar.appendChild(bankedEl);
     }
   }
 
@@ -178,154 +284,270 @@ export function renderMastermind(root) {
     phase = 'countdown';
     countdownOverlay.style.display = 'flex';
     const cnum = root.querySelector('#mm-cnum');
-
     const tick = () => {
       const ms = state.startAt - Date.now();
-      if (ms <= 0) {
-        countdownOverlay.style.display = 'none';
-        startRound();
-        return;
-      }
+      if (ms <= 0) { countdownOverlay.style.display = 'none'; startRound(); return; }
       cnum.textContent = Math.ceil(ms / 1000);
     };
     tick();
     const iv = setInterval(() => {
       const ms = state.startAt - Date.now();
-      if (ms <= 0) {
-        clearInterval(iv);
-        countdownOverlay.style.display = 'none';
-        startRound();
-      } else {
-        cnum.textContent = Math.ceil(ms / 1000);
-      }
+      if (ms <= 0) { clearInterval(iv); countdownOverlay.style.display = 'none'; startRound(); }
+      else cnum.textContent = Math.ceil(ms / 1000);
     }, 200);
   }
 
   // --- Phase: playing ---
 
+  function initTurnForRound() {
+    // Alternate who goes first each round
+    const roundHostFirst = hostGoesFirst !== (roundIndex % 2 === 1);
+    currentTurn = ((roundHostFirst && iAmHost) || (!roundHostFirst && !iAmHost)) ? 'mine' : 'theirs';
+  }
+
   function startRound() {
     phase = 'playing';
     guessHistory = [];
     currentGuess = [];
-    myRoundResult = null;
-    oppRoundResult = null;
+    roundWinner = null;
     roundReadySent = false;
     oppRoundReadyReceived = false;
-    timeRemaining = Math.ceil(roundConfig.timeMs / 1000);
+    vibeChoiceMade = false;
+    hintedSlots = [];
+    myNextTurnSkipped = false;
+    oppNextTurnSkipped = false;
 
-    waitingOverlay.style.display = 'none';
     forfeitOverlay.style.display = 'none';
     inputArea.style.opacity = '1';
     inputArea.style.pointerEvents = '';
-    submitBtn.disabled = true;
-    timerEl.style.display = 'none';
 
+    initTurnForRound();
     renderHeader();
-    renderPenalty();
     renderBoard();
+    renderVibeGauge();
     renderCurrentRow();
+    renderTurnIndicator();
+    renderHints();
+    renderPowerups();
   }
 
   function addColor(c) {
-    if (phase !== 'playing') return;
+    if (phase !== 'playing' || currentTurn !== 'mine') return;
     if (currentGuess.length >= roundConfig.slots) return;
     currentGuess.push(c);
     renderCurrentRow();
   }
 
   function removeColor() {
-    if (phase !== 'playing') return;
+    if (phase !== 'playing' || currentTurn !== 'mine') return;
     if (currentGuess.length === 0) return;
     currentGuess.pop();
     renderCurrentRow();
   }
 
   function submitGuess() {
-    if (phase !== 'playing' || currentGuess.length < roundConfig.slots) return;
+    if (phase !== 'playing' || currentTurn !== 'mine') return;
+    if (currentGuess.length < roundConfig.slots) return;
+
     const guess = [...currentGuess];
     const positions = evaluateGuessPositional(code, guess);
-    guessHistory.push({ guess, feedback: positions });
+    guessHistory.push({ guess, feedback: positions, by: 'mine' });
+
+    const earned = chargesFromGuess(positions);
+    myCharges += earned;
     currentGuess = [];
 
     socket.send({ type: MSG.MM_GUESS, guess });
 
+    if (!positions.every(p => p === 'place')) {
+      const myWrong = guessHistory.filter(g => g.by === 'mine' && !g.feedback.every(p => p === 'place')).reduce((s, g) => s + g.feedback.filter(p => p !== 'place').length, 0);
+      haptics.testVibe(Math.min(1, myWrong / (roundConfig.guesses * roundConfig.slots)));
+    }
+
     renderBoard();
+    renderVibeGauge();
     renderCurrentRow();
+    renderHeader();
 
     if (positions.every(p => p === 'place')) {
-      endRound(true);
+      endRound('mine');
     } else if (guessHistory.length >= roundConfig.guesses) {
-      endRound(false);
+      endRound(null);
+    } else {
+      advanceTurn();
     }
   }
 
-  // --- Phase: waiting / forfeit ---
+  function advanceTurn() {
+    const nextTurn = currentTurn === 'mine' ? 'theirs' : 'mine';
+    if (nextTurn === 'theirs' && oppNextTurnSkipped) {
+      oppNextTurnSkipped = false;
+      showTurnNotice("Opponent's turn skipped!");
+      // currentTurn stays 'mine'
+    } else if (nextTurn === 'mine' && myNextTurnSkipped) {
+      myNextTurnSkipped = false;
+      showTurnNotice('Your turn was skipped!');
+      currentTurn = 'theirs';
+    } else {
+      currentTurn = nextTurn;
+    }
+    renderTurnIndicator();
+    renderCurrentRow();
+    renderPowerups();
+  }
 
-  function endRound(solved) {
+  function showTurnNotice(msg) {
+    const existing = root.querySelector('.mm-turn-notice');
+    if (existing) existing.remove();
+    const el = document.createElement('div');
+    el.className = 'mm-turn-notice';
+    el.textContent = msg;
+    root.querySelector('#mm-root').appendChild(el);
+    setTimeout(() => el.remove(), 2500);
+  }
+
+  // --- Powerups ---
+
+  function usePowerup(type) {
+    const pu = POWERUPS.find(p => p.id === type);
+    if (!pu || myCharges < pu.cost || currentTurn !== 'mine' || phase !== 'playing') return;
+
+    myCharges -= pu.cost;
+    renderHeader();
+
+    if (type === 'hint') {
+      const unhinted = code.map((_, i) => i).filter(i => !hintedSlots.find(h => h.index === i));
+      if (unhinted.length === 0) { myCharges += pu.cost; renderHeader(); return; }
+      const slotIndex = unhinted[Math.floor(Math.random() * unhinted.length)];
+      const color = code[slotIndex];
+      hintedSlots.push({ index: slotIndex, color });
+      socket.send({ type: MSG.MM_POWERUP, powerup: 'hint', slotIndex, color });
+      renderHints();
+      renderCurrentRow();
+      showTurnNotice(`Hint: Slot ${slotIndex + 1} = ${color}`);
+    } else if (type === 'zap') {
+      socket.send({ type: MSG.MM_POWERUP, powerup: 'zap' });
+      showTurnNotice('Zap sent!');
+    } else if (type === 'skip') {
+      oppNextTurnSkipped = true;
+      socket.send({ type: MSG.MM_POWERUP, powerup: 'skip' });
+      showTurnNotice("Opponent's next turn will be skipped!");
+    } else if (type === 'add_guess') {
+      roundConfig = { ...roundConfig, guesses: roundConfig.guesses + 1 };
+      socket.send({ type: MSG.MM_POWERUP, powerup: 'add_guess' });
+      renderBoard();
+      showTurnNotice('+1 guess added to the board!');
+    } else if (type === 'remove_guess') {
+      if (roundConfig.guesses - guessHistory.length <= 1) { myCharges += pu.cost; renderHeader(); return; }
+      roundConfig = { ...roundConfig, guesses: roundConfig.guesses - 1 };
+      socket.send({ type: MSG.MM_POWERUP, powerup: 'remove_guess' });
+      renderBoard();
+      showTurnNotice('−1 guess removed from the board!');
+    }
+
+    renderPowerups();
+  }
+
+  // --- Phase: round end ---
+
+  function endRound(winner) {
     if (phase !== 'playing') return;
-    phase = 'waiting';
-    myRoundResult = { solved };
-    if (solved) myRoundsSolved++;
-
-    if (gameMode === 'easy') haptics.testVibe(0);
-
+    roundWinner = winner;
     inputArea.style.opacity = '0.4';
     inputArea.style.pointerEvents = 'none';
     submitBtn.disabled = true;
+    renderTurnIndicator();
 
-    socket.send({ type: MSG.MM_ROUND_END, solved });
-
-    if (oppRoundResult !== null) {
-      enterForfeit();
+    if (winner === 'mine') {
+      phase = 'won';
+      myRoundsSolved++;
+      enterWonPhase();
+    } else if (winner === 'theirs') {
+      phase = 'lost';
+      oppRoundsSolved++;
+      enterLostPhase();
     } else {
-      waitingOverlay.style.display = 'flex';
+      phase = 'both-failed';
+      enterBothFailedPhase();
     }
   }
 
-  function enterForfeit() {
-    phase = 'forfeit';
-    waitingOverlay.style.display = 'none';
-    forfeitOverlay.style.display = 'flex';
+  function calcMyVibeEarned() {
+    return calcVibeEarned(myRoundsSolved); // myRoundsSolved already incremented before this is called
+  }
 
-    const mySolved = myRoundResult.solved;
-    const oppSolved = oppRoundResult.solved;
-    const fs = state.forfeitDuration ?? 30;
-
-    const myVibeSeconds  = mySolved ? 0 : fs;
-    const oppVibeSeconds = oppSolved ? 0 : fs;
+  function enterWonPhase() {
+    const isLastRound = roundIndex + 1 >= totalRounds;
+    const earned = calcMyVibeEarned();
+    const total = earned + myBanked;
 
     const codeHtml = code.map(c =>
       `<div class="mm-slot" style="background:${COLOR_STYLE[c].bg};color:${COLOR_STYLE[c].text}">${c}</div>`
     ).join('');
 
-    const resultLine = (name, solved) =>
-      `<div class="mm-forfeit-result ${solved ? 'mm-solved' : 'mm-failed'}">
-        ${solved ? '✓' : '✗'} ${escapeHtml(name)}: ${solved ? 'Cracked it!' : 'Failed'}
+    const winLabel = myRoundsSolved === 1
+      ? 'First win — 30s'
+      : `Win #${myRoundsSolved} — ${earned}s (×${Math.pow(2, myRoundsSolved - 1)} base)`;
+
+    const bankOrWaive = isLastRound
+      ? `<button id="mm-bank-it" class="mm-choice-bank">Waive — no forfeit this round</button>`
+      : `<button id="mm-bank-it" class="mm-choice-bank">Bank it for later</button>`;
+
+    forfeitContent.innerHTML = `
+      <h2>You cracked it! 🎉</h2>
+      <div class="mm-code-reveal">
+        <div class="mm-code-label">The code was:</div>
+        <div class="mm-code-slots">${codeHtml}</div>
+      </div>
+      <div class="mm-vibe-earned">
+        <div>${winLabel}</div>
+        ${myBanked > 0 ? `<div class="mm-banked-note">+ ${myBanked}s banked = <strong>${total}s total</strong></div>` : ''}
+      </div>
+      <div class="mm-vibe-choice-btns">
+        <button id="mm-use-now" class="mm-choice-use">Use Now (${total}s on opponent)</button>
+        ${bankOrWaive}
       </div>`;
 
-    const vibeRows = (myVibeSeconds > 0 || oppVibeSeconds > 0) ? `
-      <div class="mm-vibe-section">
-        ${myVibeSeconds > 0 ? `
-          <div class="mm-vibe-row">
-            <div class="mm-vibe-label">${escapeHtml(myName)}: <span id="mm-my-vibe-ctr">${myVibeSeconds}</span>s</div>
-            <div class="mm-vibe-bar-wrap"><div class="mm-vibe-bar" id="mm-my-vibe-bar" style="width:100%"></div></div>
-          </div>` : ''}
-        ${oppVibeSeconds > 0 ? `
-          <div class="mm-vibe-row">
-            <div class="mm-vibe-label">${escapeHtml(oppName)}: <span id="mm-opp-vibe-ctr">${oppVibeSeconds}</span>s</div>
-            <div class="mm-vibe-bar-wrap"><div class="mm-vibe-bar" id="mm-opp-vibe-bar" style="width:100%"></div></div>
-          </div>` : ''}
-      </div>` : `<div class="mm-no-vibe">No penalty this round — both cracked it!</div>`;
+    forfeitOverlay.style.display = 'flex';
 
-    const sliderHtml = (myVibeSeconds > 0 || oppVibeSeconds > 0) ? `
-      <div class="forfeit-slider-row" style="margin-top:12px;">
-        <span>Intensity</span>
-        <input type="range" id="mm-intensity-slider" min="0" max="100" value="100" style="flex:1;margin:0 12px;">
-        <span id="mm-intensity-pct">100%</span>
-      </div>
-      <div style="display:flex;justify-content:center;margin-top:10px;">
-        <button id="mm-vibe-toggle" style="min-width:100px;">Start</button>
-      </div>` : '';
+    forfeitContent.querySelector('#mm-use-now').addEventListener('click', () => {
+      myBanked = 0;
+      haptics.setWaveVibeMode(true);
+      socket.send({ type: MSG.MM_VIBE_CHOICE, choice: 'use', vibeSeconds: total });
+      showForfeitForWinner(total, false);
+    });
+
+    forfeitContent.querySelector('#mm-bank-it').addEventListener('click', () => {
+      if (isLastRound) {
+        socket.send({ type: MSG.MM_VIBE_CHOICE, choice: 'waive' });
+        showForfeitForWinner(0, false);
+      } else {
+        myBanked = total;
+        socket.send({ type: MSG.MM_VIBE_CHOICE, choice: 'bank' });
+        showForfeitForWinner(0, true);
+      }
+    });
+  }
+
+  function showForfeitForWinner(oppVibeSeconds, banked) {
+    const codeHtml = code.map(c =>
+      `<div class="mm-slot" style="background:${COLOR_STYLE[c].bg};color:${COLOR_STYLE[c].text}">${c}</div>`
+    ).join('');
+
+    const vibeSection = oppVibeSeconds > 0 ? `
+      <div class="mm-claim-section">
+        <div class="mm-claim-countdown"><span id="mm-opp-vibe-ctr">${oppVibeSeconds}</span><span class="mm-ctr-unit">s</span></div>
+        <div class="mm-wave-pattern">Pattern: <span id="mm-wave-state">—</span></div>
+        <div class="mm-vibe-bar-wrap" style="margin:8px 0"><div class="mm-vibe-bar" id="mm-opp-vibe-bar" style="width:100%"></div></div>
+        <div class="forfeit-slider-row">
+          <span>Strength</span>
+          <input type="range" id="mm-intensity-slider" min="0" max="100" value="100" style="flex:1;margin:0 12px;">
+          <span id="mm-intensity-pct">100%</span>
+        </div>
+        <div style="display:flex;justify-content:center;margin-top:10px;">
+          <button id="mm-vibe-toggle" style="min-width:100px;">Stop</button>
+        </div>
+      </div>` : `<div class="mm-no-vibe">${banked ? `Banked! 🏦 ${myBanked}s saved for later.` : 'No vibe this round.'}</div>`;
 
     forfeitContent.innerHTML = `
       <h2>Round ${roundIndex + 1} Over</h2>
@@ -333,100 +555,157 @@ export function renderMastermind(root) {
         <div class="mm-code-label">The code was:</div>
         <div class="mm-code-slots">${codeHtml}</div>
       </div>
-      ${resultLine(myName, mySolved)}
-      ${resultLine(oppName, oppSolved)}
-      ${vibeRows}
-      ${sliderHtml}
-      <button id="mm-continue" class="mm-continue-btn"${roundReadySent ? ' disabled' : ''}>
-        ${roundReadySent ? 'Waiting for opponent…' : 'Continue'}
-      </button>`;
+      <div class="mm-forfeit-result mm-solved">✓ You cracked it!</div>
+      ${vibeSection}
+      <button id="mm-continue" class="mm-continue-btn">Continue</button>`;
 
     forfeitContent.querySelector('#mm-continue').addEventListener('click', onContinueClick);
 
-    if (myVibeSeconds > 0 || oppVibeSeconds > 0) {
-      let vibeRunning = false;
-      let myRemaining  = myVibeSeconds;
-      let oppRemaining = oppVibeSeconds;
-      let elapsedWhileRunning = 0;
-      let runStartTime = null;
-
-      const toggleBtn = forfeitContent.querySelector('#mm-vibe-toggle');
-      const slider    = forfeitContent.querySelector('#mm-intensity-slider');
-      const pctEl     = forfeitContent.querySelector('#mm-intensity-pct');
-
-      function applyVibeToggle(nowRunning, fromRemote) {
-        if (vibeRunning === nowRunning) return;
-        vibeRunning = nowRunning;
-        if (toggleBtn) toggleBtn.textContent = vibeRunning ? 'Stop' : 'Start';
-        const now = Date.now();
-        if (vibeRunning) {
-          if (myVibeSeconds > 0) haptics.startForfeitVibe(myRemaining);
-          runStartTime = now;
-        } else {
-          if (runStartTime != null) {
-            elapsedWhileRunning += (now - runStartTime) / 1000;
-            runStartTime = null;
-          }
-          if (myVibeSeconds > 0) {
-            myRemaining = Math.max(0, myVibeSeconds - elapsedWhileRunning);
-            haptics.pauseForfeitVibe();
-          }
-          if (oppVibeSeconds > 0) {
-            oppRemaining = Math.max(0, oppVibeSeconds - elapsedWhileRunning);
-          }
-        }
-        if (!fromRemote) socket.send({ type: MSG.FORFEIT_TOGGLE, running: vibeRunning });
-      }
-
-      if (toggleBtn) toggleBtn.addEventListener('click', () => applyVibeToggle(!vibeRunning, false));
-
-      forfeitInterval = setInterval(() => {
-        const now = Date.now();
-        if (vibeRunning && runStartTime != null) {
-          const totalElapsed = elapsedWhileRunning + (now - runStartTime) / 1000;
-          if (myVibeSeconds > 0)  myRemaining  = Math.max(0, myVibeSeconds  - totalElapsed);
-          if (oppVibeSeconds > 0) oppRemaining = Math.max(0, oppVibeSeconds - totalElapsed);
-        }
-
-        const myCtr  = forfeitContent.querySelector('#mm-my-vibe-ctr');
-        const myBar  = forfeitContent.querySelector('#mm-my-vibe-bar');
-        const oppCtr = forfeitContent.querySelector('#mm-opp-vibe-ctr');
-        const oppBar = forfeitContent.querySelector('#mm-opp-vibe-bar');
-
-        if (myCtr)  myCtr.textContent  = Math.ceil(myRemaining);
-        if (myBar)  myBar.style.width  = `${(myRemaining  / myVibeSeconds)  * 100}%`;
-        if (oppCtr) oppCtr.textContent = Math.ceil(oppRemaining);
-        if (oppBar) oppBar.style.width = `${(oppRemaining / oppVibeSeconds) * 100}%`;
-      }, 100);
-
-      if (slider) {
-        slider.addEventListener('input', () => {
-          const level = slider.value / 100;
-          if (pctEl) pctEl.textContent = `${slider.value}%`;
-          haptics.setForfeitIntensity(level);
-          socket.send({ type: MSG.FORFEIT_INTENSITY, level });
-        });
-      }
-
-      const onForfeitIntensity = (ev) => {
-        const level = ev.detail.level;
-        if (slider) slider.value = Math.round(level * 100);
-        if (pctEl)  pctEl.textContent = `${Math.round(level * 100)}%`;
-        haptics.setForfeitIntensity(level);
-      };
-
-      const onForfeitToggle = (ev) => applyVibeToggle(!!ev.detail.running, true);
-
-      socket.addEventListener(MSG.FORFEIT_INTENSITY, onForfeitIntensity);
-      socket.addEventListener(MSG.FORFEIT_TOGGLE, onForfeitToggle);
-
-      const cleanupRoundForfeit = () => {
-        socket.removeEventListener(MSG.FORFEIT_INTENSITY, onForfeitIntensity);
-        socket.removeEventListener(MSG.FORFEIT_TOGGLE, onForfeitToggle);
-        haptics.pauseForfeitVibe();
-      };
-      window._mmRoundForfeitCleanup = cleanupRoundForfeit;
+    if (oppVibeSeconds > 0) {
+      setupForfeitVibeUI(0, oppVibeSeconds, true);
     }
+  }
+
+  function enterLostPhase() {
+    const codeHtml = code.map(c =>
+      `<div class="mm-slot" style="background:${COLOR_STYLE[c].bg};color:${COLOR_STYLE[c].text}">${c}</div>`
+    ).join('');
+
+    forfeitContent.innerHTML = `
+      <h2>Round ${roundIndex + 1} Over</h2>
+      <div class="mm-code-reveal">
+        <div class="mm-code-label">The code was:</div>
+        <div class="mm-code-slots">${codeHtml}</div>
+      </div>
+      <div class="mm-forfeit-result mm-failed">✗ Opponent cracked it</div>
+      <div class="mm-waiting-text" style="margin:16px 0">Waiting for opponent's decision…</div>`;
+
+    forfeitOverlay.style.display = 'flex';
+    // Continue button appears when MM_VIBE_CHOICE is received (handled in onMmVibeChoice)
+  }
+
+  function enterBothFailedPhase() {
+    const myVibe = 60 + myBanked;
+    myBanked = 0;
+
+    const codeHtml = code.map(c =>
+      `<div class="mm-slot" style="background:${COLOR_STYLE[c].bg};color:${COLOR_STYLE[c].text}">${c}</div>`
+    ).join('');
+
+    forfeitContent.innerHTML = `
+      <h2>Nobody cracked it!</h2>
+      <div class="mm-code-reveal">
+        <div class="mm-code-label">The code was:</div>
+        <div class="mm-code-slots">${codeHtml}</div>
+      </div>
+      <div class="mm-forfeit-result mm-failed">✗ Both players fail — 60s + banked time!</div>
+      <div class="mm-claim-section">
+        <div class="mm-claim-countdown"><span id="mm-my-vibe-ctr">${myVibe}</span><span class="mm-ctr-unit">s</span></div>
+        <div class="mm-wave-pattern">Pattern: <span id="mm-wave-state">—</span></div>
+        <div class="mm-vibe-bar-wrap" style="margin:8px 0"><div class="mm-vibe-bar mm-vibe-bar-self" id="mm-my-vibe-bar" style="width:100%"></div></div>
+        <div class="forfeit-slider-row">
+          <span>Strength</span>
+          <input type="range" id="mm-intensity-slider" min="0" max="100" value="100" style="flex:1;margin:0 12px;">
+          <span id="mm-intensity-pct">100%</span>
+        </div>
+        <div style="display:flex;justify-content:center;margin-top:10px;">
+          <button id="mm-vibe-toggle">Start</button>
+        </div>
+      </div>
+      <button id="mm-continue" class="mm-continue-btn">Continue</button>`;
+
+    forfeitOverlay.style.display = 'flex';
+    forfeitContent.querySelector('#mm-continue').addEventListener('click', onContinueClick);
+    if (myVibe > 0) {
+      haptics.setWaveVibeMode(true);
+      setupForfeitVibeUI(myVibe, 0);
+    }
+  }
+
+  function setupForfeitVibeUI(myVibeSeconds, oppVibeSeconds, autoStart = false) {
+    let vibeRunning = false;
+    let myRemaining  = myVibeSeconds;
+    let oppRemaining = oppVibeSeconds;
+    let elapsedWhileRunning = 0;
+    let runStartTime = null;
+
+    const toggleBtn  = forfeitContent.querySelector('#mm-vibe-toggle');
+    const slider     = forfeitContent.querySelector('#mm-intensity-slider');
+    const pctEl      = forfeitContent.querySelector('#mm-intensity-pct');
+    const waveStateEl = forfeitContent.querySelector('#mm-wave-state');
+
+    function applyVibeToggle(nowRunning, fromRemote) {
+      if (vibeRunning === nowRunning) return;
+      vibeRunning = nowRunning;
+      if (toggleBtn) toggleBtn.textContent = vibeRunning ? 'Stop' : 'Start';
+      const now = Date.now();
+      if (vibeRunning) {
+        if (myVibeSeconds > 0) haptics.startForfeitVibe(myRemaining);
+        runStartTime = now;
+      } else {
+        if (runStartTime != null) {
+          elapsedWhileRunning += (now - runStartTime) / 1000;
+          runStartTime = null;
+        }
+        if (myVibeSeconds > 0) {
+          myRemaining = Math.max(0, myVibeSeconds - elapsedWhileRunning);
+          haptics.pauseForfeitVibe();
+        }
+        if (oppVibeSeconds > 0) oppRemaining = Math.max(0, oppVibeSeconds - elapsedWhileRunning);
+      }
+      if (!fromRemote) socket.send({ type: MSG.FORFEIT_TOGGLE, running: vibeRunning });
+    }
+
+    if (toggleBtn) toggleBtn.addEventListener('click', () => applyVibeToggle(!vibeRunning, false));
+
+    if (autoStart) applyVibeToggle(true, false);
+
+    forfeitInterval = setInterval(() => {
+      const now = Date.now();
+      if (vibeRunning && runStartTime != null) {
+        const totalElapsed = elapsedWhileRunning + (now - runStartTime) / 1000;
+        if (myVibeSeconds > 0)  myRemaining  = Math.max(0, myVibeSeconds  - totalElapsed);
+        if (oppVibeSeconds > 0) oppRemaining = Math.max(0, oppVibeSeconds - totalElapsed);
+      }
+      const myCtr  = forfeitContent.querySelector('#mm-my-vibe-ctr');
+      const myBar  = forfeitContent.querySelector('#mm-my-vibe-bar');
+      const oppCtr = forfeitContent.querySelector('#mm-opp-vibe-ctr');
+      const oppBar = forfeitContent.querySelector('#mm-opp-vibe-bar');
+      if (myCtr)  myCtr.textContent  = Math.ceil(myRemaining);
+      if (myBar)  myBar.style.width  = `${(myRemaining  / myVibeSeconds)  * 100}%`;
+      if (oppCtr) oppCtr.textContent = Math.ceil(oppRemaining);
+      if (oppBar) oppBar.style.width = `${(oppRemaining / oppVibeSeconds) * 100}%`;
+      if (waveStateEl && vibeRunning) {
+        const state = haptics.getWaveState();
+        const labels = { steady: 'Steady', oscillate: 'Wave', pulse: 'Pulse' };
+        waveStateEl.textContent = labels[state] || state;
+      }
+    }, 100);
+
+    if (slider) {
+      slider.addEventListener('input', () => {
+        const level = slider.value / 100;
+        if (pctEl) pctEl.textContent = `${slider.value}%`;
+        haptics.setForfeitIntensity(level);
+        socket.send({ type: MSG.FORFEIT_INTENSITY, level });
+      });
+    }
+
+    const onForfeitIntensity = (ev) => {
+      const level = ev.detail.level;
+      if (slider) slider.value = Math.round(level * 100);
+      if (pctEl)  pctEl.textContent = `${Math.round(level * 100)}%`;
+      haptics.setForfeitIntensity(level);
+    };
+    const onForfeitToggle = (ev) => applyVibeToggle(!!ev.detail.running, true);
+    socket.addEventListener(MSG.FORFEIT_INTENSITY, onForfeitIntensity);
+    socket.addEventListener(MSG.FORFEIT_TOGGLE, onForfeitToggle);
+
+    window._mmRoundForfeitCleanup = () => {
+      socket.removeEventListener(MSG.FORFEIT_INTENSITY, onForfeitIntensity);
+      socket.removeEventListener(MSG.FORFEIT_TOGGLE, onForfeitToggle);
+      haptics.pauseForfeitVibe();
+    };
   }
 
   function onContinueClick() {
@@ -434,10 +713,7 @@ export function renderMastermind(root) {
     roundReadySent = true;
     socket.send({ type: MSG.MM_ROUND_READY });
     const btn = root.querySelector('#mm-continue');
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = 'Waiting for opponent…';
-    }
+    if (btn) { btn.disabled = true; btn.textContent = 'Waiting for opponent…'; }
     checkBothReady();
   }
 
@@ -447,16 +723,11 @@ export function renderMastermind(root) {
     forfeitInterval = null;
     if (window._mmRoundForfeitCleanup) { window._mmRoundForfeitCleanup(); window._mmRoundForfeitCleanup = null; }
 
-    const bothSucceeded = myRoundResult.solved && oppRoundResult.solved;
     roundIndex++;
-
     if (roundIndex >= totalRounds) {
-      state.myVibeResidual = 0;
-      socket.send({ type: MSG.FINAL, value: myRoundsSolved, vibeSeconds: 0 });
-      state.myFinal = myRoundsSolved;
-      navigate('#/results');
+      enterGameOverForfeit();
     } else {
-      roundConfig = nextRoundConfig(roundConfig, bothSucceeded);
+      roundConfig = nextRoundConfig(roundConfig, gameMode);
       code = generateCode(rng, roundConfig.slots);
       if (state.edgeMode) {
         showEdgeReadyOverlay({ role: state.role, seed: state.seed, roundIndex, onReady: (assignment) => {
@@ -469,23 +740,125 @@ export function renderMastermind(root) {
     }
   }
 
+  function enterGameOverForfeit() {
+    gameEndReadySent = false;
+    gameEndOppReady = false;
+    forfeitOverlay.style.display = 'flex';
+
+    const iWon  = myRoundsSolved > oppRoundsSolved;
+    const tied  = myRoundsSolved === oppRoundsSolved;
+
+    if (tied) {
+      // Draw — no game-over forfeit
+      forfeitContent.innerHTML = `
+        <h2>Game Over!</h2>
+        <div class="mm-forfeit-result">Draw — no game-over forfeit.</div>
+        <button id="mm-ge-continue" class="mm-continue-btn">See Results</button>`;
+      forfeitContent.querySelector('#mm-ge-continue').addEventListener('click', onGameEndContinue);
+      return;
+    }
+
+    if (iWon) {
+      // I won — deploy the base forfeit time (set at game setup) plus my banked time
+      const baseSeconds = state.forfeitDuration || 0;
+      const vibeSeconds = baseSeconds + myBanked;
+      const bankedNote = myBanked > 0 ? ` (base ${baseSeconds}s + ${myBanked}s banked)` : ` (base ${baseSeconds}s)`;
+      myBanked = 0;
+      haptics.setWaveVibeMode(true);
+      socket.send({ type: MSG.MM_GAME_END_VIBE, vibeSeconds });
+
+      forfeitContent.innerHTML = `
+        <h2>Game Over — You Win! 🏆</h2>
+        <div class="mm-forfeit-result mm-solved">Deploying ${vibeSeconds}s against ${escapeHtml(oppName)}${bankedNote}</div>
+        <div class="mm-claim-section">
+          <div class="mm-claim-countdown"><span id="mm-opp-vibe-ctr">${vibeSeconds}</span><span class="mm-ctr-unit">s</span></div>
+          <div class="mm-wave-pattern">Pattern: <span id="mm-wave-state">—</span></div>
+          <div class="mm-vibe-bar-wrap" style="margin:8px 0"><div class="mm-vibe-bar" id="mm-opp-vibe-bar" style="width:100%"></div></div>
+          <div class="forfeit-slider-row">
+            <span>Strength</span>
+            <input type="range" id="mm-intensity-slider" min="0" max="100" value="100" style="flex:1;margin:0 12px;">
+            <span id="mm-intensity-pct">100%</span>
+          </div>
+          <div style="display:flex;justify-content:center;margin-top:10px;">
+            <button id="mm-vibe-toggle">Stop</button>
+          </div>
+        </div>
+        <button id="mm-ge-continue" class="mm-continue-btn">Continue to Results</button>`;
+
+      forfeitContent.querySelector('#mm-ge-continue').addEventListener('click', onGameEndContinue);
+      if (vibeSeconds > 0) setupForfeitVibeUI(0, vibeSeconds, true);
+    } else {
+      // I lost — wait for MM_GAME_END_VIBE from winner (handled in onMmGameEndVibe)
+      forfeitContent.innerHTML = `
+        <h2>Game Over — You Lost</h2>
+        <div class="mm-waiting-text" style="margin:16px 0">Waiting for opponent's final forfeit…</div>`;
+    }
+  }
+
+  function onGameEndContinue() {
+    if (gameEndReadySent) return;
+    gameEndReadySent = true;
+    socket.send({ type: MSG.MM_GAME_END_READY });
+    const btn = forfeitContent.querySelector('#mm-ge-continue');
+    if (btn) { btn.disabled = true; btn.textContent = 'Waiting for opponent…'; }
+    checkGameEndReady();
+  }
+
+  function checkGameEndReady() {
+    if (!gameEndReadySent || !gameEndOppReady) return;
+    clearInterval(forfeitInterval);
+    forfeitInterval = null;
+    if (window._mmRoundForfeitCleanup) { window._mmRoundForfeitCleanup(); window._mmRoundForfeitCleanup = null; }
+    state.myVibeResidual = 0;
+    socket.send({ type: MSG.FINAL, value: myRoundsSolved, vibeSeconds: 0 });
+    state.myFinal = myRoundsSolved;
+    navigate('#/results');
+  }
+
+  function onMmGameEndVibe(ev) {
+    const vibeSeconds = ev.detail?.vibeSeconds | 0;
+    forfeitOverlay.style.display = 'flex';
+
+    if (vibeSeconds === 0) {
+      forfeitContent.innerHTML = `
+        <h2>Game Over — You Lost</h2>
+        <div class="mm-no-vibe">Opponent had no banked time — you're safe!</div>
+        <button id="mm-ge-continue" class="mm-continue-btn">See Results</button>`;
+    } else {
+      haptics.setWaveVibeMode(true);
+      forfeitContent.innerHTML = `
+        <h2>Game Over — You Lost</h2>
+        <div class="mm-forfeit-result mm-failed">Opponent's ${vibeSeconds}s banked — your forfeit!</div>
+        <div class="mm-claim-section">
+          <div class="mm-claim-countdown"><span id="mm-my-vibe-ctr">${vibeSeconds}</span><span class="mm-ctr-unit">s</span></div>
+          <div class="mm-wave-pattern">Pattern: <span id="mm-wave-state">—</span></div>
+          <div class="mm-vibe-bar-wrap" style="margin:8px 0"><div class="mm-vibe-bar mm-vibe-bar-self" id="mm-my-vibe-bar" style="width:100%"></div></div>
+          <div class="forfeit-slider-row">
+            <span>Your intensity</span>
+            <input type="range" id="mm-intensity-slider" min="0" max="100" value="100" style="flex:1;margin:0 12px;">
+            <span id="mm-intensity-pct">100%</span>
+          </div>
+          <div style="display:flex;justify-content:center;margin-top:10px;">
+            <button id="mm-vibe-toggle">Stop</button>
+          </div>
+        </div>
+        <button id="mm-ge-continue" class="mm-continue-btn">Continue to Results</button>`;
+      setupForfeitVibeUI(vibeSeconds, 0);
+    }
+
+    forfeitContent.querySelector('#mm-ge-continue').addEventListener('click', onGameEndContinue);
+  }
+
+  function onMmGameEndReady() {
+    gameEndOppReady = true;
+    checkGameEndReady();
+  }
+
   // --- Input ---
 
   function onKeyDown(e) {
     if (edgePaused) return;
-    if (e.ctrlKey && e.shiftKey && e.key === 'D') {
-      e.preventDefault();
-      const existing = root.querySelector('#mm-debug-code');
-      if (existing) { existing.remove(); return; }
-      const el = document.createElement('div');
-      el.id = 'mm-debug-code';
-      el.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);background:#1a2342;border:1px solid #8794b8;border-radius:8px;padding:8px 16px;font-size:13px;color:#e6ecff;z-index:999;pointer-events:none';
-      el.textContent = `Code: ${code.join(' ')} | Mode: ${gameMode}`;
-      root.appendChild(el);
-      setTimeout(() => el.remove(), 5000);
-      return;
-    }
-    if (phase !== 'playing') return;
+    if (phase !== 'playing' || currentTurn !== 'mine') return;
     const k = e.key.toUpperCase();
     if (COLORS.includes(k)) { e.preventDefault(); addColor(k); return; }
     if (e.key === 'Backspace') { removeColor(); return; }
@@ -493,10 +866,7 @@ export function renderMastermind(root) {
   }
 
   root.querySelector('#back-to-lobby').addEventListener('click', () => {
-    state.myFinal = null;
-    state.oppFinal = null;
-    state.seed = null;
-    state.startAt = null;
+    state.myFinal = null; state.oppFinal = null; state.seed = null; state.startAt = null;
     navigate(`#/session/${state.sessionId}`);
   });
 
@@ -531,51 +901,141 @@ export function renderMastermind(root) {
     if (phase !== 'playing') return;
     const guess = ev.detail?.guess;
     if (!Array.isArray(guess)) return;
+
     const positions = evaluateGuessPositional(code, guess);
-    const rightPlace = positions.filter(p => p === 'place').length;
-    const rightColor = positions.filter(p => p === 'color').length;
-    if (gameMode === 'easy') {
-      const perPlace = 0.75 / roundConfig.slots;
-      haptics.testVibe(Math.min(1, rightPlace * perPlace + rightColor * (perPlace / 2)));
+    guessHistory.push({ guess, feedback: positions, by: 'theirs' });
+
+    if (!positions.every(p => p === 'place')) {
+      const oppWrong = guessHistory.filter(g => g.by === 'theirs' && !g.feedback.every(p => p === 'place')).reduce((s, g) => s + g.feedback.filter(p => p !== 'place').length, 0);
+      const intensity = Math.min(1, oppWrong / (roundConfig.guesses * roundConfig.slots));
+      if (gameMode === 'easy') haptics.testVibe(intensity);
+      else haptics.addVibeSeconds((roundIndex + 1) * 0.5);
+    }
+
+    renderBoard();
+    renderVibeGauge();
+    renderCurrentRow();
+
+    if (positions.every(p => p === 'place')) {
+      endRound('theirs');
+    } else if (guessHistory.length >= roundConfig.guesses) {
+      endRound(null);
     } else {
-      const vibeSeconds = rightPlace * 2 + rightColor * 1;
-      if (vibeSeconds > 0) haptics.addVibeSeconds(vibeSeconds);
+      advanceTurn();
     }
   }
 
-  function onMmRoundEnd(ev) {
-    oppRoundResult = { solved: !!ev.detail?.solved };
-    if (phase === 'waiting') enterForfeit();
+  function onMmPowerup(ev) {
+    const { powerup, slotIndex, color } = ev.detail || {};
+    if (powerup === 'hint') {
+      hintedSlots.push({ index: slotIndex, color });
+      renderHints();
+      renderCurrentRow();
+      showTurnNotice(`Opponent used Hint — Slot ${slotIndex + 1} = ${color}`);
+    } else if (powerup === 'zap') {
+      haptics.testVibe(0.9);
+      showTurnNotice('⚡ Zapped by opponent!');
+    } else if (powerup === 'skip') {
+      myNextTurnSkipped = true;
+      showTurnNotice("Opponent used Skip — your next turn is skipped!");
+    } else if (powerup === 'add_guess') {
+      roundConfig = { ...roundConfig, guesses: roundConfig.guesses + 1 };
+      renderBoard();
+      showTurnNotice('Opponent added a guess to the board!');
+    } else if (powerup === 'remove_guess') {
+      roundConfig = { ...roundConfig, guesses: roundConfig.guesses - 1 };
+      renderBoard();
+      showTurnNotice('Opponent removed a guess from the board!');
+    }
+  }
+
+  function onMmVibeChoice(ev) {
+    const { choice, vibeSeconds } = ev.detail || {};
+    // We're the loser — now show what opponent decided
+    const earned = calcMyVibeEarned();
+    const codeHtml = code.map(c =>
+      `<div class="mm-slot" style="background:${COLOR_STYLE[c].bg};color:${COLOR_STYLE[c].text}">${c}</div>`
+    ).join('');
+
+    if (choice === 'use') {
+      const myVibe = vibeSeconds || earned;
+      haptics.setWaveVibeMode(true);
+      forfeitContent.innerHTML = `
+        <h2>Round ${roundIndex + 1} Over</h2>
+        <div class="mm-code-reveal">
+          <div class="mm-code-label">The code was:</div>
+          <div class="mm-code-slots">${codeHtml}</div>
+        </div>
+        <div class="mm-forfeit-result mm-failed">✗ You didn't crack it</div>
+        <div class="mm-claim-section">
+          <div class="mm-claim-countdown"><span id="mm-my-vibe-ctr">${myVibe}</span><span class="mm-ctr-unit">s</span></div>
+          <div class="mm-wave-pattern">Pattern: <span id="mm-wave-state">—</span></div>
+          <div class="mm-vibe-bar-wrap" style="margin:8px 0"><div class="mm-vibe-bar mm-vibe-bar-self" id="mm-my-vibe-bar" style="width:100%"></div></div>
+          <div class="forfeit-slider-row">
+            <span>Your intensity</span>
+            <input type="range" id="mm-intensity-slider" min="0" max="100" value="100" style="flex:1;margin:0 12px;">
+            <span id="mm-intensity-pct">100%</span>
+          </div>
+          <div style="display:flex;justify-content:center;margin-top:10px;">
+            <button id="mm-vibe-toggle" style="min-width:100px;">Stop</button>
+          </div>
+        </div>
+        <button id="mm-continue" class="mm-continue-btn">Continue</button>`;
+
+      setupForfeitVibeUI(myVibe, 0);
+    } else {
+      const safeMsg = choice === 'waive'
+        ? 'Opponent waived the forfeit — no vibe this round.'
+        : 'Opponent banked their vibe — you\'re safe this round. 😅';
+      forfeitContent.innerHTML = `
+        <h2>Round ${roundIndex + 1} Over</h2>
+        <div class="mm-code-reveal">
+          <div class="mm-code-label">The code was:</div>
+          <div class="mm-code-slots">${codeHtml}</div>
+        </div>
+        <div class="mm-forfeit-result mm-failed">✗ You didn't crack it</div>
+        <div class="mm-no-vibe">${safeMsg}</div>
+        <button id="mm-continue" class="mm-continue-btn">Continue</button>`;
+    }
+
+    forfeitContent.querySelector('#mm-continue').addEventListener('click', onContinueClick);
   }
 
   function onMmRoundReady() {
     oppRoundReadyReceived = true;
+    // In both-failed, we can proceed immediately when both ready
+    // In won/lost, we wait for vibe choice first (handled above)
     checkBothReady();
   }
 
   function onPeerLeft() {
-    clearInterval(timerInterval);
     clearInterval(forfeitInterval);
     root.innerHTML = `
       <div class="card">
         <h2>Opponent left</h2>
-        <div class="actions"><button onclick="location.hash='#/'">Home</button></div>
+        <div class="actions"><button id="mm-peer-home">Home</button></div>
       </div>`;
+    root.querySelector('#mm-peer-home').addEventListener('click', () => { location.hash = '#/'; });
   }
 
   socket.addEventListener(MSG.MM_GUESS, onMmGuess);
-  socket.addEventListener(MSG.MM_ROUND_END, onMmRoundEnd);
+  socket.addEventListener(MSG.MM_POWERUP, onMmPowerup);
+  socket.addEventListener(MSG.MM_VIBE_CHOICE, onMmVibeChoice);
   socket.addEventListener(MSG.MM_ROUND_READY, onMmRoundReady);
+  socket.addEventListener(MSG.MM_GAME_END_VIBE, onMmGameEndVibe);
+  socket.addEventListener(MSG.MM_GAME_END_READY, onMmGameEndReady);
   socket.addEventListener(MSG.PEER_LEFT, onPeerLeft);
 
   const cleanup = () => {
-    clearInterval(timerInterval);
     clearInterval(forfeitInterval);
     if (window._mmRoundForfeitCleanup) { window._mmRoundForfeitCleanup(); window._mmRoundForfeitCleanup = null; }
     document.removeEventListener('keydown', onKeyDown);
     socket.removeEventListener(MSG.MM_GUESS, onMmGuess);
-    socket.removeEventListener(MSG.MM_ROUND_END, onMmRoundEnd);
+    socket.removeEventListener(MSG.MM_POWERUP, onMmPowerup);
+    socket.removeEventListener(MSG.MM_VIBE_CHOICE, onMmVibeChoice);
     socket.removeEventListener(MSG.MM_ROUND_READY, onMmRoundReady);
+    socket.removeEventListener(MSG.MM_GAME_END_VIBE, onMmGameEndVibe);
+    socket.removeEventListener(MSG.MM_GAME_END_READY, onMmGameEndReady);
     socket.removeEventListener(MSG.PEER_LEFT, onPeerLeft);
     if (edgeModeInstance) { edgeModeInstance.destroy(); edgeModeInstance = null; }
     if (vibeBatteryInstance) { vibeBatteryInstance.destroy(); vibeBatteryInstance = null; }
@@ -589,14 +1049,8 @@ export function renderMastermind(root) {
       myLives: state.edgeLives,
       assignment,
       containerEl: root,
-      onPause: () => {
-        edgePaused = true;
-        savedHaptics = haptics.pauseHaptics();
-      },
-      onResume: () => {
-        edgePaused = false;
-        haptics.resumeHaptics(savedHaptics);
-      },
+      onPause: () => { edgePaused = true; savedHaptics = haptics.pauseHaptics(); },
+      onResume: () => { edgePaused = false; haptics.resumeHaptics(savedHaptics); },
     });
   }
 
@@ -611,13 +1065,10 @@ export function renderMastermind(root) {
 }
 
 function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  })[c]);
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
 function _showMastermindInstructions(state, onReady) {
-  const forfeitSecs = state.forfeitDuration ?? 30;
   const mode = state.gameMode || 'easy';
   const rounds = state.gameRounds || 3;
   const overlay = document.createElement('div');
@@ -627,29 +1078,38 @@ function _showMastermindInstructions(state, onReady) {
       <h2>Mastermind</h2>
       <p class="instructions-meta">Mode: <strong>${mode === 'hard' ? 'Hard' : 'Easy'}</strong> &nbsp;·&nbsp; Rounds: <strong>${rounds}</strong></p>
       <div class="instructions-section">
-        <div class="instructions-heading">Goal</div>
+        <div class="instructions-heading">Shared board, take turns</div>
         <ul class="instructions-list">
-          <li>Crack the hidden color code before your opponent.</li>
-          <li>Most rounds cracked wins.</li>
+          <li>One board — you and your opponent alternate guesses.</li>
+          <li>Crack the code on your turn to win the round.</li>
+          <li>Board size and guesses increase each round.</li>
         </ul>
       </div>
       <div class="instructions-section">
         <div class="instructions-heading">Feedback</div>
         <ul class="instructions-list">
-          <li>Pick colors, then submit your guess.</li>
           <li><strong>Green dot</strong> = right color, right position.</li>
           <li><strong>Yellow dot</strong> = right color, wrong position.</li>
-          ${mode === 'hard' ? '<li>Hard mode: only a dot count shown — no positions.</li>' : ''}
+          ${mode === 'hard' ? '<li>Hard: dots unordered — no positions revealed.</li>' : ''}
+          <li>Wrong guesses vibrate you — worse in later rounds.</li>
         </ul>
       </div>
       <div class="instructions-section">
-        <div class="instructions-heading">Vibe penalties</div>
+        <div class="instructions-heading">Powerups (earn ⚡ from correct positions)</div>
         <ul class="instructions-list">
-          <li>Each correct-position guess vibrates your opponent.</li>
-          <li>Fail a round → vibe penalty. Fail while opponent cracks it → double.</li>
+          <li><strong>Hint (⚡3)</strong> — Reveal a code slot (both see it).</li>
+          <li><strong>Zap (⚡2)</strong> — Buzz your opponent immediately.</li>
+          <li><strong>Skip (⚡4)</strong> — Skip opponent's next turn.</li>
         </ul>
       </div>
-      <p class="instructions-forfeit">Loser pays forfeit: <strong>${forfeitSecs}s</strong> vibe after the game.</p>
+      <div class="instructions-section">
+        <div class="instructions-heading">Vibe stakes</div>
+        <ul class="instructions-list">
+          <li>Win a round → earn vibe seconds against opponent.</li>
+          <li><strong>Use Now</strong> or <strong>Bank</strong> it for a bigger hit later.</li>
+          <li>Both fail to crack it → both get a vibe penalty.</li>
+        </ul>
+      </div>
       <button id="inst-ready">Got it — I'm ready!</button>
       <p class="instructions-waiting" id="inst-wait" style="visibility:hidden">Waiting for opponent…</p>
     </div>

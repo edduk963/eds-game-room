@@ -58,35 +58,70 @@ export function renderLobby(root) {
           <div class="desc">Roll dice to explore 8 islands, collect stat cards, cast spells, and battle each other and the Dark Wizard boss.</div>
         </div>
         ` : `
-        <div class="game-category-label">Vibe Games</div>
-        <div class="game-tile game-tile-selectable selected" data-game="galactic">
-          <div class="name">Galactic Salvage</div>
-          <div class="desc">90 seconds. Shoot invaders, dodge debris, ignore civilians and decoys.</div>
+        <div class="game-category-label">Arcade</div>
+        <div class="game-category-grid">
+          <div class="game-tile game-tile-selectable selected" data-game="galactic">
+            <div class="game-tile-icon">🚀</div>
+            <div>
+              <div class="name">Space Shooter</div>
+              <div class="desc">90s. Shoot invaders, dodge debris. Vibe on hits, win with score.</div>
+            </div>
+          </div>
+          <div class="game-tile game-tile-selectable" data-game="endurance">
+            <div class="game-tile-icon">🛸</div>
+            <div>
+              <div class="name">Endurance</div>
+              <div class="desc">Rapid fire stacks recoil vibe. Aliens reaching your line hit full intensity.</div>
+            </div>
+          </div>
         </div>
-        <div class="game-tile game-tile-selectable" data-game="mastermind">
-          <div class="name">Mastermind</div>
-          <div class="desc">Crack the colour code before your opponent. Each close guess vibrates them.</div>
+        <div class="game-category-label">Card Games</div>
+        <div class="game-category-grid">
+          <div class="game-tile game-tile-selectable" data-game="hilo">
+            <div class="game-tile-icon">🃏</div>
+            <div>
+              <div class="name">Hi-Lo</div>
+              <div class="desc">Guess higher or lower. Correct guesses vibe your opponent — intensity builds each card.</div>
+            </div>
+          </div>
+          <div class="game-tile game-tile-selectable" data-game="beatdealer">
+            <div class="game-tile-icon">🎴</div>
+            <div>
+              <div class="name">Beat the Dealer</div>
+              <div class="desc">Beat the computer dealer. Lose a hand and face the forfeit. 10 rounds.</div>
+            </div>
+          </div>
+          <div class="game-tile game-tile-selectable" data-game="mastermind">
+            <div class="game-tile-icon">🔐</div>
+            <div>
+              <div class="name">Mastermind</div>
+              <div class="desc">Crack the colour code before your opponent. Each close guess vibrates them.</div>
+            </div>
+          </div>
+          <div class="game-tile game-tile-selectable" data-game="dice">
+            <div class="game-tile-icon">🎲</div>
+            <div>
+              <div class="name">Dice</div>
+              <div class="desc">Roll each round. Loser suffers escalating forfeit — starts 15s and doubles on each loss.</div>
+            </div>
+          </div>
         </div>
-        <div class="game-tile game-tile-selectable" data-game="endurance">
-          <div class="name">Galactic Salvage Endurance</div>
-          <div class="desc">Space invaders. Rapid fire stacks vibe recoil on you. Aliens reaching your line vibe at full intensity.</div>
-        </div>
-        <div class="game-tile game-tile-selectable" data-game="tugofwar">
-          <div class="name">Tug of War</div>
-          <div class="desc">Both devices vibe continuously. The losing player feels it more. Pool grows every 10s to 100%.</div>
-        </div>
-        <div class="game-tile game-tile-selectable" data-game="dice">
-          <div class="name">Dice</div>
-          <div class="desc">Roll dice each round. Loser suffers escalating forfeit vibe — starts 15s and doubles on each loss.</div>
-        </div>
-        <div class="game-tile game-tile-selectable" data-game="hilo">
-          <div class="name">Hi-Lo</div>
-          <div class="desc">Turn-based card guessing. Correct guesses vibe your opponent — intensity builds with each card, duration scales with difficulty.</div>
-        </div>
-        <div class="game-category-label">Other Games</div>
-        <div class="game-tile game-tile-selectable" data-game="beatdealer">
-          <div class="name">Beat the Dealer</div>
-          <div class="desc">Play cards against the computer. Beat it to score — lose to it and face the forfeit. 10 rounds, 2 players.</div>
+        <div class="game-category-label">Strategy</div>
+        <div class="game-category-grid">
+          <div class="game-tile game-tile-selectable" data-game="standoff">
+            <div class="game-tile-icon">⚔️</div>
+            <div>
+              <div class="name">Standoff</div>
+              <div class="desc">Secretly distribute tokens across 5 battlefields. Reveal simultaneously. Outthink — every loss is felt.</div>
+            </div>
+          </div>
+          <div class="game-tile game-tile-selectable" data-game="tugofwar">
+            <div class="game-tile-icon">💪</div>
+            <div>
+              <div class="name">Tug of War</div>
+              <div class="desc">Both vibe continuously. The losing player feels it more. Pool escalates every 10s.</div>
+            </div>
+          </div>
         </div>
         `}
       </div>
@@ -183,7 +218,7 @@ export function renderLobby(root) {
           <span>Mode:</span>
           <div class="mm-rounds-btns" id="mode-btns">
             <button class="mm-rounds-btn mm-rounds-selected" data-mode="easy" title="Dots appear in slot order — you can see exactly which positions are correct">Easy</button>
-            <button class="mm-rounds-btn ghost" data-mode="hard" title="Dots are only a count — no timer">Hard</button>
+            <button class="mm-rounds-btn ghost" data-mode="hard" title="Dots are only a count — no positions revealed">Hard</button>
           </div>
         </div>
       </div>
@@ -350,9 +385,10 @@ export function renderLobby(root) {
     const isStl = selectedGame === 'splitloot';
     const isWi = selectedGame === 'wizardisland';
     const isBtd = selectedGame === 'beatdealer';
-    forfeitRow.style.display   = (isHilo || isStl || isWi || isBtd) ? 'none' : '';
-    edgeModeRow.style.display  = (isHilo || isStl || isWi || isBtd) ? 'none' : '';
-    if (isHilo || isStl || isWi || isBtd) edgeLivesRow.style.display = 'none';
+    const isSo = selectedGame === 'standoff';
+    forfeitRow.style.display   = (isHilo || isStl || isWi || isBtd || isSo) ? 'none' : '';
+    edgeModeRow.style.display  = (isHilo || isStl || isWi || isBtd || isSo) ? 'none' : '';
+    if (isHilo || isStl || isWi || isBtd || isSo) edgeLivesRow.style.display = 'none';
     forfeitBtns.querySelectorAll('[data-forfeit]').forEach(b => {
       const sel = parseInt(b.dataset.forfeit, 10) === selectedForfeit;
       b.classList.toggle('mm-rounds-selected', sel);

@@ -10,6 +10,10 @@ import { renderEndurance } from './screens/endurance.js';
 import { renderTugOfWar } from './screens/tugofwar.js';
 import { renderDice } from './screens/dice.js';
 import { renderHilo } from './screens/hilo.js';
+import { renderSplitLoot } from './screens/splitloot.js';
+import { renderWizardIsland } from './screens/wizardisland.js';
+import { renderBeatDealer } from './screens/beatdealer.js';
+import { renderStandoff } from './screens/standoff.js';
 
 const app = document.getElementById('app');
 
@@ -74,6 +78,30 @@ function route() {
     return;
   }
 
+  if (hash === '#/splitloot') {
+    if (!state.seed) { navigate('#/'); return; }
+    renderSplitLoot(app);
+    return;
+  }
+
+  if (hash === '#/wizardisland') {
+    if (!state.seed) { navigate('#/'); return; }
+    renderWizardIsland(app);
+    return;
+  }
+
+  if (hash === '#/beatdealer') {
+    if (!state.seed) { navigate('#/'); return; }
+    renderBeatDealer(app);
+    return;
+  }
+
+  if (hash === '#/standoff') {
+    if (!state.seed) { navigate('#/'); return; }
+    renderStandoff(app);
+    return;
+  }
+
   if (hash === '#/results') {
     renderResults(app);
     return;
@@ -104,12 +132,23 @@ socket.addEventListener('begin', (ev) => {
   state.hiloDeckSize = ev.detail.hiloDeckSize ?? 1;
   state.hiloVibeRamp = ev.detail.hiloVibeRamp || 10;
   state.hiloLives = ev.detail.hiloLives || 3;
+  state.hiloVibeTarget = ev.detail.hiloVibeTarget || 'both';
+  state.playerCount = ev.detail.playerCount || 2;
+  if (ev.detail.guest2Name) state.guest2Name = ev.detail.guest2Name;
+  state.stlDifficulty = ev.detail.stlDifficulty || 'normal';
+  state.stlForfeitCards = ev.detail.stlForfeitCards || ['truth', 'dare', 'control', 'strip', 'drink', 'surrender'];
+  state.wiWinCondition = ev.detail.wiWinCondition || 'normal';
+  state.wiSpellLimit = ev.detail.wiSpellLimit || 5;
   const gt = state.gameType;
   if (gt === 'mastermind') navigate('#/mastermind');
   else if (gt === 'endurance') navigate('#/endurance');
   else if (gt === 'tugofwar') navigate('#/tugofwar');
   else if (gt === 'dice') navigate('#/dice');
   else if (gt === 'hilo') navigate('#/hilo');
+  else if (gt === 'splitloot') navigate('#/splitloot');
+  else if (gt === 'wizardisland') navigate('#/wizardisland');
+  else if (gt === 'beatdealer') navigate('#/beatdealer');
+  else if (gt === 'standoff') navigate('#/standoff');
   else navigate('#/game');
 });
 

@@ -2,28 +2,32 @@ import { ButtplugClient, ButtplugBrowserWebsocketClientConnector } from 'buttplu
 import { ButtplugWasmClientConnector } from 'buttplug-wasm/dist/buttplug-wasm.mjs';
 
 let client = null;
-let device = null;
+let devices = [];
 let stopTimer = null;
 let vibeSeconds = 0;
 let vibeTickInterval = null;
+
+function stopAllDevices() {
+  devices.forEach(d => d.stop().catch(() => {}));
+}
 
 export async function connect(mode = 'bluetooth') {
   if (client) {
     try { await client.disconnect(); } catch {}
     client = null;
-    device = null;
+    devices = [];
   }
 
-  client = new ButtplugClient('Galactic Salvage');
+  client = new ButtplugClient("Ed's Game Room");
 
   client.addListener('deviceadded', (dev) => {
-    if (!device) device = dev;
+    devices.push(dev);
   });
   client.addListener('deviceremoved', (dev) => {
-    if (device && device.index === dev.index) device = null;
+    devices = devices.filter(d => d.index !== dev.index);
   });
   client.addListener('disconnect', () => {
-    device = null;
+    devices = [];
     client = null;
   });
 
@@ -35,8 +39,8 @@ export async function connect(mode = 'bluetooth') {
 
   const already = client.devices;
   if (already.length > 0) {
-    device = already[0];
-    return device;
+    devices = [...already];
+    return devices[0];
   }
 
   return new Promise((resolve) => {
@@ -53,17 +57,17 @@ export async function connect(mode = 'bluetooth') {
 }
 
 async function vibe(intensity) {
-  if (!device) return;
-  try { await device.vibrate(intensity); } catch {}
+  if (devices.length === 0) return;
+  await Promise.all(devices.map(d => d.vibrate(intensity).catch(() => {})));
 }
 
 export async function pulse(intensity, durationMs) {
-  if (!device) return;
+  if (devices.length === 0) return;
   if (vibeSeconds > 0) return;
   clearTimeout(stopTimer);
   await vibe(intensity);
   stopTimer = setTimeout(() => {
-    if (device && vibeSeconds <= 0) device.stop().catch(() => {});
+    if (vibeSeconds <= 0) stopAllDevices();
   }, durationMs);
 }
 
@@ -76,7 +80,7 @@ export function addVibeSeconds(n) {
       if (vibeSeconds <= 0) {
         clearInterval(vibeTickInterval);
         vibeTickInterval = null;
-        if (device) device.stop().catch(() => {});
+        stopAllDevices();
       }
     }, 100);
   }
@@ -85,35 +89,78 @@ export function addVibeSeconds(n) {
 export const getVibeSeconds = () => vibeSeconds;
 
 export async function winPattern() {
-  if (!device) return;
+  if (devices.length === 0) return;
   for (const [i, t, d] of [[0.4, 0, 200], [0.7, 350, 200], [1.0, 700, 300]]) {
     setTimeout(async () => {
       await vibe(i);
-      setTimeout(() => { if (device) device.stop().catch(() => {}); }, d);
+      setTimeout(() => stopAllDevices(), d);
     }, t);
   }
 }
 
 export async function losePattern() {
-  if (!device) return;
+  if (devices.length === 0) return;
   await vibe(0.6);
   setTimeout(() => vibe(0.3), 600);
-  setTimeout(() => { if (device) device.stop().catch(() => {}); }, 1200);
+  setTimeout(() => stopAllDevices(), 1200);
 }
 
-export const isConnected = () => device !== null;
+export const isConnected = () => devices.length > 0;
 
 export async function getBattery() {
-  if (!device || !device.hasBattery) return null;
-  try { return Math.round((await device.battery()) * 100); } catch { return null; }
+  const d = devices.find(d => d.hasBattery);
+  if (!d) return null;
+  try { return Math.round((await d.battery()) * 100); } catch { return null; }
 }
 
 let forfeitSeconds = 0;
 let forfeitIntensity = 1.0;
 let forfeitTickInterval = null;
+let _waveVibeMode = false;
+let _wavePhase    = 0;   // ticks within current state
+let _waveState    = 'steady'; // 'steady' | 'oscillate' | 'pulse'
+let _waveStateTicks = 0;
+let _waveStateMax   = 40;
+
+function _pickWaveState(exclude) {
+  const pool = ['steady', 'oscillate', 'pulse'].filter(s => s !== exclude);
+  _waveState = pool[Math.floor(Math.random() * pool.length)];
+  _wavePhase = 0;
+  _waveStateTicks = 0;
+  if (_waveState === 'steady')    _waveStateMax = 30  + Math.floor(Math.random() * 1770); // 3–180s
+  if (_waveState === 'oscillate') _waveStateMax = 50  + Math.floor(Math.random() * 1150); // 5–120s
+  if (_waveState === 'pulse')     _waveStateMax = 40  + Math.floor(Math.random() * 560);  // 4–60s
+}
+
+export function setWaveVibeMode(enabled) {
+  _waveVibeMode = enabled;
+  if (enabled) _pickWaveState(null);
+}
+
+function waveIntensity(base) {
+  _waveStateTicks++;
+  _wavePhase++;
+  if (_waveStateTicks >= _waveStateMax) _pickWaveState(_waveState);
+
+  if (_waveState === 'steady') return base;
+
+  if (_waveState === 'oscillate') {
+    // smooth sine: 50%–100% of max, ~4.8s period
+    const wave = 0.75 + 0.25 * Math.sin(_wavePhase * 0.1 * 1.3);
+    return Math.max(0, Math.min(1, base * wave));
+  }
+
+  if (_waveState === 'pulse') {
+    // 70%–100% toggle: 20 ticks (2s) at each level
+    const high = Math.floor(_wavePhase / 20) % 2 === 0;
+    return base * (high ? 1.0 : 0.7);
+  }
+
+  return base;
+}
 
 export function startForfeitVibe(seconds) {
-  if (!device) return;
+  if (devices.length === 0) return;
   forfeitSeconds = seconds;
   vibe(forfeitIntensity);
   if (forfeitTickInterval) clearInterval(forfeitTickInterval);
@@ -122,7 +169,10 @@ export function startForfeitVibe(seconds) {
     if (forfeitSeconds <= 0) {
       clearInterval(forfeitTickInterval);
       forfeitTickInterval = null;
-      if (device) device.stop().catch(() => {});
+      stopAllDevices();
+    } else if (_waveVibeMode) {
+      _wavePhase++;
+      vibe(waveIntensity(forfeitIntensity));
     }
   }, 100);
 }
@@ -135,30 +185,33 @@ export function setForfeitIntensity(level) {
   _pendingIntensity = forfeitIntensity;
   if (_pendingIntensity === 0) {
     if (_intensityRaf) { cancelAnimationFrame(_intensityRaf); _intensityRaf = 0; }
-    if (device) device.stop().catch(() => {});
+    stopAllDevices();
     return;
   }
   if (_intensityRaf) return;
   _intensityRaf = requestAnimationFrame(() => {
     _intensityRaf = 0;
-    if (!device || !forfeitTickInterval || _pendingIntensity === 0) return;
-    device.vibrate(_pendingIntensity).catch(() => {}).then(() => {
-      if (_pendingIntensity === 0 && device) device.stop().catch(() => {});
+    if (devices.length === 0 || !forfeitTickInterval || _pendingIntensity === 0) return;
+    vibe(_pendingIntensity).then(() => {
+      if (_pendingIntensity === 0) stopAllDevices();
     });
   });
 }
 
 export function addForfeitSeconds(n) {
-  if (!device) return;
+  if (devices.length === 0) return;
   forfeitSeconds += n;
-  vibe(forfeitIntensity);
+  vibe(_waveVibeMode ? waveIntensity(forfeitIntensity) : forfeitIntensity);
   if (!forfeitTickInterval) {
     forfeitTickInterval = setInterval(() => {
       forfeitSeconds = Math.max(0, forfeitSeconds - 0.1);
       if (forfeitSeconds <= 0) {
         clearInterval(forfeitTickInterval);
         forfeitTickInterval = null;
-        if (device) device.stop().catch(() => {});
+        stopAllDevices();
+      } else if (_waveVibeMode) {
+        _wavePhase++;
+        vibe(waveIntensity(forfeitIntensity));
       }
     }, 100);
   }
@@ -169,7 +222,8 @@ export const getForfeitSeconds = () => forfeitSeconds;
 
 export function pauseForfeitVibe() {
   if (forfeitTickInterval) { clearInterval(forfeitTickInterval); forfeitTickInterval = null; }
-  if (device) device.stop().catch(() => {});
+  _waveVibeMode = false;
+  stopAllDevices();
 }
 
 let shootVibeSeconds = 0;
@@ -185,7 +239,7 @@ export function addShootVibe(intensity, seconds) {
       shootVibeSeconds = Math.max(0, shootVibeSeconds - 0.1);
       if (shootVibeSeconds <= 0) {
         clearInterval(shootVibeInterval); shootVibeInterval = null;
-        if (device) device.stop().catch(() => {});
+        stopAllDevices();
       }
     }, 100);
   } else {
@@ -202,15 +256,15 @@ export function testVibe(level) {
   _testLevel = Math.max(0, Math.min(1, level));
   if (_testLevel === 0) {
     if (_testRaf) { cancelAnimationFrame(_testRaf); _testRaf = 0; }
-    if (device) device.stop().catch(() => {});
+    stopAllDevices();
     return;
   }
   if (_testRaf) return;
   _testRaf = requestAnimationFrame(() => {
     _testRaf = 0;
-    if (!device || _testLevel === 0) return;
-    device.vibrate(_testLevel).catch(() => {}).then(() => {
-      if (_testLevel === 0 && device) device.stop().catch(() => {});
+    if (devices.length === 0 || _testLevel === 0) return;
+    vibe(_testLevel).then(() => {
+      if (_testLevel === 0) stopAllDevices();
     });
   });
 }
@@ -221,7 +275,7 @@ export function pauseHaptics() {
   if (forfeitTickInterval) { clearInterval(forfeitTickInterval); forfeitTickInterval = null; }
   if (shootVibeInterval)   { clearInterval(shootVibeInterval);   shootVibeInterval   = null; }
   vibeSeconds = 0; forfeitSeconds = 0; shootVibeSeconds = 0;
-  if (device) device.stop().catch(() => {});
+  stopAllDevices();
   return saved;
 }
 
@@ -232,6 +286,18 @@ export function resumeHaptics(saved) {
   if (saved.shootVibeSeconds > 0) addShootVibe(shootVibeIntensity || 0.5, saved.shootVibeSeconds);
 }
 
+export function setBtdVibe(intensity) {
+  if (devices.length === 0) return;
+  const level = Math.max(0, Math.min(1, intensity));
+  if (level === 0) {
+    stopAllDevices();
+  } else {
+    vibe(level);
+  }
+}
+
+export const getWaveState = () => _waveVibeMode ? _waveState : 'steady';
+
 export function stopAll() {
   if (vibeTickInterval)    { clearInterval(vibeTickInterval);    vibeTickInterval    = null; }
   if (forfeitTickInterval) { clearInterval(forfeitTickInterval); forfeitTickInterval = null; }
@@ -239,5 +305,6 @@ export function stopAll() {
   vibeSeconds    = 0;
   forfeitSeconds = 0;
   shootVibeSeconds = 0;
-  if (device) device.stop().catch(() => {});
+  _waveVibeMode = false;
+  stopAllDevices();
 }

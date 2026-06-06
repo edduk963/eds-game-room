@@ -29,7 +29,7 @@ class GameSocket extends EventTarget {
   send(obj) {
     const json = JSON.stringify(obj);
     if (this.ws && this.ws.readyState === 1) this.ws.send(json);
-    else this.queue.push(json);
+    else if (this.queue.length < 200) this.queue.push(json);
   }
 
   close() {

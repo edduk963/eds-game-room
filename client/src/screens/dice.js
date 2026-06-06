@@ -263,8 +263,9 @@ export function renderDice(root) {
     root.innerHTML = `
       <div class="card">
         <h2>Opponent left</h2>
-        <div class="actions"><button onclick="location.hash='#/'">Home</button></div>
+        <div class="actions"><button id="dice-peer-home">Home</button></div>
       </div>`;
+    root.querySelector('#dice-peer-home').addEventListener('click', () => { location.hash = '#/'; });
   };
 
   socket.addEventListener(MSG.DICE_OPP_ROLL, onOppRoll);

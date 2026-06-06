@@ -13,6 +13,14 @@ import {
   broadcast,
   purgeStaleSessions,
 } from './sessions.js';
+import {
+  getWorld,
+  applyMove,
+  applyDuelPick,
+  applyClaimUse,
+  applySkipToken,
+  resetGame,
+} from './world.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3001;
@@ -37,6 +45,54 @@ app.get('/session/:id', (req, res) => {
     status: s.status,
   });
 });
+
+// ── World Map (Conquest) routes ───────────────────────────────────────────────
+app.get('/world', (_req, res) => {
+  try { res.json(getWorld()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/world/move', (req, res) => {
+  const { playerKey, spaceId } = req.body || {};
+  if (!['p1','p2'].includes(playerKey) || typeof spaceId !== 'string') {
+    return res.status(400).json({ error: 'bad_request' });
+  }
+  const result = applyMove(playerKey, spaceId);
+  result.error ? res.status(400).json(result) : res.json(result);
+});
+
+app.post('/world/duel', (req, res) => {
+  const { playerKey, pick } = req.body || {};
+  if (!['p1','p2'].includes(playerKey) || !Number.isInteger(pick) || pick < 1 || pick > 5) {
+    return res.status(400).json({ error: 'bad_request' });
+  }
+  const result = applyDuelPick(playerKey, pick);
+  result.error ? res.status(400).json(result) : res.json(result);
+});
+
+app.post('/world/claim', (req, res) => {
+  const { playerKey, spaceId } = req.body || {};
+  if (!['p1','p2'].includes(playerKey) || typeof spaceId !== 'string') {
+    return res.status(400).json({ error: 'bad_request' });
+  }
+  const result = applyClaimUse(playerKey, spaceId);
+  result.error ? res.status(400).json(result) : res.json(result);
+});
+
+app.post('/world/skip', (req, res) => {
+  const { playerKey, targetDesc } = req.body || {};
+  if (!['p1','p2'].includes(playerKey) || typeof targetDesc !== 'string') {
+    return res.status(400).json({ error: 'bad_request' });
+  }
+  const result = applySkipToken(playerKey, targetDesc.slice(0, 200));
+  result.error ? res.status(400).json(result) : res.json(result);
+});
+
+app.post('/world/reset', (_req, res) => {
+  try { res.json(resetGame()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// ── End World Map routes ──────────────────────────────────────────────────────
 
 const distDir = path.join(__dirname, '..', 'dist');
 app.use(express.static(distDir));
@@ -117,7 +173,15 @@ wss.on('connection', (ws) => {
       s.guestWiBattleReady = false;
       s.hostWiForfeitAck = false;
       s.guestWiForfeitAck = false;
-      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo', 'splitloot', 'wizardisland', 'beatdealer'];
+      s.soHostCommit = null; s.soGuestCommit = null;
+      s.soAutoCommitTimer = null; s.soPowerTimer = null;
+      s.soPowerPlays = {}; s.soChickenStop = null; s.soChickenTimer = null;
+      s.soPrevAlloc = null; s.soSpyWinner = null;
+      s.soGhostActive = { host: false, guest: false };
+      s.soMirrorThrottle = 0; s.soTokenCounts = { host: 0, guest: 0 };
+      s.soRoundStartAt = Date.now(); s.soDraftPicks = [];
+      s.soHostReady = false; s.soGuestReady = false;
+      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo', 'splitloot', 'wizardisland', 'beatdealer', 'standoff'];
       const gameType = validGameTypes.includes(msg.gameType) ? msg.gameType : 'galactic';
       const rounds = Number.isInteger(msg.rounds) && msg.rounds >= 2 && msg.rounds <= 5 ? msg.rounds : 3;
       const mode = msg.mode === 'hard' ? 'hard' : 'easy';
@@ -152,18 +216,33 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    if (msg.type === 'mm_round_end') {
-      broadcast(s, { type: 'mm_round_end', solved: !!msg.solved }, ws);
-      return;
-    }
-
     if (msg.type === 'mm_round_ready') {
       broadcast(s, { type: 'mm_round_ready' }, ws);
       return;
     }
 
+    if (msg.type === 'mm_powerup') {
+      broadcast(s, { type: 'mm_powerup', powerup: String(msg.powerup), slotIndex: msg.slotIndex | 0, color: String(msg.color || '') }, ws);
+      return;
+    }
+
+    if (msg.type === 'mm_vibe_choice') {
+      broadcast(s, { type: 'mm_vibe_choice', choice: String(msg.choice), vibeSeconds: msg.vibeSeconds | 0 }, ws);
+      return;
+    }
+
+    if (msg.type === 'mm_game_end_vibe') {
+      broadcast(s, { type: 'mm_game_end_vibe', vibeSeconds: msg.vibeSeconds | 0 }, ws);
+      return;
+    }
+
+    if (msg.type === 'mm_game_end_ready') {
+      broadcast(s, { type: 'mm_game_end_ready' }, ws);
+      return;
+    }
+
     if (msg.type === 'lobby_config' && role === 'host') {
-      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo', 'splitloot', 'wizardisland', 'beatdealer'];
+      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo', 'splitloot', 'wizardisland', 'beatdealer', 'standoff'];
       const validDurations = [15, 30, 60, 120, 300, 600];
       const validHiloModes = ['submission', 'fixed', 'random'];
       broadcast(s, {
@@ -326,23 +405,41 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    if (msg.type === 'btd_forfeit_override' && role === 'host' && Number.isInteger(msg.position) && msg.position >= 1 && msg.position <= 99) {
-      broadcast(s, { type: 'btd_forfeit_override', position: msg.position });
-      return;
-    }
-
     if (msg.type === 'btd_draw_forfeit' && role === 'host') {
       const forfeit = typeof msg.forfeit === 'string' ? msg.forfeit.slice(0, 200) : '';
-      broadcast(s, { type: 'btd_draw_forfeit', forfeit });
+      const loser = ['host', 'guest', 'both'].includes(msg.loser) ? msg.loser : null;
+      broadcast(s, { type: 'btd_draw_forfeit', forfeit, loser });
       return;
     }
 
-    if (msg.type === 'btd_cpu_override' && role === 'host' &&
-        msg.card && Number.isInteger(msg.card.value) && msg.card.value >= 1 && msg.card.value <= 13 &&
-        typeof msg.card.suit === 'string' && ['S','H','D','C'].includes(msg.card.suit)) {
-      broadcast(s, { type: 'btd_cpu_override', card: { value: msg.card.value, suit: msg.card.suit } });
+    if (msg.type === 'btd_vibe_stop') {
+      broadcast(s, { type: 'btd_vibe_stop' }, ws);
       return;
     }
+
+    if (msg.type === 'btd_mode' && role === 'host') {
+      const mode = msg.mode === 'reveal' ? 'reveal' : 'draw';
+      broadcast(s, { type: 'btd_mode', mode });
+      return;
+    }
+
+    if (msg.type === 'btd_vibe_claim' && ['start', 'pause'].includes(msg.action) && ['host', 'guest'].includes(msg.target)) {
+      const payload = { type: 'btd_vibe_claim', target: msg.target, action: msg.action };
+      if (msg.action === 'start' && Number.isFinite(msg.remaining)) payload.remaining = Math.max(0, msg.remaining | 0);
+      broadcast(s, payload);
+      return;
+    }
+
+    if (msg.type === 'btd_vibe_enable' && role === 'host') {
+      broadcast(s, { type: 'btd_vibe_enable', enabled: !!msg.enabled });
+      return;
+    }
+
+    if (msg.type === 'btd_claim_intensity' && ['host', 'guest'].includes(msg.target) && Number.isFinite(msg.intensity)) {
+      broadcast(s, { type: 'btd_claim_intensity', target: msg.target, intensity: Math.max(0, Math.min(1, msg.intensity)) });
+      return;
+    }
+
 
     if (msg.type === 'btd_timer_cmd' && ['start','pause','reset'].includes(msg.cmd)) {
       const payload = { type: 'btd_timer_cmd', cmd: msg.cmd };
@@ -458,6 +555,156 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    // ── Standoff ──────────────────────────────────────────────────────────────
+    if (msg.type === 'so_draft_pick' && typeof msg.cardId === 'string') {
+      const VALID_POWER_IDS = new Set(['surge','intel','reinforce','sabotage','forfeit','ghost']);
+      if (!VALID_POWER_IDS.has(msg.cardId)) return;
+      if (s.soDraftPicks.some(p => p.cardId === msg.cardId)) return;
+      const expectedRole = s.soDraftPicks.length % 2 === 0 ? 'host' : 'guest';
+      if (role !== expectedRole) return;
+      s.soDraftPicks.push({ cardId: msg.cardId, byRole: role });
+      broadcast(s, { type: 'so_draft_broadcast', pickIndex: s.soDraftPicks.length - 1, cardId: msg.cardId, byRole: role });
+      return;
+    }
+
+    if (msg.type === 'so_ready') {
+      if (role === 'host') s.soHostReady = true;
+      else s.soGuestReady = true;
+      if (s.soHostReady && s.soGuestReady) {
+        s.soHostReady = false; s.soGuestReady = false;
+        s.soRoundStartAt = Date.now();
+        broadcast(s, { type: 'so_go' });
+      }
+      return;
+    }
+
+    if (msg.type === 'so_spy_won') {
+      s.soSpyWinner = role;
+      return;
+    }
+
+    if (msg.type === 'so_spy_pick' && typeof msg.fieldId === 'string') {
+      if (s.soSpyWinner !== role) return;
+      s.soSpyWinner = null;
+      s.soSpyPickPending = { winnerRole: role, fieldId: msg.fieldId };
+      // Ack so client can transition to allocation
+      const targetSocket = s[role]?.socket;
+      if (targetSocket?.readyState === 1) {
+        targetSocket.send(JSON.stringify({ type: 'so_spy_pick_ack', fieldId: msg.fieldId }));
+      }
+      return;
+    }
+
+    if (msg.type === 'so_spy_field_update' && typeof msg.fieldId === 'string' && Number.isInteger(msg.count)) {
+      const spy = s.soSpyPickPending;
+      if (!spy || role === spy.winnerRole || msg.fieldId !== spy.fieldId) return;
+      const count = Math.max(0, Math.min(14, msg.count));
+      const winnerSocket = s[spy.winnerRole]?.socket;
+      if (winnerSocket?.readyState === 1) {
+        winnerSocket.send(JSON.stringify({ type: 'so_spy_reveal', fieldId: msg.fieldId, count }));
+      }
+      return;
+    }
+
+    if (msg.type === 'so_mirror_update' && Number.isInteger(msg.count) && msg.count >= 0 && msg.count <= 14) {
+      const now = Date.now();
+      if (now - (s.soMirrorThrottle || 0) < 200) return;
+      s.soMirrorThrottle = now;
+      if (now - s.soRoundStartAt > 25000) return;
+      const oppRole = role === 'host' ? 'guest' : 'host';
+      const oppSocket = s[oppRole]?.socket;
+      if (oppSocket?.readyState === 1) {
+        oppSocket.send(JSON.stringify({ type: 'so_mirror_update', count: msg.count }));
+      }
+      return;
+    }
+
+    if (msg.type === 'so_token_count' && Number.isInteger(msg.total) && msg.total >= 0 && msg.total <= 14) {
+      s.soTokenCounts = s.soTokenCounts || { host: 0, guest: 0 };
+      s.soTokenCounts[role] = msg.total;
+      const oppRole = role === 'host' ? 'guest' : 'host';
+      const oppSocket = s[oppRole]?.socket;
+      if (oppSocket?.readyState === 1) {
+        const outTotal = (s.soGhostActive?.[role]) ? 0 : msg.total;
+        oppSocket.send(JSON.stringify({ type: 'so_opp_token_count', total: outTotal }));
+      }
+      return;
+    }
+
+    if (msg.type === 'so_commit' && msg.fields && typeof msg.fields === 'object') {
+      if (role === 'host') s.soHostCommit = msg;
+      else s.soGuestCommit = msg;
+      if (!s.soAutoCommitTimer) {
+        s.soAutoCommitTimer = setTimeout(() => {
+          if (!s.soHostCommit) s.soHostCommit = { fields: {}, powersUsed: [] };
+          if (!s.soGuestCommit) s.soGuestCommit = { fields: {}, powersUsed: [] };
+          soTryReveal(s);
+        }, 35000);
+      }
+      soTryReveal(s);
+      return;
+    }
+
+    if (msg.type === 'so_power_post') {
+      const validPowers = new Set(['reinforce', 'sabotage', 'pass']);
+      if (!validPowers.has(msg.power)) return;
+      s.soPowerPlays = s.soPowerPlays || {};
+      s.soPowerPlays[role] = msg.power === 'pass' ? null : { power: msg.power, fieldId: msg.fieldId };
+      const bothResponded = 'host' in s.soPowerPlays && 'guest' in s.soPowerPlays;
+      if (bothResponded) {
+        clearTimeout(s.soPowerTimer);
+        soBroadcastPowers(s);
+      }
+      return;
+    }
+
+    if (msg.type === 'so_chicken_intensity' && Number.isFinite(msg.intensity)) {
+      const clamped = Math.max(0, Math.min(1, msg.intensity));
+      broadcast(s, { type: 'so_chicken_intensity', intensity: clamped, byRole: role });
+      return;
+    }
+
+    if (msg.type === 'so_forfeit_intensity' && Number.isFinite(msg.intensity)) {
+      const clamped = Math.max(0, Math.min(1, msg.intensity));
+      const oppWs = role === 'host' ? s.guestWs : s.hostWs;
+      if (oppWs) oppWs.send(JSON.stringify({ type: 'so_forfeit_intensity', intensity: clamped }));
+      return;
+    }
+
+    if (msg.type === 'so_mercy') {
+      broadcast(s, { type: 'so_mercy', byRole: role });
+      return;
+    }
+
+    if (msg.type === 'so_chicken_stop') {
+      const now = Date.now();
+      if (!s.soChickenStop) {
+        s.soChickenStop = { role, time: now };
+        s.soChickenTimer = setTimeout(() => {
+          broadcast(s, { type: 'so_chicken_result', outcome: 'stopped', stoppedBy: s.soChickenStop?.role });
+          s.soChickenStop = null; s.soChickenTimer = null;
+        }, 60);
+      } else {
+        clearTimeout(s.soChickenTimer);
+        const diff = Math.abs(now - s.soChickenStop.time);
+        const outcome = diff <= 50 ? 'simultaneous' : 'stopped';
+        const stoppedBy = diff <= 50 ? null : s.soChickenStop.role;
+        broadcast(s, { type: 'so_chicken_result', outcome, stoppedBy });
+        s.soChickenStop = null; s.soChickenTimer = null;
+      }
+      return;
+    }
+
+    if (msg.type === 'so_vibe_pattern' && ['slow_burn','rapid_pulse','escalating_waves'].includes(msg.pattern)) {
+      const loserRole = role === 'host' ? 'guest' : 'host';
+      const loserSocket = s[loserRole]?.socket;
+      if (loserSocket?.readyState === 1) {
+        loserSocket.send(JSON.stringify({ type: 'so_vibe_pattern', pattern: msg.pattern }));
+      }
+      return;
+    }
+    // ── End Standoff ──────────────────────────────────────────────────────────
+
     if (msg.type === 'final' && Number.isFinite(msg.value)) {
       const v = msg.value | 0;
       const vibeSeconds = Number.isFinite(msg.vibeSeconds) ? Math.max(0, msg.vibeSeconds | 0) : 0;
@@ -478,6 +725,49 @@ wss.on('connection', (ws) => {
     if (sessionId) detachSocket(sessionId, ws);
   });
 });
+
+function soTryReveal(s) {
+  if (!s.soHostCommit || !s.soGuestCommit) return;
+  clearTimeout(s.soAutoCommitTimer);
+  s.soAutoCommitTimer = null;
+  s.soGhostActive = {
+    host: s.soHostCommit.powersUsed?.includes('ghost') ?? false,
+    guest: s.soGuestCommit.powersUsed?.includes('ghost') ?? false,
+  };
+  let intelResult = null;
+  if (s.soHostCommit.powersUsed?.includes('intel') && s.soHostCommit.intelField) {
+    const count = s.soGuestCommit.fields[s.soHostCommit.intelField] ?? 0;
+    intelResult = { fieldId: s.soHostCommit.intelField, count, forRole: 'host' };
+  } else if (s.soGuestCommit.powersUsed?.includes('intel') && s.soGuestCommit.intelField) {
+    const count = s.soHostCommit.fields[s.soGuestCommit.intelField] ?? 0;
+    intelResult = { fieldId: s.soGuestCommit.intelField, count, forRole: 'guest' };
+  }
+  s.soPrevAlloc = {
+    host: { ...s.soHostCommit.fields },
+    guest: { ...s.soGuestCommit.fields },
+  };
+  s.soSpyPickPending = null;
+  broadcast(s, {
+    type: 'so_reveal',
+    hostFields: s.soHostCommit.fields,
+    guestFields: s.soGuestCommit.fields,
+    hostPowersUsed: s.soHostCommit.powersUsed ?? [],
+    guestPowersUsed: s.soGuestCommit.powersUsed ?? [],
+    intelResult,
+  });
+  s.soHostCommit = null; s.soGuestCommit = null;
+  s.soPowerPlays = {};
+  s.soPowerTimer = setTimeout(() => soBroadcastPowers(s), 10000);
+}
+
+function soBroadcastPowers(s) {
+  broadcast(s, {
+    type: 'so_power_broadcast',
+    host: s.soPowerPlays?.host ?? null,
+    guest: s.soPowerPlays?.guest ?? null,
+  });
+  s.soPowerPlays = {};
+}
 
 setInterval(purgeStaleSessions, 5 * 60 * 1000);
 

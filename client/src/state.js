@@ -4,12 +4,16 @@ export const state = {
   role: null,
   hostName: null,
   guestName: null,
+  guest2Name: null,
+  playerCount: 2,
   seed: null,
   startAt: null,
   myFinal: null,
   oppFinal: null,
   myVibeResidual: 0,
   oppVibeResidual: 0,
+  devMode: false,
+  devPreselect: 'splitloot',
   gameType: 'galactic',
   gameRounds: 3,
   gameMode: 'easy',
@@ -21,6 +25,11 @@ export const state = {
   hiloDeckSize: 1,
   hiloVibeRamp: 10,
   hiloLives: 3,
+  hiloVibeTarget: 'both',
+  stlDifficulty: 'normal',
+  stlForfeitCards: ['truth', 'dare', 'control', 'strip', 'drink', 'surrender'],
+  wiWinCondition: 'normal',
+  wiSpellLimit: 5,
 };
 
 export function reset() {
@@ -28,12 +37,16 @@ export function reset() {
   state.role = null;
   state.hostName = null;
   state.guestName = null;
+  state.guest2Name = null;
+  state.playerCount = 2;
   state.seed = null;
   state.startAt = null;
   state.myFinal = null;
   state.oppFinal = null;
   state.myVibeResidual = 0;
   state.oppVibeResidual = 0;
+  state.devMode = false;
+  state.devPreselect = 'splitloot';
   state.gameType = 'galactic';
   state.gameRounds = 3;
   state.gameMode = 'easy';
@@ -45,4 +58,9 @@ export function reset() {
   state.hiloDeckSize = 1;
   state.hiloVibeRamp = 10;
   state.hiloLives = 3;
+  state.hiloVibeTarget = 'both';
+  state.stlDifficulty = 'normal';
+  state.stlForfeitCards = ['truth', 'dare', 'control', 'strip', 'drink', 'surrender'];
+  state.wiWinCondition = 'normal';
+  state.wiSpellLimit = 5;
 }
