@@ -59,6 +59,10 @@ export function evaluateGuessPositional(code, guess) {
       if (!codeUsed[j] && guess[i] === code[j]) { result[i] = 'color'; codeUsed[j] = true; break; }
     }
   }
+  // Distinguish "color exists but already fully matched" from "color not in code at all"
+  for (let i = 0; i < result.length; i++) {
+    if (result[i] === 'empty' && code.includes(guess[i])) result[i] = 'over';
+  }
   return result;
 }
 

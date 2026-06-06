@@ -77,7 +77,8 @@ export function renderMastermind(root) {
       _legendItem('mm-dot-color', '# right colour, wrong spot')
     : _legendItem('mm-dot-place', 'right colour &amp; spot') +
       _legendItem('mm-dot-color', 'right colour, wrong spot') +
-      _legendItem('mm-dot-empty', 'not in the code');
+      _legendItem('mm-dot-over',  'colour in code but already matched') +
+      _legendItem('mm-dot-empty', 'colour not in the code at all');
   const modeBarHtml = `
     <div id="mm-mode-bar" style="margin:6px 0 10px;padding:8px 12px;background:#141d33;border:1px solid #25304d;border-radius:8px;font-size:12px;color:var(--muted);">
       <div style="color:var(--ink);font-size:13px;margin-bottom:6px;">Mode: <strong>${_modeName}</strong> <span style="color:var(--muted);font-weight:400;">${_modeSub}</span></div>
@@ -202,7 +203,7 @@ export function renderMastermind(root) {
     fb.className = 'mm-feedback';
     const order = gameMode === 'easy'
       ? positions
-      : [...positions].sort((a, b) => ({ place: 0, color: 1, empty: 2 }[a] - { place: 0, color: 1, empty: 2 }[b]));
+      : [...positions].sort((a, b) => ({ place: 0, color: 1, over: 2, empty: 3 }[a] - { place: 0, color: 1, over: 2, empty: 3 }[b]));
     for (const p of order) {
       const d = document.createElement('span');
       d.className = `mm-dot mm-dot-${p}`;
@@ -1090,7 +1091,8 @@ function _showMastermindInstructions(state, onReady) {
         <ul class="instructions-list">
           <li><strong>Green dot</strong> = right color, right position.</li>
           <li><strong>Yellow dot</strong> = right color, wrong position.</li>
-          ${mode === 'hard' ? '<li>Hard: dots unordered — no positions revealed.</li>' : ''}
+          ${mode === 'hard' ? '' : '<li><strong>Dashed dot</strong> = color is in the code but all copies are already matched.</li>'}
+          ${mode === 'hard' ? '<li>Hard: dots unordered — no positions revealed.</li>' : '<li><strong>Dark dot</strong> = color is not in the code at all.</li>'}
           <li>Wrong guesses vibrate you — worse in later rounds.</li>
         </ul>
       </div>
