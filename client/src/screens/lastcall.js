@@ -4,11 +4,11 @@ import { navigate } from '../main.js';
 import { MSG } from '../shared/messages.js';
 import * as haptics from '../haptics.js';
 import { makeRng } from '../game/seededRng.js';
-import { RED_SUITS, computeVibeDurationMs } from '../game/hiloGame.js';
+import { RED_SUITS } from '../game/hiloGame.js';
 import {
   buildDeck, LC_POWER_LABELS, LC_POWER_DESC,
   LC_POOL_BASE, LC_POOL_TIMER,
-  lcDeckRng, lcPowerRng, extendPowerMap, pickStarterIndex,
+  lcDeckRng, lcPowerRng, extendPowerMap, pickStarterIndex, lcCardSeconds,
 } from '../game/lastcallGame.js';
 
 export function renderLastCall(root) {
@@ -27,6 +27,7 @@ export function renderLastCall(root) {
   const timerMode     = !!state.lcTimer;
   const totalMs       = (state.lcMinutes || 10) * 60_000;
   const forfeitSecs   = state.forfeitDuration || 30;
+  const rewardScale   = state.lcReward === 'half' ? 0.5 : 1;
   const pool          = timerMode ? LC_POOL_TIMER : LC_POOL_BASE;
 
   // ── Deck (deterministic, grows as it is consumed) ─────────────────────────────
@@ -302,8 +303,8 @@ export function renderLastCall(root) {
     peekVisible = false;
 
     if (correct) {
-      // Harder cards (middle values, ~50/50) pay more — same curve as Hi-Lo.
-      let gain = computeVibeDurationMs(card.value) / 1000;
+      // Harder cards (middle values, ~50/50) pay more. Full = 2–10s, Half = 1–5s.
+      let gain = lcCardSeconds(card.value, rewardScale);
       if (doubleActive[guesser]) gain *= 2;
       if (taxed[guesser]) gain /= 2;
       gain = Math.round(gain * 10) / 10;

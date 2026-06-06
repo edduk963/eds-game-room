@@ -167,6 +167,9 @@ socket.addEventListener('begin', (ev) => {
   state.lcTimer = !!ev.detail.lcTimer;
   state.lcMinutes = ev.detail.lcMinutes || 10;
   state.lcDeckSize = ev.detail.lcDeckSize ?? 2;
+  state.lcReward = ev.detail.lcReward || 'full';
+  state.bsGridSize = ev.detail.bsGridSize || 'standard';
+  state.bsVibeMultiplier = ev.detail.bsVibeMultiplier ?? 1.5;
   const gt = state.gameType;
   if (gt === 'mastermind') navigate(state.playerCount === 3 ? '#/mastermind3' : '#/mastermind');
   else if (gt === 'endurance') navigate('#/endurance');

@@ -37,6 +37,9 @@ export const state = {
   lcTimer: false,
   lcMinutes: 10,
   lcDeckSize: 2,
+  lcReward: 'full',
+  bsGridSize: 'standard',
+  bsVibeMultiplier: 1.5,
 };
 
 export function reset() {
@@ -77,4 +80,7 @@ export function reset() {
   state.lcTimer = false;
   state.lcMinutes = 10;
   state.lcDeckSize = 2;
+  state.lcReward = 'full';
+  state.bsGridSize = 'standard';
+  state.bsVibeMultiplier = 1.5;
 }

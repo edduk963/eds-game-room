@@ -213,9 +213,12 @@ wss.on('connection', (ws) => {
       const lcTimer = !!msg.lcTimer;
       const lcMinutes = [5, 10, 15, 20, 30].includes(msg.lcMinutes) ? msg.lcMinutes : 10;
       const lcDeckSize = Number.isInteger(msg.lcDeckSize) && msg.lcDeckSize >= 1 && msg.lcDeckSize <= 6 ? msg.lcDeckSize : 2;
+      const lcReward = msg.lcReward === 'half' ? 'half' : 'full';
+      const bsGridSize = ['standard', 'large'].includes(msg.bsGridSize) ? msg.bsGridSize : 'standard';
+      const bsVibeMultiplier = [1, 1.5, 2, 3].includes(Number(msg.bsVibeMultiplier)) ? Number(msg.bsVibeMultiplier) : 1.5;
       s.edgeMode = edgeMode;
       const guest2Name = s.guest2?.name ?? null;
-      broadcast(s, { type: 'begin', seed: s.seed, startAt: null, gameType, rounds, mode, forfeitDuration, edgeMode, edgeLives, hiloMode, hiloCycles, hiloDeckSize, hiloVibeRamp, hiloLives, hiloVibeTarget, playerCount, guest2Name, stlDifficulty, stlForfeitCards, btdForfeits, btdMode, btdGameMode, wiWinCondition, wiSpellLimit, diceVibeRule, lcTimer, lcMinutes, lcDeckSize });
+      broadcast(s, { type: 'begin', seed: s.seed, startAt: null, gameType, rounds, mode, forfeitDuration, edgeMode, edgeLives, hiloMode, hiloCycles, hiloDeckSize, hiloVibeRamp, hiloLives, hiloVibeTarget, playerCount, guest2Name, stlDifficulty, stlForfeitCards, btdForfeits, btdMode, btdGameMode, wiWinCondition, wiSpellLimit, diceVibeRule, lcTimer, lcMinutes, lcDeckSize, lcReward, bsGridSize, bsVibeMultiplier });
       return;
     }
 
@@ -278,6 +281,9 @@ wss.on('connection', (ws) => {
         lcTimer: !!msg.lcTimer,
         lcMinutes: [5, 10, 15, 20, 30].includes(msg.lcMinutes) ? msg.lcMinutes : 10,
         lcDeckSize: Number.isInteger(msg.lcDeckSize) && msg.lcDeckSize >= 1 && msg.lcDeckSize <= 6 ? msg.lcDeckSize : 2,
+        lcReward: msg.lcReward === 'half' ? 'half' : 'full',
+        bsGridSize: ['standard', 'large'].includes(msg.bsGridSize) ? msg.bsGridSize : 'standard',
+        bsVibeMultiplier: [1, 1.5, 2, 3].includes(Number(msg.bsVibeMultiplier)) ? Number(msg.bsVibeMultiplier) : 1.5,
       }, ws);
       return;
     }
@@ -766,6 +772,26 @@ wss.on('connection', (ws) => {
     // ── End Standoff ──────────────────────────────────────────────────────────
 
     // ── Battleships messages ──────────────────────────────────────────────────
+    if (msg.type === 'bs_powerup_use') {
+      const puType = ['torpedo', 'depth', 'sonar'].includes(msg.puType) ? msg.puType : null;
+      if (!puType) return;
+      const r = msg.r | 0, c = msg.c | 0;
+      if (r < 0 || r > 13 || c < 0 || c > 13) return;
+      broadcast(s, { type: 'bs_powerup_use', puType, r, c, orient: msg.orient === 'v' ? 'v' : 'h' }, ws);
+      return;
+    }
+
+    if (msg.type === 'bs_powerup_result') {
+      const cells = Array.isArray(msg.cells) ? msg.cells.slice(0, 12).map(c => ({
+        r: c.r | 0, c: c.c | 0,
+        hit: !!c.hit, sunk: !!c.sunk,
+        sunkId: c.sunkId ? String(c.sunkId) : null,
+        hasShip: !!c.hasShip,
+      })) : [];
+      broadcast(s, { type: 'bs_powerup_result', puType: String(msg.puType || ''), cells, gameOver: !!msg.gameOver }, ws);
+      return;
+    }
+
     if (msg.type === 'bs_ready') {
       broadcast(s, { type: 'bs_ready', role }, ws);
       return;
@@ -773,7 +799,7 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'bs_shot') {
       const r = msg.r | 0, c = msg.c | 0;
-      if (r < 0 || r > 9 || c < 0 || c > 9) return;
+      if (r < 0 || r > 13 || c < 0 || c > 13) return;
       broadcast(s, { type: 'bs_shot', r, c, role }, ws);
       return;
     }

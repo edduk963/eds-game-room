@@ -58,3 +58,12 @@ export function extendPowerMap(map, start, count, rng, pool) {
 export function pickStarterIndex(rng, count) {
   return rngInt(rng, 0, count - 1);
 }
+
+// Seconds won for a correct guess, by the card you guessed FROM.
+// Harder cards (middle values, ~50/50) pay more. Full scale = 2s…10s.
+// A flatter, lower range than Hi-Lo's vibe curve — keeps each guess modest so
+// banking what you've built stays tempting.
+export function lcCardSeconds(cardValue, scale = 1) {
+  const difficulty = 1 - Math.abs(cardValue - 7) / 6; // 0 (A/K) … 1 (7)
+  return (2 + difficulty * 8) * scale;
+}

@@ -34,6 +34,9 @@ export function renderLobby(root) {
   let selectedLcTimer = false;
   let selectedLcMinutes = 10;
   let selectedLcDeckSize = 2;
+  let selectedLcReward = 'full';
+  let selectedBsGridSize = 'standard';
+  let selectedBsVibeMultiplier = 1.5;
 
   root.innerHTML = `
     <div class="card">
@@ -319,6 +322,13 @@ export function renderLobby(root) {
             <button class="mm-rounds-btn ghost" data-lc-deck="3">3</button>
           </div>
         </div>
+        <div class="mm-rounds-row" style="margin-top:4px;">
+          <span>Time scaling:</span>
+          <div class="mm-rounds-btns" id="lc-reward-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-lc-reward="full" title="Hard (middle) cards pay 10s, easy cards 2s">Full (2–10s)</button>
+            <button class="mm-rounds-btn ghost" data-lc-reward="half" title="Everything worth half — slower build, encourages banking">Half (1–5s)</button>
+          </div>
+        </div>
       </div>
       <div id="wi-config" style="display:none">
         <div class="mm-rounds-row">
@@ -336,6 +346,24 @@ export function renderLobby(root) {
             <button class="mm-rounds-btn mm-rounds-selected" data-wi-limit="5">5</button>
             <button class="mm-rounds-btn ghost" data-wi-limit="8">8</button>
             <button class="mm-rounds-btn ghost" data-wi-limit="10">10</button>
+          </div>
+        </div>
+      </div>
+      <div id="bs-config" style="display:none">
+        <div class="mm-rounds-row">
+          <span>Grid size:</span>
+          <div class="mm-rounds-btns" id="bs-grid-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-bs-grid="standard">Standard (10×10)</button>
+            <button class="mm-rounds-btn ghost" data-bs-grid="large">Large (14×14)</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row" style="margin-top:4px;">
+          <span>Miss vibe:</span>
+          <div class="mm-rounds-btns" id="bs-vibe-mult-btns">
+            <button class="mm-rounds-btn ghost" data-bs-mult="1">Off</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-bs-mult="1.5">Low</button>
+            <button class="mm-rounds-btn ghost" data-bs-mult="2">Medium</button>
+            <button class="mm-rounds-btn ghost" data-bs-mult="3">High</button>
           </div>
         </div>
       </div>
@@ -418,8 +446,12 @@ export function renderLobby(root) {
   const lcMinutesRow = root.querySelector('#lc-minutes-row');
   const lcMinutesBtns = root.querySelector('#lc-minutes-btns');
   const lcDeckBtns = root.querySelector('#lc-deck-btns');
+  const lcRewardBtns = root.querySelector('#lc-reward-btns');
   const diceConfig = root.querySelector('#dice-config');
   const diceRuleBtns = root.querySelector('#dice-rule-btns');
+  const bsConfig = root.querySelector('#bs-config');
+  const bsGridBtns = root.querySelector('#bs-grid-btns');
+  const bsVibeBtns = root.querySelector('#bs-vibe-mult-btns');
 
   function paintOptions() {
     btdConfig.style.display = selectedGame === 'beatdealer' ? 'block' : 'none';
@@ -448,6 +480,19 @@ export function renderLobby(root) {
     );
     mmConfig.style.display = selectedGame === 'mastermind' ? 'block' : 'none';
     diceConfig.style.display = selectedGame === 'dice' ? 'block' : 'none';
+    bsConfig.style.display = selectedGame === 'battleships' ? 'block' : 'none';
+    bsGridBtns.querySelectorAll('[data-bs-grid]').forEach(b => {
+      const sel = b.dataset.bsGrid === selectedBsGridSize;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+      b.disabled = state.role !== 'host';
+    });
+    bsVibeBtns.querySelectorAll('[data-bs-mult]').forEach(b => {
+      const sel = parseFloat(b.dataset.bsMult) === selectedBsVibeMultiplier;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+      b.disabled = state.role !== 'host';
+    });
     diceRuleBtns.querySelectorAll('[data-dice-rule]').forEach(b => {
       const sel = b.dataset.diceRule === selectedDiceVibeRule;
       b.classList.toggle('mm-rounds-selected', sel);
@@ -467,6 +512,11 @@ export function renderLobby(root) {
     });
     lcDeckBtns.querySelectorAll('[data-lc-deck]').forEach(b => {
       const sel = parseInt(b.dataset.lcDeck, 10) === selectedLcDeckSize;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+    });
+    lcRewardBtns.querySelectorAll('[data-lc-reward]').forEach(b => {
+      const sel = b.dataset.lcReward === selectedLcReward;
       b.classList.toggle('mm-rounds-selected', sel);
       b.classList.toggle('ghost', !sel);
     });
@@ -591,6 +641,9 @@ export function renderLobby(root) {
     lcTimer: selectedLcTimer,
     lcMinutes: selectedLcMinutes,
     lcDeckSize: selectedLcDeckSize,
+    lcReward: selectedLcReward,
+    bsGridSize: selectedBsGridSize,
+    bsVibeMultiplier: selectedBsVibeMultiplier,
   });
 
   socket.connect();
@@ -648,7 +701,10 @@ export function renderLobby(root) {
     if (ev.detail.diceVibeRule)                selectedDiceVibeRule = ev.detail.diceVibeRule;
     if (ev.detail.lcTimer !== undefined)       selectedLcTimer = !!ev.detail.lcTimer;
     if (ev.detail.lcMinutes)                   selectedLcMinutes = ev.detail.lcMinutes;
-    if (ev.detail.lcDeckSize !== undefined)    selectedLcDeckSize = ev.detail.lcDeckSize;
+    if (ev.detail.lcDeckSize !== undefined)        selectedLcDeckSize = ev.detail.lcDeckSize;
+    if (ev.detail.lcReward)                        selectedLcReward = ev.detail.lcReward;
+    if (ev.detail.bsGridSize)                      selectedBsGridSize = ev.detail.bsGridSize;
+    if (ev.detail.bsVibeMultiplier !== undefined)  selectedBsVibeMultiplier = ev.detail.bsVibeMultiplier;
     if (modeChanged) { renderLobby(root); return; }
     paintOptions();
   };
@@ -754,7 +810,7 @@ export function renderLobby(root) {
   });
 
   startBtn.addEventListener('click', () => {
-    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives, hiloMode: selectedHiloMode, hiloCycles: selectedHiloCycles, hiloDeckSize: selectedHiloDeckSize, hiloVibeRamp: selectedHiloVibeRamp, hiloLives: selectedHiloLives, hiloVibeTarget: selectedHiloVibeTarget, stlDifficulty: selectedStlDifficulty, stlForfeitCards: selectedStlForfeitCards, btdForfeits: selectedBtdForfeits, btdMode: selectedBtdMode, btdGameMode: selectedBtdGameMode, wiWinCondition: selectedWiWinCondition, wiSpellLimit: selectedWiSpellLimit, diceVibeRule: selectedDiceVibeRule, lcTimer: selectedLcTimer, lcMinutes: selectedLcMinutes, lcDeckSize: selectedLcDeckSize });
+    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives, hiloMode: selectedHiloMode, hiloCycles: selectedHiloCycles, hiloDeckSize: selectedHiloDeckSize, hiloVibeRamp: selectedHiloVibeRamp, hiloLives: selectedHiloLives, hiloVibeTarget: selectedHiloVibeTarget, stlDifficulty: selectedStlDifficulty, stlForfeitCards: selectedStlForfeitCards, btdForfeits: selectedBtdForfeits, btdMode: selectedBtdMode, btdGameMode: selectedBtdGameMode, wiWinCondition: selectedWiWinCondition, wiSpellLimit: selectedWiSpellLimit, diceVibeRule: selectedDiceVibeRule, lcTimer: selectedLcTimer, lcMinutes: selectedLcMinutes, lcDeckSize: selectedLcDeckSize, lcReward: selectedLcReward, bsGridSize: selectedBsGridSize, bsVibeMultiplier: selectedBsVibeMultiplier });
   });
 
   wiWinBtns.addEventListener('click', (e) => {
@@ -807,6 +863,33 @@ export function renderLobby(root) {
     const btn = e.target.closest('[data-lc-deck]');
     if (!btn) return;
     selectedLcDeckSize = parseInt(btn.dataset.lcDeck, 10);
+    paintOptions();
+    sendConfig();
+  });
+
+  lcRewardBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-lc-reward]');
+    if (!btn) return;
+    selectedLcReward = btn.dataset.lcReward;
+    paintOptions();
+    sendConfig();
+  });
+
+  bsGridBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-bs-grid]');
+    if (!btn) return;
+    selectedBsGridSize = btn.dataset.bsGrid;
+    paintOptions();
+    sendConfig();
+  });
+
+  bsVibeBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-bs-mult]');
+    if (!btn) return;
+    selectedBsVibeMultiplier = parseFloat(btn.dataset.bsMult);
     paintOptions();
     sendConfig();
   });
