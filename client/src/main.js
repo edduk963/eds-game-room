@@ -6,6 +6,7 @@ import { renderLobby } from './screens/lobby.js';
 import { renderGame } from './screens/game.js';
 import { renderResults } from './screens/results.js';
 import { renderMastermind } from './screens/mastermind.js';
+import { renderMastermind3 } from './screens/mastermind3.js';
 import { renderEndurance } from './screens/endurance.js';
 import { renderTugOfWar } from './screens/tugofwar.js';
 import { renderDice } from './screens/dice.js';
@@ -14,6 +15,8 @@ import { renderSplitLoot } from './screens/splitloot.js';
 import { renderWizardIsland } from './screens/wizardisland.js';
 import { renderBeatDealer } from './screens/beatdealer.js';
 import { renderStandoff } from './screens/standoff.js';
+import { renderLastCall } from './screens/lastcall.js';
+import { renderBattleships } from './screens/battleships.js';
 
 const app = document.getElementById('app');
 
@@ -52,6 +55,12 @@ function route() {
   if (hash === '#/mastermind') {
     if (!state.seed) { navigate('#/'); return; }
     renderMastermind(app);
+    return;
+  }
+
+  if (hash === '#/mastermind3') {
+    if (!state.seed) { navigate('#/'); return; }
+    renderMastermind3(app);
     return;
   }
 
@@ -102,6 +111,18 @@ function route() {
     return;
   }
 
+  if (hash === '#/lastcall') {
+    if (!state.seed) { navigate('#/'); return; }
+    renderLastCall(app);
+    return;
+  }
+
+  if (hash === '#/battleships') {
+    if (!state.seed) { navigate('#/'); return; }
+    renderBattleships(app);
+    return;
+  }
+
   if (hash === '#/results') {
     renderResults(app);
     return;
@@ -137,10 +158,17 @@ socket.addEventListener('begin', (ev) => {
   if (ev.detail.guest2Name) state.guest2Name = ev.detail.guest2Name;
   state.stlDifficulty = ev.detail.stlDifficulty || 'normal';
   state.stlForfeitCards = ev.detail.stlForfeitCards || ['truth', 'dare', 'control', 'strip', 'drink', 'surrender'];
+  state.btdForfeits = ev.detail.btdForfeits || [];
+  state.btdMode = ev.detail.btdMode || 'draw';
+  state.btdGameMode = ev.detail.btdGameMode || 'dealer';
   state.wiWinCondition = ev.detail.wiWinCondition || 'normal';
   state.wiSpellLimit = ev.detail.wiSpellLimit || 5;
+  state.diceVibeRule = ev.detail.diceVibeRule || 'lowest';
+  state.lcTimer = !!ev.detail.lcTimer;
+  state.lcMinutes = ev.detail.lcMinutes || 10;
+  state.lcDeckSize = ev.detail.lcDeckSize ?? 2;
   const gt = state.gameType;
-  if (gt === 'mastermind') navigate('#/mastermind');
+  if (gt === 'mastermind') navigate(state.playerCount === 3 ? '#/mastermind3' : '#/mastermind');
   else if (gt === 'endurance') navigate('#/endurance');
   else if (gt === 'tugofwar') navigate('#/tugofwar');
   else if (gt === 'dice') navigate('#/dice');
@@ -149,6 +177,8 @@ socket.addEventListener('begin', (ev) => {
   else if (gt === 'wizardisland') navigate('#/wizardisland');
   else if (gt === 'beatdealer') navigate('#/beatdealer');
   else if (gt === 'standoff') navigate('#/standoff');
+  else if (gt === 'lastcall') navigate('#/lastcall');
+  else if (gt === 'battleships') navigate('#/battleships');
   else navigate('#/game');
 });
 

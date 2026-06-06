@@ -5,3 +5,10 @@ dist/
 *.log
 .DS_Store
 .vite/
+
+# Local agent / editor state — not part of the app
+.claude/
+memory/
+
+# Ephemeral Conquest world-map state (regenerated at runtime)
+server/world-state.json

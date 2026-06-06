@@ -28,8 +28,15 @@ export const state = {
   hiloVibeTarget: 'both',
   stlDifficulty: 'normal',
   stlForfeitCards: ['truth', 'dare', 'control', 'strip', 'drink', 'surrender'],
+  btdForfeits: [],
+  btdMode: 'draw',
+  btdGameMode: 'dealer',
   wiWinCondition: 'normal',
   wiSpellLimit: 5,
+  diceVibeRule: 'lowest',
+  lcTimer: false,
+  lcMinutes: 10,
+  lcDeckSize: 2,
 };
 
 export function reset() {
@@ -61,6 +68,13 @@ export function reset() {
   state.hiloVibeTarget = 'both';
   state.stlDifficulty = 'normal';
   state.stlForfeitCards = ['truth', 'dare', 'control', 'strip', 'drink', 'surrender'];
+  state.btdForfeits = [];
+  state.btdMode = 'draw';
+  state.btdGameMode = 'dealer';
   state.wiWinCondition = 'normal';
   state.wiSpellLimit = 5;
+  state.diceVibeRule = 'lowest';
+  state.lcTimer = false;
+  state.lcMinutes = 10;
+  state.lcDeckSize = 2;
 }

@@ -3,6 +3,7 @@ import { state } from '../state.js';
 import { navigate } from '../main.js';
 import { MSG } from '../shared/messages.js';
 import * as haptics from '../haptics.js';
+import { DEFAULT_FORFEIT_LINES } from '../game/beatdealerGame.js';
 
 export function renderLobby(root) {
   if (!state.myName) {
@@ -24,8 +25,15 @@ export function renderLobby(root) {
   let selectedHiloVibeTarget = 'both';
   let selectedStlDifficulty = 'normal';
   let selectedStlForfeitCards = ['truth', 'dare', 'control', 'strip', 'drink', 'surrender'];
+  let selectedBtdForfeits = [...DEFAULT_FORFEIT_LINES];
+  let selectedBtdMode = 'draw';
+  let selectedBtdGameMode = 'dealer';
   let selectedWiWinCondition = 'normal';
   let selectedWiSpellLimit = 5;
+  let selectedDiceVibeRule = 'lowest';
+  let selectedLcTimer = false;
+  let selectedLcMinutes = 10;
+  let selectedLcDeckSize = 2;
 
   root.innerHTML = `
     <div class="card">
@@ -105,9 +113,23 @@ export function renderLobby(root) {
               <div class="desc">Roll each round. Loser suffers escalating forfeit — starts 15s and doubles on each loss.</div>
             </div>
           </div>
+          <div class="game-tile game-tile-selectable" data-game="lastcall">
+            <div class="game-tile-icon">🏁</div>
+            <div>
+              <div class="name">Last Call</div>
+              <div class="desc">Win vibe time off Hi-Lo, then run it on yourself. Race to finish before the clock — whoever doesn't, forfeits.</div>
+            </div>
+          </div>
         </div>
         <div class="game-category-label">Strategy</div>
         <div class="game-category-grid">
+          <div class="game-tile game-tile-selectable" data-game="battleships">
+            <div class="game-tile-icon">🚢</div>
+            <div>
+              <div class="name">Battleships</div>
+              <div class="desc">Place your fleet, sink theirs. Each hit deals 15s — stack them up. Winner takes control of the loser's vibe.</div>
+            </div>
+          </div>
           <div class="game-tile game-tile-selectable" data-game="standoff">
             <div class="game-tile-icon">⚔️</div>
             <div>
@@ -222,6 +244,82 @@ export function renderLobby(root) {
           </div>
         </div>
       </div>
+      <div id="btd-config" style="display:none">
+        <div class="mm-rounds-row">
+          <span>Game mode:</span>
+          <div class="mm-rounds-btns" id="btd-gamemode-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-btd-gamemode="dealer" title="Players race a dealer card — anyone who doesn't beat the dealer suffers">Vs Dealer</button>
+            <button class="mm-rounds-btn ghost" data-btd-gamemode="h2h" title="No dealer — players lay a card, highest wins, everyone below the top suffers">Head to Head</button>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.55;margin:-2px 0 8px;">
+          <strong>Vs Dealer</strong> — every player lays a card against one dealer card; anyone who doesn't beat it takes the forfeit.
+          <strong>Head to Head</strong> — no dealer; highest card laid is safe (ties at the top are all safe), everyone below takes the forfeit. Works for 2 or 3 players.
+        </div>
+        <div class="mm-rounds-row">
+          <span>Forfeit mode:</span>
+          <div class="mm-rounds-btns" id="btd-mode-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-btd-mode="draw" title="The forfeit stays hidden until someone loses, then it's drawn">Draw</button>
+            <button class="mm-rounds-btn ghost" data-btd-mode="reveal" title="The round's forfeit is shown before you play your card">Reveal</button>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.55;margin:-2px 0 8px;">
+          <strong>Draw</strong> — the forfeit is hidden until someone loses the round, then drawn from the deck.
+          <strong>Reveal</strong> — the round's forfeit is shown up front, so you know the stakes before playing.
+        </div>
+        <div class="mm-rounds-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+          <span>Forfeits <span style="font-size:11px;color:var(--muted)">(agree these together before starting)</span>:</span>
+          <div style="font-size:12px;color:var(--muted);line-height:1.55;">
+            This box is <strong>pre-filled with the built-in forfeits</strong> — edit, add or remove lines as you both agree, or paste your own. <strong>One forfeit per line.</strong>
+            Optionally start a line with <code>[1]</code>, <code>[2]</code> or <code>[3]</code> to set how hard it is to beat:
+            <code>[1]</code> easy (dealer plays a low card), <code>[2]</code> medium, <code>[3]</code> hard (dealer plays a high card).
+            Clear the box to fall back to the built-in list. Vibe forfeits are always mixed in.
+          </div>
+          <textarea id="btd-forfeits-input" rows="6"
+            placeholder="[1] Take a sip of your drink&#10;[2] Truth or dare — opponent chooses&#10;[3] Loser gives a 2-minute massage"
+            style="width:100%;box-sizing:border-box;resize:vertical;font-size:13px;line-height:1.5;padding:8px 10px;border-radius:8px;border:1px solid #2a3556;background:#0f1626;color:var(--ink);font-family:inherit;"></textarea>
+          <div id="btd-forfeits-count" style="font-size:11px;color:var(--muted);text-align:right;"></div>
+        </div>
+      </div>
+      <div id="dice-config" style="display:none">
+        <div class="mm-rounds-row">
+          <span>Who suffers <span style="font-size:11px;color:var(--muted)">(3-player)</span>:</span>
+          <div class="mm-rounds-btns" id="dice-rule-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-dice-rule="lowest" title="Each round only the lowest roller suffers (ties for lowest all suffer)">Lowest roller</button>
+            <button class="mm-rounds-btn ghost" data-dice-rule="all_but_winner" title="Everyone except the highest roller suffers">All but winner</button>
+          </div>
+        </div>
+      </div>
+      <div id="lc-config" style="display:none">
+        <div style="font-size:12px;color:var(--muted);line-height:1.55;margin-bottom:10px;">
+          Win Hi-Lo guesses to build vibe time — <strong>harder cards (middle values) pay more</strong>. <strong>Bank</strong> to stash it safe (ends your turn), then <strong>claim</strong> it to run the vibes or <strong>play on</strong>. Miss and your unbanked time is gone. Claiming buzzes <strong>both</strong> devices, draining each player's own banked time while you control one shared intensity slider. <strong>Finish before the buzzer</strong> or forfeit. Power-ups are dealt from the deck.
+        </div>
+        <div class="mm-rounds-row">
+          <span>Deadline:</span>
+          <div class="mm-rounds-btns" id="lc-timer-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-lc-timer="off" title="No clock — play until everyone presses Finish">No timer</button>
+            <button class="mm-rounds-btn ghost" data-lc-timer="on" title="Shared countdown — whoever hasn't finished at 0:00 forfeits">Timer</button>
+          </div>
+        </div>
+        <div id="lc-minutes-row" class="mm-rounds-row" style="margin-top:4px;display:none;">
+          <span>Clock:</span>
+          <div class="mm-rounds-btns" id="lc-minutes-btns">
+            <button class="mm-rounds-btn ghost" data-lc-minutes="5">5m</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-lc-minutes="10">10m</button>
+            <button class="mm-rounds-btn ghost" data-lc-minutes="15">15m</button>
+            <button class="mm-rounds-btn ghost" data-lc-minutes="20">20m</button>
+            <button class="mm-rounds-btn ghost" data-lc-minutes="30">30m</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row" style="margin-top:4px;">
+          <span>Deck size:</span>
+          <div class="mm-rounds-btns" id="lc-deck-btns">
+            <button class="mm-rounds-btn ghost" data-lc-deck="1">1</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-lc-deck="2">2</button>
+            <button class="mm-rounds-btn ghost" data-lc-deck="3">3</button>
+          </div>
+        </div>
+      </div>
       <div id="wi-config" style="display:none">
         <div class="mm-rounds-row">
           <span>Win condition:</span>
@@ -310,12 +408,68 @@ export function renderLobby(root) {
   const wiWinBtns = root.querySelector('#wi-win-btns');
   const wiLimitRow = root.querySelector('#wi-limit-row');
   const wiLimitBtns = root.querySelector('#wi-limit-btns');
+  const btdConfig = root.querySelector('#btd-config');
+  const btdModeBtns = root.querySelector('#btd-mode-btns');
+  const btdGamemodeBtns = root.querySelector('#btd-gamemode-btns');
+  const btdForfeitsInput = root.querySelector('#btd-forfeits-input');
+  const btdForfeitsCount = root.querySelector('#btd-forfeits-count');
+  const lcConfig = root.querySelector('#lc-config');
+  const lcTimerBtns = root.querySelector('#lc-timer-btns');
+  const lcMinutesRow = root.querySelector('#lc-minutes-row');
+  const lcMinutesBtns = root.querySelector('#lc-minutes-btns');
+  const lcDeckBtns = root.querySelector('#lc-deck-btns');
+  const diceConfig = root.querySelector('#dice-config');
+  const diceRuleBtns = root.querySelector('#dice-rule-btns');
 
   function paintOptions() {
+    btdConfig.style.display = selectedGame === 'beatdealer' ? 'block' : 'none';
+    btdModeBtns.querySelectorAll('[data-btd-mode]').forEach(b => {
+      const sel = b.dataset.btdMode === selectedBtdMode;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+      b.disabled = state.role !== 'host';
+    });
+    btdGamemodeBtns.querySelectorAll('[data-btd-gamemode]').forEach(b => {
+      const sel = b.dataset.btdGamemode === selectedBtdGameMode;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+      b.disabled = state.role !== 'host';
+    });
+    btdForfeitsInput.disabled = state.role !== 'host';
+    // Don't clobber the host's caret while they're typing.
+    if (document.activeElement !== btdForfeitsInput) {
+      btdForfeitsInput.value = selectedBtdForfeits.join('\n');
+    }
+    btdForfeitsCount.textContent = selectedBtdForfeits.length
+      ? `${selectedBtdForfeits.length} forfeit${selectedBtdForfeits.length === 1 ? '' : 's'} in the deck`
+      : 'Empty — using built-in forfeits';
     root.querySelectorAll('.game-tile-selectable').forEach(t =>
       t.classList.toggle('selected', t.dataset.game === selectedGame)
     );
     mmConfig.style.display = selectedGame === 'mastermind' ? 'block' : 'none';
+    diceConfig.style.display = selectedGame === 'dice' ? 'block' : 'none';
+    diceRuleBtns.querySelectorAll('[data-dice-rule]').forEach(b => {
+      const sel = b.dataset.diceRule === selectedDiceVibeRule;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+    });
+    lcConfig.style.display = selectedGame === 'lastcall' ? 'block' : 'none';
+    lcMinutesRow.style.display = selectedLcTimer ? 'flex' : 'none';
+    lcTimerBtns.querySelectorAll('[data-lc-timer]').forEach(b => {
+      const sel = (b.dataset.lcTimer === 'on') === selectedLcTimer;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+    });
+    lcMinutesBtns.querySelectorAll('[data-lc-minutes]').forEach(b => {
+      const sel = parseInt(b.dataset.lcMinutes, 10) === selectedLcMinutes;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+    });
+    lcDeckBtns.querySelectorAll('[data-lc-deck]').forEach(b => {
+      const sel = parseInt(b.dataset.lcDeck, 10) === selectedLcDeckSize;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+    });
     hiloConfig.style.display = selectedGame === 'hilo' ? 'block' : 'none';
     stlConfig.style.display = selectedGame === 'splitloot' ? 'block' : 'none';
     wiConfig.style.display = selectedGame === 'wizardisland' ? 'block' : 'none';
@@ -386,9 +540,13 @@ export function renderLobby(root) {
     const isWi = selectedGame === 'wizardisland';
     const isBtd = selectedGame === 'beatdealer';
     const isSo = selectedGame === 'standoff';
-    forfeitRow.style.display   = (isHilo || isStl || isWi || isBtd || isSo) ? 'none' : '';
-    edgeModeRow.style.display  = (isHilo || isStl || isWi || isBtd || isSo) ? 'none' : '';
-    if (isHilo || isStl || isWi || isBtd || isSo) edgeLivesRow.style.display = 'none';
+    const isLc = selectedGame === 'lastcall';
+    const isBs = selectedGame === 'battleships';
+    const hideForfeit = isHilo || isStl || isWi || isBtd || isSo || isBs || (isLc && !selectedLcTimer);
+    const noEdge = isHilo || isStl || isWi || isBtd || isSo || isLc || isBs;
+    forfeitRow.style.display   = hideForfeit ? 'none' : '';
+    edgeModeRow.style.display  = noEdge ? 'none' : '';
+    if (noEdge) edgeLivesRow.style.display = 'none';
     forfeitBtns.querySelectorAll('[data-forfeit]').forEach(b => {
       const sel = parseInt(b.dataset.forfeit, 10) === selectedForfeit;
       b.classList.toggle('mm-rounds-selected', sel);
@@ -424,8 +582,15 @@ export function renderLobby(root) {
     hiloVibeTarget: selectedHiloVibeTarget,
     stlDifficulty: selectedStlDifficulty,
     stlForfeitCards: selectedStlForfeitCards,
+    btdForfeits: selectedBtdForfeits,
+    btdMode: selectedBtdMode,
+    btdGameMode: selectedBtdGameMode,
     wiWinCondition: selectedWiWinCondition,
     wiSpellLimit: selectedWiSpellLimit,
+    diceVibeRule: selectedDiceVibeRule,
+    lcTimer: selectedLcTimer,
+    lcMinutes: selectedLcMinutes,
+    lcDeckSize: selectedLcDeckSize,
   });
 
   socket.connect();
@@ -475,8 +640,15 @@ export function renderLobby(root) {
     if (ev.detail.hiloVibeTarget)              selectedHiloVibeTarget = ev.detail.hiloVibeTarget;
     if (ev.detail.stlDifficulty)               selectedStlDifficulty = ev.detail.stlDifficulty;
     if (ev.detail.stlForfeitCards)             selectedStlForfeitCards = ev.detail.stlForfeitCards;
+    if (ev.detail.btdForfeits)                 selectedBtdForfeits = ev.detail.btdForfeits;
+    if (ev.detail.btdMode)                     selectedBtdMode = ev.detail.btdMode;
+    if (ev.detail.btdGameMode)                 selectedBtdGameMode = ev.detail.btdGameMode;
     if (ev.detail.wiWinCondition)              selectedWiWinCondition = ev.detail.wiWinCondition;
     if (ev.detail.wiSpellLimit !== undefined)  selectedWiSpellLimit = ev.detail.wiSpellLimit;
+    if (ev.detail.diceVibeRule)                selectedDiceVibeRule = ev.detail.diceVibeRule;
+    if (ev.detail.lcTimer !== undefined)       selectedLcTimer = !!ev.detail.lcTimer;
+    if (ev.detail.lcMinutes)                   selectedLcMinutes = ev.detail.lcMinutes;
+    if (ev.detail.lcDeckSize !== undefined)    selectedLcDeckSize = ev.detail.lcDeckSize;
     if (modeChanged) { renderLobby(root); return; }
     paintOptions();
   };
@@ -523,6 +695,37 @@ export function renderLobby(root) {
     sendConfig();
   });
 
+  btdGamemodeBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-btd-gamemode]');
+    if (!btn) return;
+    selectedBtdGameMode = btn.dataset.btdGamemode;
+    paintOptions();
+    sendConfig();
+  });
+
+  btdModeBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-btd-mode]');
+    if (!btn) return;
+    selectedBtdMode = btn.dataset.btdMode;
+    paintOptions();
+    sendConfig();
+  });
+
+  btdForfeitsInput.addEventListener('input', () => {
+    if (state.role !== 'host') return;
+    selectedBtdForfeits = btdForfeitsInput.value
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 0)
+      .slice(0, 100);
+    btdForfeitsCount.textContent = selectedBtdForfeits.length
+      ? `${selectedBtdForfeits.length} forfeit${selectedBtdForfeits.length === 1 ? '' : 's'} in the deck`
+      : 'Empty — using built-in forfeits';
+    sendConfig();
+  });
+
   forfeitBtns.addEventListener('click', (e) => {
     if (state.role !== 'host') return;
     const btn = e.target.closest('[data-forfeit]');
@@ -551,7 +754,7 @@ export function renderLobby(root) {
   });
 
   startBtn.addEventListener('click', () => {
-    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives, hiloMode: selectedHiloMode, hiloCycles: selectedHiloCycles, hiloDeckSize: selectedHiloDeckSize, hiloVibeRamp: selectedHiloVibeRamp, hiloLives: selectedHiloLives, hiloVibeTarget: selectedHiloVibeTarget, stlDifficulty: selectedStlDifficulty, stlForfeitCards: selectedStlForfeitCards, wiWinCondition: selectedWiWinCondition, wiSpellLimit: selectedWiSpellLimit });
+    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives, hiloMode: selectedHiloMode, hiloCycles: selectedHiloCycles, hiloDeckSize: selectedHiloDeckSize, hiloVibeRamp: selectedHiloVibeRamp, hiloLives: selectedHiloLives, hiloVibeTarget: selectedHiloVibeTarget, stlDifficulty: selectedStlDifficulty, stlForfeitCards: selectedStlForfeitCards, btdForfeits: selectedBtdForfeits, btdMode: selectedBtdMode, btdGameMode: selectedBtdGameMode, wiWinCondition: selectedWiWinCondition, wiSpellLimit: selectedWiSpellLimit, diceVibeRule: selectedDiceVibeRule, lcTimer: selectedLcTimer, lcMinutes: selectedLcMinutes, lcDeckSize: selectedLcDeckSize });
   });
 
   wiWinBtns.addEventListener('click', (e) => {
@@ -568,6 +771,42 @@ export function renderLobby(root) {
     const btn = e.target.closest('[data-wi-limit]');
     if (!btn) return;
     selectedWiSpellLimit = parseInt(btn.dataset.wiLimit, 10);
+    paintOptions();
+    sendConfig();
+  });
+
+  diceRuleBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-dice-rule]');
+    if (!btn) return;
+    selectedDiceVibeRule = btn.dataset.diceRule;
+    paintOptions();
+    sendConfig();
+  });
+
+  lcTimerBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-lc-timer]');
+    if (!btn) return;
+    selectedLcTimer = btn.dataset.lcTimer === 'on';
+    paintOptions();
+    sendConfig();
+  });
+
+  lcMinutesBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-lc-minutes]');
+    if (!btn) return;
+    selectedLcMinutes = parseInt(btn.dataset.lcMinutes, 10);
+    paintOptions();
+    sendConfig();
+  });
+
+  lcDeckBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-lc-deck]');
+    if (!btn) return;
+    selectedLcDeckSize = parseInt(btn.dataset.lcDeck, 10);
     paintOptions();
     sendConfig();
   });

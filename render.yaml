@@ -1,0 +1,26 @@
+# Render Blueprint for Ed's Game Hub.
+# https://render.com/docs/blueprint-spec
+#
+# One Docker web service: builds the client and serves dist/ + /ws from
+# server/index.js. State is in memory, so this is a SINGLE instance — do not
+# raise numInstances above 1 (a second instance would hold isolated sessions).
+#
+# Free plan note: the service spins down after ~15 min of inactivity; the first
+# request after that triggers a ~50s cold start, then it's instant again.
+# In-memory sessions are dropped on spin-down/redeploy (expected — re-create the room).
+
+services:
+  - type: web
+    name: eds-game-room
+    runtime: docker
+    plan: free
+    region: frankfurt        # closest free region to the UK; change if you prefer
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /        # SPA catch-all returns index.html (200)
+    autoDeploy: true
+    numInstances: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3001"        # server reads process.env.PORT; Render routes to it

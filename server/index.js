@@ -167,6 +167,7 @@ wss.on('connection', (ws) => {
       s.guestEdgeReady = false;
       s.hostInstReady = false;
       s.guestInstReady = false;
+      s.guest2InstReady = false;
       s.hostWiRollReady = false;
       s.guestWiRollReady = false;
       s.hostWiBattleReady = false;
@@ -181,7 +182,7 @@ wss.on('connection', (ws) => {
       s.soMirrorThrottle = 0; s.soTokenCounts = { host: 0, guest: 0 };
       s.soRoundStartAt = Date.now(); s.soDraftPicks = [];
       s.soHostReady = false; s.soGuestReady = false;
-      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo', 'splitloot', 'wizardisland', 'beatdealer', 'standoff'];
+      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo', 'splitloot', 'wizardisland', 'beatdealer', 'standoff', 'lastcall', 'battleships'];
       const gameType = validGameTypes.includes(msg.gameType) ? msg.gameType : 'galactic';
       const rounds = Number.isInteger(msg.rounds) && msg.rounds >= 2 && msg.rounds <= 5 ? msg.rounds : 3;
       const mode = msg.mode === 'hard' ? 'hard' : 'easy';
@@ -202,27 +203,34 @@ wss.on('connection', (ws) => {
       const validStlDifficulties = ['easy', 'normal', 'hard'];
       const stlDifficulty = validStlDifficulties.includes(msg.stlDifficulty) ? msg.stlDifficulty : 'normal';
       const stlForfeitCards = Array.isArray(msg.stlForfeitCards) ? msg.stlForfeitCards.filter(c => typeof c === 'string').map(c => c.slice(0, 32)).slice(0, 10) : [];
+      const btdForfeits = Array.isArray(msg.btdForfeits) ? msg.btdForfeits.filter(c => typeof c === 'string').map(c => c.slice(0, 200)).slice(0, 100) : [];
+      const btdMode = msg.btdMode === 'reveal' ? 'reveal' : 'draw';
+      const btdGameMode = msg.btdGameMode === 'h2h' ? 'h2h' : 'dealer';
       const validWiWin = ['normal', 'endurance', 'timed'];
       const wiWinCondition = validWiWin.includes(msg.wiWinCondition) ? msg.wiWinCondition : 'normal';
       const wiSpellLimit = Number.isInteger(msg.wiSpellLimit) && msg.wiSpellLimit >= 1 && msg.wiSpellLimit <= 20 ? msg.wiSpellLimit : 5;
+      const diceVibeRule = ['lowest', 'all_but_winner'].includes(msg.diceVibeRule) ? msg.diceVibeRule : 'lowest';
+      const lcTimer = !!msg.lcTimer;
+      const lcMinutes = [5, 10, 15, 20, 30].includes(msg.lcMinutes) ? msg.lcMinutes : 10;
+      const lcDeckSize = Number.isInteger(msg.lcDeckSize) && msg.lcDeckSize >= 1 && msg.lcDeckSize <= 6 ? msg.lcDeckSize : 2;
       s.edgeMode = edgeMode;
       const guest2Name = s.guest2?.name ?? null;
-      broadcast(s, { type: 'begin', seed: s.seed, startAt: null, gameType, rounds, mode, forfeitDuration, edgeMode, edgeLives, hiloMode, hiloCycles, hiloDeckSize, hiloVibeRamp, hiloLives, hiloVibeTarget, playerCount, guest2Name, stlDifficulty, stlForfeitCards, wiWinCondition, wiSpellLimit });
+      broadcast(s, { type: 'begin', seed: s.seed, startAt: null, gameType, rounds, mode, forfeitDuration, edgeMode, edgeLives, hiloMode, hiloCycles, hiloDeckSize, hiloVibeRamp, hiloLives, hiloVibeTarget, playerCount, guest2Name, stlDifficulty, stlForfeitCards, btdForfeits, btdMode, btdGameMode, wiWinCondition, wiSpellLimit, diceVibeRule, lcTimer, lcMinutes, lcDeckSize });
       return;
     }
 
     if (msg.type === 'mm_guess' && Array.isArray(msg.guess)) {
-      broadcast(s, { type: 'mm_guess', guess: msg.guess.map(c => String(c)).slice(0, 7) }, ws);
+      broadcast(s, { type: 'mm_guess', guess: msg.guess.map(c => String(c)).slice(0, 7), role }, ws);
       return;
     }
 
     if (msg.type === 'mm_round_ready') {
-      broadcast(s, { type: 'mm_round_ready' }, ws);
+      broadcast(s, { type: 'mm_round_ready', role }, ws);
       return;
     }
 
     if (msg.type === 'mm_powerup') {
-      broadcast(s, { type: 'mm_powerup', powerup: String(msg.powerup), slotIndex: msg.slotIndex | 0, color: String(msg.color || '') }, ws);
+      broadcast(s, { type: 'mm_powerup', powerup: String(msg.powerup), slotIndex: msg.slotIndex | 0, color: String(msg.color || ''), role }, ws);
       return;
     }
 
@@ -237,12 +245,12 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.type === 'mm_game_end_ready') {
-      broadcast(s, { type: 'mm_game_end_ready' }, ws);
+      broadcast(s, { type: 'mm_game_end_ready', role }, ws);
       return;
     }
 
     if (msg.type === 'lobby_config' && role === 'host') {
-      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo', 'splitloot', 'wizardisland', 'beatdealer', 'standoff'];
+      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo', 'splitloot', 'wizardisland', 'beatdealer', 'standoff', 'lastcall', 'battleships'];
       const validDurations = [15, 30, 60, 120, 300, 600];
       const validHiloModes = ['submission', 'fixed', 'random'];
       broadcast(s, {
@@ -261,8 +269,15 @@ wss.on('connection', (ws) => {
         hiloVibeTarget: ['both', 'highest_lives', 'random'].includes(msg.hiloVibeTarget) ? msg.hiloVibeTarget : 'both',
         stlDifficulty: ['easy', 'normal', 'hard'].includes(msg.stlDifficulty) ? msg.stlDifficulty : 'normal',
         stlForfeitCards: Array.isArray(msg.stlForfeitCards) ? msg.stlForfeitCards.filter(c => typeof c === 'string').map(c => c.slice(0, 32)).slice(0, 10) : [],
+        btdForfeits: Array.isArray(msg.btdForfeits) ? msg.btdForfeits.filter(c => typeof c === 'string').map(c => c.slice(0, 200)).slice(0, 100) : [],
+        btdMode: msg.btdMode === 'reveal' ? 'reveal' : 'draw',
+        btdGameMode: msg.btdGameMode === 'h2h' ? 'h2h' : 'dealer',
         wiWinCondition: ['normal', 'endurance', 'timed'].includes(msg.wiWinCondition) ? msg.wiWinCondition : 'normal',
         wiSpellLimit: Number.isInteger(msg.wiSpellLimit) && msg.wiSpellLimit >= 1 && msg.wiSpellLimit <= 20 ? msg.wiSpellLimit : 5,
+        diceVibeRule: ['lowest', 'all_but_winner'].includes(msg.diceVibeRule) ? msg.diceVibeRule : 'lowest',
+        lcTimer: !!msg.lcTimer,
+        lcMinutes: [5, 10, 15, 20, 30].includes(msg.lcMinutes) ? msg.lcMinutes : 10,
+        lcDeckSize: Number.isInteger(msg.lcDeckSize) && msg.lcDeckSize >= 1 && msg.lcDeckSize <= 6 ? msg.lcDeckSize : 2,
       }, ws);
       return;
     }
@@ -386,9 +401,12 @@ wss.on('connection', (ws) => {
     if (msg.type === 'inst_ready') {
       if (role === 'host') s.hostInstReady = true;
       else if (role === 'guest') s.guestInstReady = true;
-      if (s.hostInstReady && s.guestInstReady) {
+      else if (role === 'guest2') s.guest2InstReady = true;
+      const allInstReady = s.hostInstReady && s.guestInstReady && (s.guest2 == null || s.guest2InstReady);
+      if (allInstReady) {
         s.hostInstReady = false;
         s.guestInstReady = false;
+        s.guest2InstReady = false;
         broadcast(s, { type: 'inst_go', startAt: Date.now() + 3000 });
       }
       return;
@@ -396,19 +414,22 @@ wss.on('connection', (ws) => {
 
     // ── Beat the Dealer messages ───────────────────────────────────────────────
     if (msg.type === 'btd_play' && Number.isInteger(msg.cardIndex) && msg.cardIndex >= 0 && msg.cardIndex <= 9) {
-      broadcast(s, { type: 'btd_opp_play', cardIndex: msg.cardIndex }, ws);
+      broadcast(s, { type: 'btd_opp_play', cardIndex: msg.cardIndex, role }, ws);
       return;
     }
 
     if (msg.type === 'btd_next_ready') {
-      broadcast(s, { type: 'btd_next_ready' }, ws);
+      broadcast(s, { type: 'btd_next_ready', role }, ws);
       return;
     }
 
     if (msg.type === 'btd_draw_forfeit' && role === 'host') {
       const forfeit = typeof msg.forfeit === 'string' ? msg.forfeit.slice(0, 200) : '';
-      const loser = ['host', 'guest', 'both'].includes(msg.loser) ? msg.loser : null;
-      broadcast(s, { type: 'btd_draw_forfeit', forfeit, loser });
+      const validRoles = ['host', 'guest', 'guest2'];
+      const losers = Array.isArray(msg.losers)
+        ? [...new Set(msg.losers.filter(r => validRoles.includes(r)))]
+        : [];
+      broadcast(s, { type: 'btd_draw_forfeit', forfeit, losers });
       return;
     }
 
@@ -417,13 +438,7 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    if (msg.type === 'btd_mode' && role === 'host') {
-      const mode = msg.mode === 'reveal' ? 'reveal' : 'draw';
-      broadcast(s, { type: 'btd_mode', mode });
-      return;
-    }
-
-    if (msg.type === 'btd_vibe_claim' && ['start', 'pause'].includes(msg.action) && ['host', 'guest'].includes(msg.target)) {
+    if (msg.type === 'btd_vibe_claim' && ['start', 'pause'].includes(msg.action) && ['host', 'guest', 'guest2'].includes(msg.target)) {
       const payload = { type: 'btd_vibe_claim', target: msg.target, action: msg.action };
       if (msg.action === 'start' && Number.isFinite(msg.remaining)) payload.remaining = Math.max(0, msg.remaining | 0);
       broadcast(s, payload);
@@ -435,7 +450,7 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    if (msg.type === 'btd_claim_intensity' && ['host', 'guest'].includes(msg.target) && Number.isFinite(msg.intensity)) {
+    if (msg.type === 'btd_claim_intensity' && ['host', 'guest', 'guest2'].includes(msg.target) && Number.isFinite(msg.intensity)) {
       broadcast(s, { type: 'btd_claim_intensity', target: msg.target, intensity: Math.max(0, Math.min(1, msg.intensity)) });
       return;
     }
@@ -455,7 +470,7 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.type === 'dice_roll' && Number.isInteger(msg.value) && msg.value >= 1 && msg.value <= 6) {
-      broadcast(s, { type: 'dice_opp_roll', value: msg.value }, ws);
+      broadcast(s, { type: 'dice_opp_roll', value: msg.value, role }, ws);
       return;
     }
 
@@ -465,7 +480,7 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.type === 'dice_next') {
-      broadcast(s, { type: 'dice_next' }, ws);
+      broadcast(s, { type: 'dice_next', role }, ws);
       return;
     }
 
@@ -552,6 +567,51 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'hilo_wave_mode' && role === 'host') {
       broadcast(s, { type: 'hilo_wave_mode', enabled: !!msg.enabled }, ws);
+      return;
+    }
+
+    // ── Last Call ─────────────────────────────────────────────────────────────
+    if (msg.type === 'lc_guess' && (msg.guess === 'higher' || msg.guess === 'lower')) {
+      broadcast(s, { type: 'lc_guess', guess: msg.guess, role }, ws);
+      return;
+    }
+
+    if (msg.type === 'lc_resolve' && ['claim', 'playon'].includes(msg.choice)) {
+      broadcast(s, { type: 'lc_resolve', choice: msg.choice, role }, ws);
+      return;
+    }
+
+    if (msg.type === 'lc_run_level' && Number.isFinite(msg.level)) {
+      broadcast(s, { type: 'lc_run_level', level: Math.max(0, Math.min(1, msg.level)), role }, ws);
+      return;
+    }
+
+    if (msg.type === 'lc_run_tick' && msg.banks && typeof msg.banks === 'object') {
+      const banks = {};
+      for (const r of ['host', 'guest', 'guest2']) {
+        if (Number.isFinite(msg.banks[r])) banks[r] = Math.max(0, msg.banks[r]);
+      }
+      broadcast(s, { type: 'lc_run_tick', banks, role }, ws);
+      return;
+    }
+
+    if (msg.type === 'lc_run_stop' && msg.banks && typeof msg.banks === 'object') {
+      const banks = {};
+      for (const r of ['host', 'guest', 'guest2']) {
+        if (Number.isFinite(msg.banks[r])) banks[r] = Math.max(0, msg.banks[r]);
+      }
+      broadcast(s, { type: 'lc_run_stop', banks, role }, ws);
+      return;
+    }
+
+    if (msg.type === 'lc_finish') {
+      broadcast(s, { type: 'lc_finish', role }, ws);
+      return;
+    }
+
+    if (msg.type === 'lc_powerup' && ['peek', 'doubledown', 'pattern', 'drain', 'leech', 'hijack', 'tax', 'lockbox', 'timeheist'].includes(msg.puType)) {
+      const target = ['host', 'guest', 'guest2'].includes(msg.target) ? msg.target : null;
+      broadcast(s, { type: 'lc_powerup', puType: msg.puType, target, role }, ws);
       return;
     }
 
@@ -705,6 +765,37 @@ wss.on('connection', (ws) => {
     }
     // ── End Standoff ──────────────────────────────────────────────────────────
 
+    // ── Battleships messages ──────────────────────────────────────────────────
+    if (msg.type === 'bs_ready') {
+      broadcast(s, { type: 'bs_ready', role }, ws);
+      return;
+    }
+
+    if (msg.type === 'bs_shot') {
+      const r = msg.r | 0, c = msg.c | 0;
+      if (r < 0 || r > 9 || c < 0 || c > 9) return;
+      broadcast(s, { type: 'bs_shot', r, c, role }, ws);
+      return;
+    }
+
+    if (msg.type === 'bs_result') {
+      broadcast(s, { type: 'bs_result', r: msg.r | 0, c: msg.c | 0, hit: !!msg.hit, sunk: !!msg.sunk, sunkId: msg.sunkId ? String(msg.sunkId) : null, gameOver: !!msg.gameOver }, ws);
+      return;
+    }
+
+    if (msg.type === 'bs_vibe_ctrl') {
+      const intensity = Math.max(0, Math.min(1, Number(msg.intensity) || 0));
+      const pattern = ['steady', 'wave', 'pulse'].includes(msg.pattern) ? msg.pattern : 'steady';
+      broadcast(s, { type: 'bs_vibe_ctrl', intensity, pattern }, ws);
+      return;
+    }
+
+    if (msg.type === 'bs_end') {
+      broadcast(s, { type: 'bs_end' }, ws);
+      return;
+    }
+    // ── End Battleships ───────────────────────────────────────────────────────
+
     if (msg.type === 'final' && Number.isFinite(msg.value)) {
       const v = msg.value | 0;
       const vibeSeconds = Number.isFinite(msg.vibeSeconds) ? Math.max(0, msg.vibeSeconds | 0) : 0;
@@ -771,6 +862,6 @@ function soBroadcastPowers(s) {
 
 setInterval(purgeStaleSessions, 5 * 60 * 1000);
 
-server.listen(PORT, () => {
-  console.log(`[server] listening on http://localhost:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`[server] listening on http://0.0.0.0:${PORT}`);
 });

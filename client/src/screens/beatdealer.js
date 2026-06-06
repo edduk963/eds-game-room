@@ -3,7 +3,7 @@ import { state } from '../state.js';
 import { navigate } from '../main.js';
 import { MSG } from '../shared/messages.js';
 import {
-  dealHands, buildForfeitPool, HAND_SIZE,
+  dealHands, buildForfeitPool,
   cardLabel, isRed, beats, parseVibeForfeit, forfeitTier, pickDealerCardByTier,
 } from '../game/beatdealerGame.js';
 import { setBtdVibe } from '../haptics.js';
@@ -14,41 +14,65 @@ const TOTAL_ROUNDS = 10;
 
 export function renderBeatDealer(root) {
   const myRole = state.role;
-  const myName = (myRole === 'host' ? state.hostName : state.guestName) || 'You';
-  const oppName = (myRole === 'host' ? state.guestName : state.hostName) || 'Opponent';
+  // Game mode: 'dealer' (beat one dealer card) | 'h2h' (highest laid card is safe).
+  const gameMode = state.btdGameMode === 'h2h' ? 'h2h' : 'dealer';
 
-  // Hands are dealt HAND_SIZE at a time; when they run out we re-deal a fresh
-  // shuffle (dealIndex bumps). dealerHand holds the dealer's *unplayed* cards.
+  // Canonical role order (fixed → deterministic scoring across clients) and the
+  // display order (me first). guest2 only present in a 3-player session.
+  const ROLES = state.playerCount === 3 ? ['host', 'guest', 'guest2'] : ['host', 'guest'];
+  const displayRoles = [myRole, ...ROLES.filter(r => r !== myRole)];
+
+  function nameOf(r) {
+    const fallback = { host: 'Host', guest: 'Guest', guest2: 'Guest 3' }[r];
+    const named = { host: state.hostName, guest: state.guestName, guest2: state.guest2Name }[r];
+    const label = named || fallback;
+    return r === myRole ? `${label} (you)` : label;
+  }
+
+  // ── Per-player state (keyed by role) ──────────────────────────
   let dealIndex = 0;
-  let deal = dealHands(state.seed, dealIndex);
-  let myHand = myRole === 'host' ? deal.host : deal.guest;
-  let oppHand = myRole === 'host' ? deal.guest : deal.host;
-  let dealerHand = [...deal.computer];
-  let currentDealerCard = null; // the dealer's chosen card for the current round
+  let deal = null;
+  let dealerHand = [];           // dealer's *unplayed* cards (dealer mode only)
+  let currentDealerCard = null;  // dealer's chosen card for the current round
 
-  const forfeitQueue = buildForfeitPool(state.seed);
+  const hands = {};      // role → card[]
+  const chosen = {};     // role → cardIndex | null
+  const prior = {};      // role → Set(playedIndices)
+  const scores = {};     // role → int
+  const nextReady = {};  // role → bool
+  const forfeits = {};   // role → { text, vibeSeconds }[]
+  const vibeTotal = {};  // role → accumulated unclaimed vibe seconds
+  const vibeRunning = {};        // role → bool (claim countdown active)
+  const vibeClaimIntervals = {}; // role → interval handle
+  const claimIntensity = {};     // role → claimer's slider (0..1)
+  ROLES.forEach(r => {
+    chosen[r] = null; prior[r] = new Set(); scores[r] = 0; nextReady[r] = false;
+    forfeits[r] = []; vibeTotal[r] = 0; vibeRunning[r] = false;
+    vibeClaimIntervals[r] = null; claimIntensity[r] = 1.0;
+  });
+
+  function freshDeal() {
+    deal = dealHands(state.seed, dealIndex);
+    ROLES.forEach(r => { hands[r] = deal[r]; prior[r] = new Set(); });
+    dealerHand = [...deal.computer];
+  }
+  freshDeal();
+
+  const forfeitQueue = buildForfeitPool(state.seed, state.btdForfeits);
   let forfeitPos = 0;
 
   let roundIndex = 0;
-  let myScore = 0;
-  let oppScore = 0;
 
   let phase = 'playing'; // 'playing' | 'revealing' | 'revealed' | 'done'
-  let myCardIdx = null;
-  let oppCardIdx = null;
-  let myPrior = new Set();
-  let oppPrior = new Set();
-  let myNextReady = false;
-  let oppNextReady = false;
   let forfeitDrawn = false;
   let forfeitAssigned = false; // prevents double-addForfeit when draw click echoes back
-  let drawnForfeitText = null; // set from host's BTD_DRAW_FORFEIT payload on guest side
+  let drawnForfeitText = null; // set from host's BTD_DRAW_FORFEIT payload on guests
   let revealTimer = null;
 
   // ── Timer state ───────────────────────────────────────────────
   let timerRunning = false;
-  let timerStartAt = null; // epoch ms when timer was last started
-  let timerElapsed = 0;    // ms accumulated before current start
+  let timerStartAt = null;
+  let timerElapsed = 0;
   let timerInterval = null;
 
   // ── D6 state ─────────────────────────────────────────────────
@@ -59,18 +83,10 @@ export function renderBeatDealer(root) {
   let myVibeLevel = 0;    // 0.0–1.0 in 0.1 steps
   let vibeOffSeconds = 0; // countdown for win grace period
   let vibeOffInterval = null;
-
-  // ── Forfeit mode & penalty piles ─────────────────────────────
-  let forfeitMode = 'draw'; // 'draw' | 'reveal'
-  let hostForfeits = [];    // { text, vibeSeconds: number|null }[]
-  let guestForfeits = [];
-  let hostVibeTotal = 0;    // accumulated unclaimed vibe seconds
-  let guestVibeTotal = 0;
-  // Per-player vibe claim state — countdown runs directly on vibeTotal so new forfeits auto-extend it
-  const vibeRunning = { host: false, guest: false };
-  const vibeClaimIntervals = { host: null, guest: null };
-  const claimIntensity = { host: 1.0, guest: 1.0 }; // claimer's slider per target
   let myActiveClaim = false; // whether I'm currently being claimed
+
+  // Forfeit mode: 'reveal' shows the round's forfeit up front; 'draw' hides it.
+  const forfeitMode = state.btdMode === 'reveal' ? 'reveal' : 'draw';
 
   // ── Helpers ───────────────────────────────────────────────────
 
@@ -83,8 +99,7 @@ export function renderBeatDealer(root) {
     return drawnForfeitText !== null ? drawnForfeitText : forfeitQueue[forfeitPos % forfeitQueue.length];
   }
 
-  function myChosen()  { return myCardIdx !== null; }
-  function oppChosen() { return oppCardIdx !== null; }
+  function allChosen() { return ROLES.every(r => chosen[r] !== null); }
 
   // Small ★/★★/★★★ difficulty badge for a forfeit.
   function tierBadgeHtml(text) {
@@ -92,38 +107,43 @@ export function renderBeatDealer(root) {
     return `<span class="btd-tier btd-tier-${t}" title="Difficulty ${t} of 3">${'★'.repeat(t)}</span>`;
   }
 
-  // A player wins only by playing a card strictly higher than the dealer.
-  // A sacrificed (lower-or-equal) card is a loss.
-  function won(cardIdx, hand) {
-    return cardIdx !== null && beats(hand[cardIdx], effectiveCpuCard());
+  function cardVal(r) {
+    return chosen[r] !== null ? hands[r][chosen[r]].value : -1;
+  }
+  function topVal() {
+    return Math.max(...ROLES.map(cardVal));
   }
 
-  function anyoneLost() {
-    if (phase !== 'revealed' || !myChosen() || !oppChosen()) return false;
-    return !won(myCardIdx, myHand) || !won(oppCardIdx, oppHand);
+  // Did this player survive the round?
+  //  · dealer mode: their card must strictly beat the dealer's card.
+  //  · h2h mode: their card must equal the highest laid value (ties are safe).
+  function didWin(r) {
+    if (chosen[r] === null) return false;
+    if (gameMode === 'dealer') return beats(hands[r][chosen[r]], currentDealerCard);
+    return cardVal(r) === topVal();
   }
 
-  function effectiveCpuCard() {
-    return currentDealerCard;
+  function loserRoles() {
+    return ROLES.filter(r => !didWin(r));
   }
 
-  // Re-deal HAND_SIZE fresh cards once the dealer's hand is exhausted.
+  // Re-deal once the current hand is exhausted (everyone plays one card/round,
+  // so all hands empty together). Both clients derive the same cards from seed.
   function redealIfNeeded() {
-    if (dealerHand.length > 0) return;
+    if (prior[myRole].size < hands[myRole].length) return;
     dealIndex++;
-    deal = dealHands(state.seed, dealIndex);
-    myHand = myRole === 'host' ? deal.host : deal.guest;
-    oppHand = myRole === 'host' ? deal.guest : deal.host;
-    dealerHand = [...deal.computer];
-    myPrior = new Set();
-    oppPrior = new Set();
+    freshDeal();
   }
 
-  // Choose the dealer's card for the round: higher forfeit tier → higher card.
   function selectDealerCard() {
-    redealIfNeeded();
     const tier = forfeitTier(currentForfeit());
     currentDealerCard = pickDealerCardByTier(dealerHand, tier);
+  }
+
+  // Set up cards for the upcoming round.
+  function prepareRound() {
+    redealIfNeeded();
+    if (gameMode === 'dealer') selectDealerCard();
   }
 
   function getTimerMs() {
@@ -142,16 +162,11 @@ export function renderBeatDealer(root) {
     return m > 0 ? `${m}:${String(s).padStart(2, '0')}` : `${s}s`;
   }
 
-  function addForfeit(loser, text) {
+  function addForfeit(role, text) {
+    if (!forfeits[role]) return;
     const vibeSeconds = parseVibeForfeit(text);
-    if (loser === 'host' || loser === 'both') {
-      hostForfeits.push({ text, vibeSeconds });
-      if (vibeSeconds) hostVibeTotal += vibeSeconds;
-    }
-    if (loser === 'guest' || loser === 'both') {
-      guestForfeits.push({ text, vibeSeconds });
-      if (vibeSeconds) guestVibeTotal += vibeSeconds;
-    }
+    forfeits[role].push({ text, vibeSeconds });
+    if (vibeSeconds) vibeTotal[role] += vibeSeconds;
   }
 
   function ensureTimerInterval() {
@@ -167,18 +182,17 @@ export function renderBeatDealer(root) {
 
   // ── Game logic ────────────────────────────────────────────────
 
-  // Commit one card against the revealed dealer card. Any card is legal —
-  // beat the dealer to win, or sacrifice a low card to save your good ones.
+  // Commit one card. Any card is legal — beat the field to stay safe, or
+  // sacrifice a low card to save your good ones for later rounds.
   function chooseCard(idx) {
-    if (phase !== 'playing' || myChosen() || myPrior.has(idx)) return;
-    myCardIdx = idx;
+    if (phase !== 'playing' || chosen[myRole] !== null || prior[myRole].has(idx)) return;
+    chosen[myRole] = idx;
     socket.send({ type: MSG.BTD_PLAY, cardIndex: idx });
-    if (oppChosen()) tryReveal();
+    if (allChosen()) tryReveal();
     else render();
   }
 
-  function updateVibeAfterReveal() {
-    const myWon = won(myCardIdx, myHand);
+  function updateVibeAfterReveal(myWon) {
     if (myWon) {
       clearInterval(vibeOffInterval);
       vibeOffInterval = null;
@@ -204,29 +218,24 @@ export function renderBeatDealer(root) {
   }
 
   function tryReveal() {
-    if (!myChosen() || !oppChosen() || phase !== 'playing') return;
+    if (!allChosen() || phase !== 'playing') return;
     phase = 'revealing';
     render();
     revealTimer = setTimeout(() => {
       revealTimer = null;
       phase = 'revealed';
-      const myWon = won(myCardIdx, myHand);
-      const oppWon = won(oppCardIdx, oppHand);
-      if (myWon) myScore++;
-      if (oppWon) oppScore++;
-      updateVibeAfterReveal();
+      const winners = ROLES.filter(didWin);
+      const losers = ROLES.filter(r => !winners.includes(r));
+      winners.forEach(r => scores[r]++);
+      updateVibeAfterReveal(winners.includes(myRole));
 
-      // In reveal mode, auto-assign the pre-shown forfeit to losers
-      if (forfeitMode === 'reveal' && (!myWon || !oppWon)) {
+      // In reveal mode, auto-assign the pre-shown forfeit to every loser.
+      if (forfeitMode === 'reveal' && losers.length) {
         forfeitDrawn = true;
         forfeitAssigned = true;
         const text = forfeitQueue[forfeitPos % forfeitQueue.length];
         drawnForfeitText = text;
-        const myR = myRole;
-        const oppR = myRole === 'host' ? 'guest' : 'host';
-        if (!myWon && !oppWon) addForfeit('both', text);
-        else if (!myWon) addForfeit(myR, text);
-        else addForfeit(oppR, text);
+        losers.forEach(r => addForfeit(r, text));
       }
 
       render();
@@ -234,20 +243,17 @@ export function renderBeatDealer(root) {
   }
 
   function checkAdvance() {
-    console.log('[BTD] checkAdvance', { myNextReady, oppNextReady, phase, forfeitDrawn, forfeitMode });
-    if (myNextReady && oppNextReady) nextRound();
+    if (ROLES.every(r => nextReady[r])) nextRound();
   }
 
   function nextRound() {
-    if (myCardIdx !== null) myPrior.add(myCardIdx);
-    if (oppCardIdx !== null) oppPrior.add(oppCardIdx);
+    ROLES.forEach(r => { if (chosen[r] !== null) prior[r].add(chosen[r]); });
     // The dealer's played card leaves its hand (triggers a re-deal once empty).
-    const dIdx = dealerHand.indexOf(currentDealerCard);
-    if (dIdx >= 0) dealerHand.splice(dIdx, 1);
-    myCardIdx = null;
-    oppCardIdx = null;
-    myNextReady = false;
-    oppNextReady = false;
+    if (gameMode === 'dealer') {
+      const dIdx = dealerHand.indexOf(currentDealerCard);
+      if (dIdx >= 0) dealerHand.splice(dIdx, 1);
+    }
+    ROLES.forEach(r => { chosen[r] = null; nextReady[r] = false; });
     forfeitDrawn = false;
     forfeitAssigned = false;
     drawnForfeitText = null;
@@ -258,17 +264,16 @@ export function renderBeatDealer(root) {
       clearInterval(vibeOffInterval);
       vibeOffInterval = null;
       vibeOffSeconds = 0;
-      clearInterval(vibeClaimIntervals.host);
-      clearInterval(vibeClaimIntervals.guest);
-      vibeClaimIntervals.host = null;
-      vibeClaimIntervals.guest = null;
-      vibeRunning.host = false;
-      vibeRunning.guest = false;
+      ROLES.forEach(r => {
+        clearInterval(vibeClaimIntervals[r]);
+        vibeClaimIntervals[r] = null;
+        vibeRunning[r] = false;
+      });
       myActiveClaim = false;
       setBtdVibe(0);
     } else {
       forfeitPos++;
-      selectDealerCard();
+      prepareRound();
       phase = 'playing';
     }
     render();
@@ -318,29 +323,43 @@ export function renderBeatDealer(root) {
   function cardBack() { return `<div class="btd-card-back"></div>`; }
   function emptySlot() { return `<div class="btd-card-empty"></div>`; }
 
-  function slotHtml(cardIdx, hand) {
-    if (cardIdx === null) return emptySlot();
-    // The committed card stays face-down (hidden from both) until the reveal.
+  function slotHtml(role) {
+    const idx = chosen[role];
+    if (idx === null) return emptySlot();
+    // The committed card stays face-down until the reveal.
     if (phase === 'playing' || phase === 'revealing') return cardBack();
-    return cardFront(hand[cardIdx], beats(hand[cardIdx], effectiveCpuCard()) ? 'won' : 'lost');
+    return cardFront(hands[role][idx], didWin(role) ? 'won' : 'lost');
   }
 
-  // The dealer's card is face-up from the start of the round — that's the whole point.
+  // The dealer's card is face-up from the start of the round — that's the point.
   function cpuSlotHtml() {
-    return cardFront(effectiveCpuCard(), 'neutral');
+    return cardFront(currentDealerCard, 'neutral');
+  }
+
+  function playerSlotsHtml() {
+    const slots = displayRoles.map(r => `
+      <div class="btd-slot">
+        <div class="btd-slot-label">${esc(nameOf(r))}</div>
+        ${slotHtml(r)}
+      </div>`).join('');
+    if (gameMode !== 'dealer') return slots;
+    return `${slots}
+      <div class="btd-slot">
+        <div class="btd-slot-label">Dealer 🤖</div>
+        ${cpuSlotHtml()}
+      </div>`;
   }
 
   function renderHand() {
     if (phase !== 'playing') return '';
-    const cpu = effectiveCpuCard();
-    return myHand.map((card, i) => {
-      if (myPrior.has(i) || i === myCardIdx) return '';
+    return hands[myRole].map((card, i) => {
+      if (prior[myRole].has(i) || i === chosen[myRole]) return '';
       const cls = isRed(card) ? 'red' : 'black';
       const lbl = cardLabel(card);
       const sym = SUITS[card.suit];
-      const canPlay = !myChosen(); // any remaining card is legal
-      // Hint which cards would actually beat the current dealer card.
-      const winsCls = beats(card, cpu) ? ' btd-hand-wins' : '';
+      const canPlay = chosen[myRole] === null; // any remaining card is legal
+      // In dealer mode, hint which cards would beat the visible dealer card.
+      const winsCls = (gameMode === 'dealer' && beats(card, currentDealerCard)) ? ' btd-hand-wins' : '';
       return `<div class="btd-hand-card ${cls}${canPlay ? ' btd-playable' : ''}${winsCls}"
                    data-idx="${i}"
                    style="${canPlay ? '' : 'cursor:default;opacity:0.5'}">
@@ -354,38 +373,42 @@ export function renderBeatDealer(root) {
   function statusHtml() {
     if (phase === 'revealing') return '🃏 Revealing…';
     if (phase === 'playing') {
-      const dealerLbl = cardLabel(effectiveCpuCard());
-      if (!myChosen() && !oppChosen()) return `Dealer shows <strong>${dealerLbl}</strong> — beat it or sacrifice a card.`;
-      if (myChosen() && !oppChosen()) return `Locked in. Waiting for ${esc(oppName)}…`;
-      return `${esc(oppName)} has committed — beat <strong>${dealerLbl}</strong> or sacrifice a card.`;
+      const waiting = ROLES.filter(r => r !== myRole && chosen[r] === null).map(nameOf);
+      if (gameMode === 'dealer') {
+        const dealerLbl = cardLabel(currentDealerCard);
+        if (chosen[myRole] === null) return `Dealer shows <strong>${dealerLbl}</strong> — beat it or sacrifice a card.`;
+        if (waiting.length) return `Locked in. Waiting for ${esc(waiting.join(', '))}…`;
+        return 'Everyone has committed — revealing…';
+      }
+      if (chosen[myRole] === null) return `Lay a card — highest wins, ties are safe.`;
+      if (waiting.length) return `Locked in. Waiting for ${esc(waiting.join(', '))}…`;
+      return 'Everyone has committed — revealing…';
     }
     if (phase === 'revealed') {
-      const parts = [
-        won(myCardIdx, myHand)
-          ? `<span class="btd-won">${esc(myName)} beats the dealer! +1</span>`
-          : `<span class="btd-lost">${esc(myName)} loses — take the forfeit!</span>`,
-        won(oppCardIdx, oppHand)
-          ? `<span class="btd-won">${esc(oppName)} beats the dealer! +1</span>`
-          : `<span class="btd-lost">${esc(oppName)} loses — take the forfeit!</span>`,
-      ];
-      return parts.join('<br>');
+      return displayRoles.map(r =>
+        didWin(r)
+          ? `<span class="btd-won">${esc(nameOf(r))} is safe! +1</span>`
+          : `<span class="btd-lost">${esc(nameOf(r))} loses — take the forfeit!</span>`
+      ).join('<br>');
     }
     return '';
   }
 
   function finalMessage() {
-    if (myScore > oppScore) return `🎉 ${esc(myName)} wins!`;
-    if (oppScore > myScore) return `🎉 ${esc(oppName)} wins!`;
-    return "It's a tie!";
+    const best = Math.max(...ROLES.map(r => scores[r]));
+    const champs = ROLES.filter(r => scores[r] === best);
+    if (champs.length === 1) return `🎉 ${esc(nameOf(champs[0]))} wins!`;
+    if (champs.length === ROLES.length) return "It's a tie!";
+    return `🎉 Tie between ${esc(champs.map(nameOf).join(' & '))}!`;
   }
 
   // ── Penalty pile HTML ─────────────────────────────────────────
 
-  function penaltyBoxHtml(boxRole, pile, vibeTotal) {
-    const name = boxRole === 'host' ? (state.hostName || 'Host') : (state.guestName || 'Guest');
-    const isOpp = boxRole !== myRole;
+  function penaltyBoxHtml(boxRole) {
+    const pile = forfeits[boxRole];
+    const total = vibeTotal[boxRole];
+    const isMe = boxRole === myRole;
     const running = vibeRunning[boxRole];
-    const remaining = vibeTotal;
 
     const items = pile.map(f => {
       const isVibe = f.vibeSeconds !== null;
@@ -393,15 +416,13 @@ export function renderBeatDealer(root) {
     }).join('') || `<span class="btd-pile-empty">None yet</span>`;
 
     let vibeSection = '';
-    if (vibeTotal > 0) {
-      const label = running
-        ? `${formatCountdown(remaining)}`
-        : `Vibe owed: ${formatCountdown(vibeTotal)}`;
+    if (total > 0) {
+      const label = running ? `${formatCountdown(total)}` : `Vibe owed: ${formatCountdown(total)}`;
       vibeSection = `<div class="btd-pile-vibe-total" data-vibe-target="${boxRole}">${label}</div>`;
     }
 
     let claimBtn = '';
-    if (isOpp && vibeTotal > 0) {
+    if (!isMe && total > 0) {
       if (!running) {
         claimBtn = `<button class="ghost btd-util-btn btd-claim-btn" data-claim-target="${boxRole}" data-claim-action="start">Claim</button>`;
       } else {
@@ -417,7 +438,7 @@ export function renderBeatDealer(root) {
     }
 
     return `<div class="btd-penalty-box">
-      <div class="btd-penalty-header">${esc(name)}'s forfeits</div>
+      <div class="btd-penalty-header">${esc(nameOf(boxRole))}'s forfeits</div>
       <div class="btd-penalty-list">${items}</div>
       ${vibeSection}${claimBtn}
     </div>`;
@@ -429,67 +450,50 @@ export function renderBeatDealer(root) {
     const isLast = roundIndex === TOTAL_ROUNDS - 1;
     const nextLabel = isLast ? 'Finish Game' : 'Next Round';
     const forfeit = currentForfeit();
-    const remaining = myHand.length - myPrior.size - (myCardIdx !== null ? 1 : 0);
+    const remaining = hands[myRole].length - prior[myRole].size - (chosen[myRole] !== null ? 1 : 0);
     const timerDisplay = formatMs(getTimerMs());
-    const dealerLbl = cardLabel(effectiveCpuCard());
 
-    // Who lost this round (for actions section) — a fold is always a loss
-    let myLost = false, oppLost = false;
-    if (phase === 'revealed' && myChosen() && oppChosen()) {
-      myLost = !won(myCardIdx, myHand);
-      oppLost = !won(oppCardIdx, oppHand);
-    }
+    // Are there any losers this round (drives the Draw Forfeit action)?
+    const anyLost = phase === 'revealed' && allChosen() && loserRoles().length > 0;
 
-    // Forfeit loser role for Draw Forfeit button
-    function loserRole() {
-      if (myLost && oppLost) return 'both';
-      if (myLost) return myRole;
-      if (oppLost) return myRole === 'host' ? 'guest' : 'host';
-      return null;
-    }
+    const scoreLine = displayRoles
+      .map(r => `${esc(nameOf(r))}: <strong>${scores[r]}</strong>`)
+      .join(' &nbsp;|&nbsp; ');
 
-    // Banner showing upcoming forfeit in reveal mode
+    const modeLabel = gameMode === 'dealer' ? 'Vs Dealer' : 'Head to Head';
+
+    // Banner showing the upcoming forfeit in reveal mode.
     const revealBanner = (forfeitMode === 'reveal' && (phase === 'playing' || phase === 'revealing'))
       ? `<div class="btd-reveal-banner">This round's forfeit: ${tierBadgeHtml(forfeit)} <strong>${esc(forfeit)}</strong></div>`
       : '';
+
+    const handHint = gameMode === 'dealer'
+      ? `beat <strong>${cardLabel(currentDealerCard)}</strong> to win, or sacrifice a low card`
+      : `play your highest to stay safe, or bluff a low card`;
 
     root.innerHTML = `
       <div class="btd-root">
         <div class="btd-header">
           <button class="ghost btd-btn-leave" style="padding:6px 14px;font-size:13px;">← Leave</button>
           <span class="btd-header-title">Beat the Dealer</span>
-          <span class="btd-scoreline">${esc(myName)}: <strong>${myScore}</strong> &nbsp;|&nbsp; ${esc(oppName)}: <strong>${oppScore}</strong></span>
+          <span class="btd-scoreline">${scoreLine}</span>
         </div>
 
         ${myRole === 'host' ? `
           <div class="btd-host-controls">
-            <button class="ghost btd-util-btn${forfeitMode === 'reveal' ? ' btd-mode-active' : ''}" id="btd-mode-toggle">
-              Mode: ${forfeitMode === 'reveal' ? 'Reveal' : 'Draw'}
-            </button>
             <button class="ghost btd-util-btn btd-vibe-toggle${vibeEnabled ? ' btd-vibe-on' : ' btd-vibe-off-btn'}" id="btd-vibe-toggle">
               Vibe: ${vibeEnabled ? 'On' : 'Off'}
             </button>
           </div>
         ` : ''}
 
-        <div class="btd-round-label">Round ${roundIndex + 1} of ${TOTAL_ROUNDS} &nbsp;·&nbsp; Hand ${dealIndex + 1}</div>
+        <div class="btd-round-label">${modeLabel} &nbsp;·&nbsp; Round ${roundIndex + 1} of ${TOTAL_ROUNDS} &nbsp;·&nbsp; Hand ${dealIndex + 1}</div>
 
         ${revealBanner}
 
         <div class="btd-main">
           <div class="btd-arena">
-            <div class="btd-slot">
-              <div class="btd-slot-label">${esc(myName)}</div>
-              ${slotHtml(myCardIdx, myHand)}
-            </div>
-            <div class="btd-slot">
-              <div class="btd-slot-label">Dealer 🤖</div>
-              ${cpuSlotHtml()}
-            </div>
-            <div class="btd-slot">
-              <div class="btd-slot-label">${esc(oppName)}</div>
-              ${slotHtml(oppCardIdx, oppHand)}
-            </div>
+            ${playerSlotsHtml()}
           </div>
 
           ${forfeitMode === 'draw' ? `
@@ -529,7 +533,7 @@ export function renderBeatDealer(root) {
               <span id="btd-vibe-off-display" class="btd-vibe-off">${vibeOffSeconds > 0 ? `off ${vibeOffSeconds}s` : ''}</span>
               <div class="btd-utils-btns">
                 <button class="ghost btd-util-btn" id="btd-vibe-stop-me" title="Stop your vibe">⏹ Mine</button>
-                <button class="ghost btd-util-btn" id="btd-vibe-stop-opp" title="Stop opponent's vibe">⏹ Theirs</button>
+                <button class="ghost btd-util-btn" id="btd-vibe-stop-opp" title="Stop others' vibe">⏹ Theirs</button>
               </div>
             </div>
           </div>
@@ -537,12 +541,12 @@ export function renderBeatDealer(root) {
 
         ${phase === 'revealed' ? `
           <div class="btd-actions">
-            ${(myLost || oppLost) && !forfeitDrawn && forfeitMode === 'draw'
+            ${anyLost && !forfeitDrawn && forfeitMode === 'draw'
               ? myRole === 'host'
                 ? `<button id="btd-draw-forfeit">🃏 Draw Forfeit</button>`
                 : `<button disabled>Waiting for host to draw forfeit…</button>`
-              : `<button id="btd-next" ${myNextReady ? 'disabled' : ''}>
-                   ${myNextReady ? 'Waiting for opponent…' : nextLabel}
+              : `<button id="btd-next" ${nextReady[myRole] ? 'disabled' : ''}>
+                   ${nextReady[myRole] ? 'Waiting for others…' : nextLabel}
                  </button>`
             }
           </div>
@@ -551,7 +555,7 @@ export function renderBeatDealer(root) {
         ${phase === 'done' ? `
           <div class="btd-final">
             <h2>Game Over!</h2>
-            <p class="btd-final-scores">${esc(myName)}: ${myScore} pts &nbsp;|&nbsp; ${esc(oppName)}: ${oppScore} pts</p>
+            <p class="btd-final-scores">${displayRoles.map(r => `${esc(nameOf(r))}: ${scores[r]} pts`).join(' &nbsp;|&nbsp; ')}</p>
             <p class="btd-final-winner">${finalMessage()}</p>
             <button class="btd-btn-leave">Back to Lobby</button>
           </div>
@@ -561,17 +565,14 @@ export function renderBeatDealer(root) {
           <div class="btd-hand-section">
             <div class="btd-hand-label">
               Your hand — ${remaining} card${remaining !== 1 ? 's' : ''} ·
-              ${myChosen()
-                ? 'locked in'
-                : `beat <strong>${dealerLbl}</strong> to win, or sacrifice a low card`}
+              ${chosen[myRole] !== null ? 'locked in' : handHint}
             </div>
             <div class="btd-hand" id="btd-hand">${renderHand()}</div>
           </div>
         ` : ''}
 
         <div class="btd-penalty-piles">
-          ${penaltyBoxHtml('host', hostForfeits, hostVibeTotal)}
-          ${penaltyBoxHtml('guest', guestForfeits, guestVibeTotal)}
+          ${displayRoles.map(penaltyBoxHtml).join('')}
         </div>
       </div>
     `;
@@ -582,28 +583,21 @@ export function renderBeatDealer(root) {
       btn.addEventListener('click', () => navigate(`#/session/${state.sessionId}`))
     );
 
-    root.querySelector('#btd-mode-toggle')?.addEventListener('click', () => {
-      const newMode = forfeitMode === 'draw' ? 'reveal' : 'draw';
-      socket.send({ type: MSG.BTD_MODE, mode: newMode });
-    });
-
     root.querySelector('#btd-draw-forfeit')?.addEventListener('click', () => {
       if (forfeitDrawn) return;
       const text = currentForfeit();
-      const loser = loserRole();
-      console.log('[BTD] draw forfeit clicked', { text, loser, roundIndex });
+      const losers = loserRoles();
       forfeitDrawn = true;
       forfeitAssigned = true;
       drawnForfeitText = text;
-      if (loser) addForfeit(loser, text);
-      socket.send({ type: MSG.BTD_DRAW_FORFEIT, forfeit: text, loser });
+      losers.forEach(r => addForfeit(r, text));
+      socket.send({ type: MSG.BTD_DRAW_FORFEIT, forfeit: text, losers });
       render();
     });
 
     root.querySelector('#btd-next')?.addEventListener('click', () => {
-      if (myNextReady) return;
-      console.log('[BTD] next clicked', { roundIndex, phase, myNextReady, oppNextReady, forfeitDrawn });
-      myNextReady = true;
+      if (nextReady[myRole]) return;
+      nextReady[myRole] = true;
       socket.send({ type: MSG.BTD_NEXT_READY });
       render();
       checkAdvance();
@@ -665,35 +659,31 @@ export function renderBeatDealer(root) {
 
   const onOppPlay = (ev) => {
     const idx = ev.detail.cardIndex;
-    if (!Number.isInteger(idx) || idx < 0 || idx > 9) return;
-    if (oppChosen() || oppPrior.has(idx)) return;
-    oppCardIdx = idx;
-    if (myChosen()) tryReveal();
+    const role = ev.detail.role;
+    if (!ROLES.includes(role) || role === myRole) return;
+    if (!Number.isInteger(idx) || idx < 0 || idx >= hands[role].length) return;
+    if (chosen[role] !== null || prior[role].has(idx)) return;
+    chosen[role] = idx;
+    if (allChosen()) tryReveal();
     else render();
   };
 
-  const onNextReady = () => {
-    console.log('[BTD] onNextReady received', { phase, myNextReady, oppNextReady });
-    oppNextReady = true;
+  const onNextReady = (ev) => {
+    const role = ev.detail?.role;
+    if (ROLES.includes(role)) nextReady[role] = true;
     if (phase === 'revealed') render();
     checkAdvance();
   };
 
   const onDrawForfeit = (ev) => {
-    console.log('[BTD] onDrawForfeit received', { forfeit: ev.detail?.forfeit, loser: ev.detail?.loser, forfeitAssigned });
     const text = ev.detail?.forfeit || currentForfeit();
     drawnForfeitText = text;
     forfeitDrawn = true;
-    const loser = ev.detail?.loser;
-    if (loser && !forfeitAssigned) {
+    const losers = Array.isArray(ev.detail?.losers) ? ev.detail.losers : [];
+    if (losers.length && !forfeitAssigned) {
       forfeitAssigned = true;
-      addForfeit(loser, text);
+      losers.filter(r => ROLES.includes(r)).forEach(r => addForfeit(r, text));
     }
-    render();
-  };
-
-  const onBtdMode = (ev) => {
-    forfeitMode = ev.detail.mode === 'reveal' ? 'reveal' : 'draw';
     render();
   };
 
@@ -714,6 +704,7 @@ export function renderBeatDealer(root) {
 
   const onVibeClaim = (ev) => {
     const { target, action } = ev.detail;
+    if (!ROLES.includes(target)) return;
     if (action === 'start') {
       vibeRunning[target] = true;
       if (myRole === target) {
@@ -723,31 +714,17 @@ export function renderBeatDealer(root) {
       clearInterval(vibeClaimIntervals[target]);
       vibeClaimIntervals[target] = setInterval(() => {
         if (!vibeRunning[target]) return;
-        if (target === 'host') {
-          hostVibeTotal = Math.max(0, hostVibeTotal - 1);
-          if (hostVibeTotal <= 0) {
-            vibeRunning.host = false;
-            clearInterval(vibeClaimIntervals.host);
-            vibeClaimIntervals.host = null;
-            if (myRole === 'host') { myActiveClaim = false; restoreGameVibe(); }
-            render();
-            return;
-          }
-          const el = root.querySelector('.btd-pile-vibe-total[data-vibe-target="host"]');
-          if (el) el.textContent = formatCountdown(hostVibeTotal);
-        } else {
-          guestVibeTotal = Math.max(0, guestVibeTotal - 1);
-          if (guestVibeTotal <= 0) {
-            vibeRunning.guest = false;
-            clearInterval(vibeClaimIntervals.guest);
-            vibeClaimIntervals.guest = null;
-            if (myRole === 'guest') { myActiveClaim = false; restoreGameVibe(); }
-            render();
-            return;
-          }
-          const el = root.querySelector('.btd-pile-vibe-total[data-vibe-target="guest"]');
-          if (el) el.textContent = formatCountdown(guestVibeTotal);
+        vibeTotal[target] = Math.max(0, vibeTotal[target] - 1);
+        if (vibeTotal[target] <= 0) {
+          vibeRunning[target] = false;
+          clearInterval(vibeClaimIntervals[target]);
+          vibeClaimIntervals[target] = null;
+          if (myRole === target) { myActiveClaim = false; restoreGameVibe(); }
+          render();
+          return;
         }
+        const el = root.querySelector(`.btd-pile-vibe-total[data-vibe-target="${target}"]`);
+        if (el) el.textContent = formatCountdown(vibeTotal[target]);
       }, 1000);
     } else if (action === 'pause') {
       vibeRunning[target] = false;
@@ -763,6 +740,7 @@ export function renderBeatDealer(root) {
 
   const onClaimIntensity = (ev) => {
     const { target, intensity } = ev.detail;
+    if (!ROLES.includes(target)) return;
     claimIntensity[target] = intensity;
     if (vibeRunning[target] && myRole === target && vibeEnabled) setBtdVibe(intensity);
     const slider = root.querySelector(`.btd-claim-slider[data-claim-slider="${target}"]`);
@@ -808,7 +786,7 @@ export function renderBeatDealer(root) {
     clearInterval(timerInterval);
     root.innerHTML = `
       <div class="card" style="text-align:center">
-        <h2>Opponent left</h2>
+        <h2>A player left</h2>
         <div class="actions" style="justify-content:center;margin-top:16px;">
           <button id="btd-peer-home">Home</button>
         </div>
@@ -822,7 +800,6 @@ export function renderBeatDealer(root) {
   socket.addEventListener(MSG.BTD_TIMER_CMD, onTimerCmd);
   socket.addEventListener(MSG.BTD_D6_ROLL, onD6Roll);
   socket.addEventListener(MSG.BTD_VIBE_STOP, onVibeStop);
-  socket.addEventListener(MSG.BTD_MODE, onBtdMode);
   socket.addEventListener(MSG.BTD_VIBE_ENABLE, onVibeEnable);
   socket.addEventListener(MSG.BTD_VIBE_CLAIM, onVibeClaim);
   socket.addEventListener(MSG.BTD_CLAIM_INTENSITY, onClaimIntensity);
@@ -832,11 +809,9 @@ export function renderBeatDealer(root) {
     clearTimeout(revealTimer);
     clearInterval(timerInterval);
     clearInterval(vibeOffInterval);
-    clearInterval(vibeClaimIntervals.host);
-    clearInterval(vibeClaimIntervals.guest);
+    ROLES.forEach(r => clearInterval(vibeClaimIntervals[r]));
     vibeOffInterval = null;
-    vibeClaimIntervals.host = null;
-    vibeClaimIntervals.guest = null;
+    ROLES.forEach(r => { vibeClaimIntervals[r] = null; });
     myActiveClaim = false;
     setBtdVibe(0);
     socket.removeEventListener(MSG.BTD_OPP_PLAY, onOppPlay);
@@ -845,14 +820,13 @@ export function renderBeatDealer(root) {
     socket.removeEventListener(MSG.BTD_TIMER_CMD, onTimerCmd);
     socket.removeEventListener(MSG.BTD_D6_ROLL, onD6Roll);
     socket.removeEventListener(MSG.BTD_VIBE_STOP, onVibeStop);
-    socket.removeEventListener(MSG.BTD_MODE, onBtdMode);
     socket.removeEventListener(MSG.BTD_VIBE_ENABLE, onVibeEnable);
     socket.removeEventListener(MSG.BTD_VIBE_CLAIM, onVibeClaim);
     socket.removeEventListener(MSG.BTD_CLAIM_INTENSITY, onClaimIntensity);
     socket.removeEventListener(MSG.PEER_LEFT, onPeerLeft);
   }, { once: true });
 
-  selectDealerCard(); // choose the dealer's card for round 1 before first paint
+  prepareRound(); // choose the dealer's card / cards for round 1 before first paint
   render();
 }
 

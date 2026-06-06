@@ -1,0 +1,29 @@
+# Dependencies & build output (reinstalled / rebuilt inside the image)
+node_modules
+dist
+
+# VCS & tooling
+.git
+.gitignore
+.github
+
+# Agent / editor / OS cruft
+.claude
+memory
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Docs & local-only files
+*.md
+.env
+.env.*
+
+# Ephemeral world-map state (Conquest is dead code; not bundled)
+server/world-state.json
+
+# Deploy / Docker config (not needed inside the build context)
+render.yaml
+Dockerfile
+.dockerignore

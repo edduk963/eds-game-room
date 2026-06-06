@@ -15,6 +15,10 @@ const PARSED_FORFEITS = rawForfeits
 export const ORIGINAL_FORFEITS = PARSED_FORFEITS.map(p => p.text);
 const FORFEIT_TIERS = new Map(PARSED_FORFEITS.map(p => [p.text, p.tier]));
 
+// The built-in forfeits as editable "[tier] text" lines — used to pre-fill the
+// lobby's custom-forfeits box so players can tweak the default list.
+export const DEFAULT_FORFEIT_LINES = PARSED_FORFEITS.map(p => `[${p.tier}] ${p.text}`);
+
 // Difficulty tier (1 easy … 3 hardest) for any forfeit text, including vibe entries.
 export function forfeitTier(text) {
   if (FORFEIT_TIERS.has(text)) return FORFEIT_TIERS.get(text);
@@ -65,6 +69,7 @@ export function dealHands(seed, dealIndex) {
     computer: deck.slice(0, HAND_SIZE),
     host:     deck.slice(HAND_SIZE, HAND_SIZE * 2),
     guest:    deck.slice(HAND_SIZE * 2, HAND_SIZE * 3),
+    guest2:   deck.slice(HAND_SIZE * 3, HAND_SIZE * 4),
   };
 }
 
@@ -87,10 +92,32 @@ export function shuffleForfeits(seed) {
 
 const VIBE_DURATIONS = [10, 30, 60, 90, 120];
 
-export function buildForfeitPool(seed) {
+// Parse one forfeit line, honouring an optional "[1]".."[3]" difficulty prefix.
+function parseForfeitLine(line) {
+  const m = line.match(/^\[([1-3])\]\s*(.+)$/);
+  return m ? { text: m[2].trim(), tier: parseInt(m[1], 10) } : { text: line, tier: 2 };
+}
+
+// Build the shuffled forfeit pool for a game. If the players agreed a custom
+// list (array of raw lines, optionally "[n]"-prefixed) it replaces the built-in
+// forfeits; vibe forfeits are always mixed in. Both clients derive the same
+// order from the shared seed.
+export function buildForfeitPool(seed, customForfeits = null) {
   const rng = makeRng((seed ^ 0xDEADBEEF) >>> 0);
+  let base = null;
+  if (Array.isArray(customForfeits)) {
+    base = customForfeits
+      .map(l => String(l).trim())
+      .filter(l => l.length > 0)
+      .map(l => {
+        const p = parseForfeitLine(l);
+        FORFEIT_TIERS.set(p.text, p.tier); // register tier for dealer-card + display logic
+        return p.text;
+      });
+  }
+  if (!base || base.length === 0) base = [...ORIGINAL_FORFEITS];
   const vibeEntries = VIBE_DURATIONS.map(n => `Vibe ${n}s`);
-  return shuffle([...ORIGINAL_FORFEITS, ...vibeEntries], rng);
+  return shuffle([...base, ...vibeEntries], rng);
 }
 
 // Returns seconds if text matches a vibe-time forfeit ("Vibe Xs"), else null.

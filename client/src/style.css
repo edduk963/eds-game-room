@@ -957,11 +957,55 @@ button.ghost {
 
 .dice-losses-sep { color: #2a3556; }
 
+.mm3-scoreboard {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 4px 0 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.mm3-score {
+  font-weight: 600;
+}
+
+.mm3-standings {
+  margin: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+
+.mm3-standing {
+  font-size: 15px;
+  font-weight: 600;
+}
+
 .dice-arena {
   display: flex;
   align-items: center;
   gap: 32px;
   margin: 8px 0;
+}
+
+.dice-arena-3 {
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.dice-arena-3 .dice-face {
+  font-size: 58px;
+  width: 84px;
+  height: 84px;
+}
+
+.dice-arena-3 .dice-vs {
+  font-size: 14px;
 }
 
 .dice-player-col {
@@ -1843,4 +1887,238 @@ button.ghost {
   color: var(--accent);
   min-width: 34px;
   text-align: right;
+}
+
+/* ── Battleships ─────────────────────────────────────────────────────────── */
+.bs-root {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.bs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid #25304d;
+  gap: 8px;
+}
+.bs-title {
+  font-weight: 700;
+  font-size: 15px;
+  text-align: center;
+  flex: 1;
+}
+.bs-content {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 20px 16px;
+}
+
+/* Placement */
+.bs-placement {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+}
+.bs-ship-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 180px;
+}
+.bs-list-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--muted);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.bs-ship-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #25304d;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  background: var(--panel);
+}
+.bs-ship-item:hover { border-color: var(--accent); }
+.bs-ship-item.bs-selected { border-color: var(--accent); background: rgba(92,255,212,0.08); }
+.bs-ship-item.bs-placed { opacity: 0.5; }
+.bs-ship-preview { display: flex; gap: 1px; }
+.bs-sp-cell { width: 16px; height: 16px; border-radius: 2px; }
+.bs-ship-name { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.bs-orient-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.bs-orient-key {
+  display: inline-block;
+  background: #25304d;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: monospace;
+  font-size: 11px;
+}
+.bs-grid-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.bs-grid-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+/* Grid */
+.bs-grid-outer {
+  --cell: 28px;
+  --hdr: 18px;
+  display: grid;
+  grid-template-columns: var(--hdr) repeat(10, var(--cell));
+  grid-template-rows: var(--hdr) repeat(10, var(--cell));
+  gap: 1px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.08);
+  user-select: none;
+}
+.bs-corner, .bs-ghdr {
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--muted);
+}
+.bs-cell {
+  background: var(--panel);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  cursor: default;
+  transition: background 0.1s;
+}
+.bs-cell.bs-target { cursor: crosshair; }
+.bs-cell.bs-target:hover { background: rgba(92,255,212,0.15); }
+.bs-cell.bs-preview { background: rgba(92,255,212,0.25); }
+.bs-cell.bs-hit { background: #8b1a1a; }
+.bs-cell.bs-hit::after { content: '✕'; font-size: 12px; color: #ff5577; font-weight: 700; }
+.bs-cell.bs-miss { background: #1a2342; }
+.bs-cell.bs-miss::after { content: '·'; font-size: 18px; color: var(--muted); }
+.bs-cell.bs-miss-splash { background: rgba(26,35,66,0.6); }
+.bs-cell.bs-miss-splash::after { content: '·'; font-size: 18px; color: #3a4870; }
+.bs-cell.bs-pending { background: rgba(255,204,68,0.15); }
+.bs-cell.bs-pending::after { content: '◎'; font-size: 11px; color: var(--gold); }
+
+/* Ship colours */
+.bs-cell.bs-ship-carrier    { background: #1a4a3a; }
+.bs-cell.bs-ship-battleship { background: #1a2e5a; }
+.bs-cell.bs-ship-cruiser    { background: #3a1a5a; }
+.bs-cell.bs-ship-submarine  { background: #1a4a1a; }
+.bs-cell.bs-ship-destroyer  { background: #4a3a1a; }
+.bs-sp-cell.bs-ship-carrier    { background: #2ecc8a; }
+.bs-sp-cell.bs-ship-battleship { background: #4499ff; }
+.bs-sp-cell.bs-ship-cruiser    { background: #aa66ff; }
+.bs-sp-cell.bs-ship-submarine  { background: #44bb44; }
+.bs-sp-cell.bs-ship-destroyer  { background: #ffaa44; }
+
+/* Battle */
+.bs-battle { display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; }
+.bs-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  max-width: 660px;
+  padding: 8px 14px;
+  background: var(--panel);
+  border-radius: 8px;
+  border: 1px solid #25304d;
+  font-size: 14px;
+  flex-wrap: wrap;
+}
+.bs-sink-count { font-size: 12px; color: var(--muted); }
+.bs-grids {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+}
+.bs-grid-section { display: flex; flex-direction: column; align-items: flex-start; }
+
+/* Result */
+.bs-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px 24px;
+  text-align: center;
+  max-width: 480px;
+  width: 100%;
+}
+.bs-result-icon { font-size: 56px; }
+.bs-result-title { font-size: 32px; font-weight: 800; }
+.bs-result-sub { color: var(--muted); font-size: 15px; }
+.bs-result-defeat .bs-result-title { color: var(--warn); }
+.bs-vibe-ctrl-panel {
+  width: 100%;
+  padding: 16px;
+  background: var(--panel);
+  border-radius: 10px;
+  border: 1px solid #25304d;
+  margin-top: 8px;
+}
+.bs-vibe-ctrl-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+.bs-pattern-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+}
+.bs-vibe-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  background: var(--panel);
+  border-radius: 10px;
+  border: 1px solid #25304d;
+  width: 100%;
+  justify-content: center;
+  margin-top: 8px;
+}
+.bs-vibe-status-icon { font-size: 24px; animation: bs-pulse 1.4s ease-in-out infinite; }
+@keyframes bs-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+.bs-waiting-hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+@media (max-width: 480px) {
+  .bs-grid-outer { --cell: 24px; --hdr: 16px; }
+  .bs-grids { gap: 16px; }
+  .bs-ship-list { min-width: 140px; }
 }

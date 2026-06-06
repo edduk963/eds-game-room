@@ -10,52 +10,56 @@ import { initVibeBattery } from '../vibeBattery.js';
 const DICE_FACES = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
 
 export function renderDice(root) {
-  const myName = (state.role === 'host' ? state.hostName : state.guestName) || 'You';
-  const oppName = (state.role === 'host' ? state.guestName : state.hostName) || 'Opponent';
+  const playerCount = state.playerCount === 3 ? 3 : 2;
+  const roles = playerCount === 3 ? ['host', 'guest', 'guest2'] : ['host', 'guest'];
+  const myRole = state.role;
+  const vibeRule = state.diceVibeRule === 'all_but_winner' ? 'all_but_winner' : 'lowest';
 
-  let myLosses = 0;
-  let oppLosses = 0;
-  let myRoll = null;
-  let oppRoll = null;
+  function nameFor(role) {
+    const n = role === 'host' ? state.hostName : role === 'guest' ? state.guestName : state.guest2Name;
+    return n || (role === 'host' ? 'Host' : role === 'guest' ? 'Guest' : 'Guest 2');
+  }
+
+  const losses = {};
+  const rolls = {};
+  roles.forEach(r => { losses[r] = 0; rolls[r] = null; });
+
   let forfeitDuration = 0;
   let countdownInterval = null;
   let nextReadySent = false;
-  let nextReadyReceived = false;
+  const nextReadyRoles = new Set();
   let edgeModeInstance = null;
   let vibeBatteryInstance = initVibeBattery(root);
   let edgePaused = false;
   let savedHaptics = null;
   let diceRoundIndex = 0;
+  let roundResolved = false;
 
   function forfeitSecondsForLoss(losses) {
     return 15 * Math.pow(2, losses);
   }
 
+  const lossesHtml = roles.map((r, i) =>
+    `${i > 0 ? '<span class="dice-losses-sep">|</span>' : ''}<span id="dice-losses-${r}">${escapeHtml(nameFor(r))}: 0 losses</span>`
+  ).join('');
+
+  const arenaHtml = roles.map((r, i) => `
+        ${i > 0 ? '<div class="dice-vs">vs</div>' : ''}
+        <div class="dice-player-col" data-role="${r}">
+          <div class="dice-player-name">${escapeHtml(nameFor(r))}${r === myRole ? ' (you)' : ''}</div>
+          <div class="dice-face" id="dice-face-${r}">?</div>
+          <div class="dice-next-forfeit" id="dice-next-${r}">Next loss: 15s</div>
+        </div>`).join('');
+
   root.innerHTML = `
     <div class="dice-root" id="dice-root">
       <div class="dice-header">
         <button class="ghost" id="dice-leave" style="padding:6px 14px;font-size:13px;">← Leave</button>
-        <div class="dice-losses-display">
-          <span id="dice-my-losses">${myName}: 0 losses</span>
-          <span class="dice-losses-sep">|</span>
-          <span id="dice-opp-losses">${oppName}: 0 losses</span>
-        </div>
+        <div class="dice-losses-display">${lossesHtml}</div>
         <button id="dice-vibe-btn" class="ghost" style="font-size:13px;padding:6px 12px;">${haptics.isConnected() ? '📳' : 'Connect Vibe'}</button>
       </div>
 
-      <div class="dice-arena">
-        <div class="dice-player-col">
-          <div class="dice-player-name">${escapeHtml(myName)}</div>
-          <div class="dice-face" id="dice-my-face">?</div>
-          <div class="dice-next-forfeit" id="dice-my-next-forfeit">Next loss: 15s</div>
-        </div>
-        <div class="dice-vs">vs</div>
-        <div class="dice-player-col">
-          <div class="dice-player-name">${escapeHtml(oppName)}</div>
-          <div class="dice-face" id="dice-opp-face">?</div>
-          <div class="dice-next-forfeit" id="dice-opp-next-forfeit">Next loss: 15s</div>
-        </div>
-      </div>
+      <div class="dice-arena${playerCount === 3 ? ' dice-arena-3' : ''}">${arenaHtml}</div>
 
       <div id="dice-roll-area">
         <button id="dice-roll-btn" class="dice-roll-btn">Roll</button>
@@ -78,34 +82,40 @@ export function renderDice(root) {
       </div>
     </div>`;
 
-  const myFaceEl = root.querySelector('#dice-my-face');
-  const oppFaceEl = root.querySelector('#dice-opp-face');
-  const myLossesEl = root.querySelector('#dice-my-losses');
-  const oppLossesEl = root.querySelector('#dice-opp-losses');
-  const myNextEl = root.querySelector('#dice-my-next-forfeit');
-  const oppNextEl = root.querySelector('#dice-opp-next-forfeit');
+  const faceEls = {};
+  const lossEls = {};
+  const nextEls = {};
+  roles.forEach(r => {
+    faceEls[r] = root.querySelector(`#dice-face-${r}`);
+    lossEls[r] = root.querySelector(`#dice-losses-${r}`);
+    nextEls[r] = root.querySelector(`#dice-next-${r}`);
+  });
   const rollArea = root.querySelector('#dice-roll-area');
   const rollBtn = root.querySelector('#dice-roll-btn');
   const rollStatus = root.querySelector('#dice-roll-status');
   const forfeitArea = root.querySelector('#dice-forfeit-area');
 
   function updateLossDisplays() {
-    myLossesEl.textContent = `${myName}: ${myLosses} loss${myLosses !== 1 ? 'es' : ''}`;
-    oppLossesEl.textContent = `${oppName}: ${oppLosses} loss${oppLosses !== 1 ? 'es' : ''}`;
-    myNextEl.textContent = `Next loss: ${forfeitSecondsForLoss(myLosses)}s`;
-    oppNextEl.textContent = `Next loss: ${forfeitSecondsForLoss(oppLosses)}s`;
+    roles.forEach(r => {
+      lossEls[r].textContent = `${nameFor(r)}: ${losses[r]} loss${losses[r] !== 1 ? 'es' : ''}`;
+      nextEls[r].textContent = `Next loss: ${forfeitSecondsForLoss(losses[r])}s`;
+    });
+  }
+
+  function allRolled() {
+    return roles.every(r => rolls[r] !== null);
   }
 
   function resetRound() {
-    myRoll = null;
-    oppRoll = null;
+    roles.forEach(r => {
+      rolls[r] = null;
+      faceEls[r].textContent = '?';
+      faceEls[r].className = 'dice-face';
+    });
     nextReadySent = false;
-    nextReadyReceived = false;
+    nextReadyRoles.clear();
+    roundResolved = false;
     forfeitDuration = 0;
-    myFaceEl.textContent = '?';
-    myFaceEl.className = 'dice-face';
-    oppFaceEl.textContent = '?';
-    oppFaceEl.className = 'dice-face';
     rollBtn.disabled = false;
     rollBtn.textContent = 'Roll';
     rollStatus.textContent = '';
@@ -116,43 +126,50 @@ export function renderDice(root) {
   }
 
   function revealAndResolve() {
-    if (myRoll === null || oppRoll === null) return;
+    if (!allRolled() || roundResolved) return;
+    roundResolved = true;
 
-    myFaceEl.textContent = DICE_FACES[myRoll];
-    oppFaceEl.textContent = DICE_FACES[oppRoll];
+    roles.forEach(r => { faceEls[r].textContent = DICE_FACES[rolls[r]]; });
 
-    const iLose = myRoll < oppRoll;
-    const theyLose = oppRoll < myRoll;
-    const tie = myRoll === oppRoll;
+    let losers;
+    if (vibeRule === 'all_but_winner') {
+      // Everyone except the highest roller suffers (a full tie at the top = nobody suffers).
+      const mx = Math.max(...roles.map(r => rolls[r]));
+      losers = roles.filter(r => rolls[r] !== mx);
+    } else {
+      // Only the lowest roller suffers; ties for lowest all suffer (in 2-player, a tie = both).
+      const mn = Math.min(...roles.map(r => rolls[r]));
+      losers = roles.filter(r => rolls[r] === mn);
+    }
+    const loserSet = new Set(losers);
 
-    if (iLose || tie) myLosses++;
-    if (theyLose || tie) oppLosses++;
+    const secsByRole = {};
+    losers.forEach(r => { losses[r]++; secsByRole[r] = forfeitSecondsForLoss(losses[r] - 1); });
     updateLossDisplays();
 
-    const myForfeitSecs = (iLose || tie) ? forfeitSecondsForLoss(myLosses - 1) : 0;
-    const oppForfeitSecs = (theyLose || tie) ? forfeitSecondsForLoss(oppLosses - 1) : 0;
-    forfeitDuration = Math.max(myForfeitSecs, oppForfeitSecs);
+    const myForfeitSecs = loserSet.has(myRole) ? secsByRole[myRole] : 0;
+    const maxSecs = losers.length ? Math.max(...losers.map(r => secsByRole[r])) : 0;
+    forfeitDuration = maxSecs;
 
-    myFaceEl.classList.toggle('dice-face-loser', iLose || tie);
-    myFaceEl.classList.toggle('dice-face-winner', theyLose && !tie);
-    oppFaceEl.classList.toggle('dice-face-loser', theyLose || tie);
-    oppFaceEl.classList.toggle('dice-face-winner', iLose && !tie);
+    roles.forEach(r => {
+      faceEls[r].classList.toggle('dice-face-loser', loserSet.has(r));
+      faceEls[r].classList.toggle('dice-face-winner', !loserSet.has(r) && losers.length > 0);
+    });
 
     rollArea.style.display = 'none';
     forfeitArea.style.display = '';
 
     const resultLine = root.querySelector('#dice-result-line');
-    if (tie) {
-      resultLine.textContent = `Tie! Both suffer ${myForfeitSecs}s.`;
-    } else if (iLose) {
-      resultLine.textContent = `You rolled lower — ${myForfeitSecs}s forfeit.`;
+    if (losers.length === 0) {
+      resultLine.textContent = 'Everyone tied — no forfeit!';
     } else {
-      resultLine.textContent = `Opponent rolled lower — they suffer ${oppForfeitSecs}s.`;
+      const parts = losers.map(r => `${r === myRole ? 'You' : nameFor(r)} (${secsByRole[r]}s)`);
+      resultLine.textContent = `${losers.length === 1 ? 'Loser' : 'Losers'}: ${parts.join(', ')}`;
     }
 
     if (myForfeitSecs > 0) haptics.startForfeitVibe(myForfeitSecs);
 
-    startForfeitCountdown(Math.max(myForfeitSecs, oppForfeitSecs));
+    startForfeitCountdown(maxSecs);
   }
 
   function startForfeitCountdown(totalSecs) {
@@ -176,6 +193,8 @@ export function renderDice(root) {
       });
     }
 
+    if (totalSecs <= 0) { showNextBtn(); return; }
+
     countdownInterval = setInterval(() => {
       if (edgePaused) return;
       remaining--;
@@ -192,11 +211,11 @@ export function renderDice(root) {
   function showNextBtn() {
     const nextBtn = root.querySelector('#dice-next-btn');
     if (nextBtn) nextBtn.style.display = '';
-    checkBothNext();
+    checkAllNext();
   }
 
-  function checkBothNext() {
-    if (nextReadySent && nextReadyReceived) {
+  function checkAllNext() {
+    if (nextReadySent && nextReadyRoles.size >= roles.length - 1) {
       clearInterval(countdownInterval);
       countdownInterval = null;
       haptics.stopAll();
@@ -216,14 +235,14 @@ export function renderDice(root) {
   // --- Roll button ---
   rollBtn.addEventListener('click', () => {
     if (edgePaused) return;
-    if (myRoll !== null) return;
+    if (rolls[myRole] !== null) return;
     const value = Math.ceil(Math.random() * 6);
-    myRoll = value;
-    myFaceEl.textContent = DICE_FACES[value];
+    rolls[myRole] = value;
+    faceEls[myRole].textContent = DICE_FACES[value];
     rollBtn.disabled = true;
-    rollStatus.textContent = 'Waiting for opponent…';
+    rollStatus.textContent = 'Waiting for other players…';
     socket.send({ type: MSG.DICE_ROLL, value });
-    if (oppRoll !== null) revealAndResolve();
+    if (allRolled()) revealAndResolve();
   });
 
   // --- Next round button (delegated since it's created after initial render) ---
@@ -232,17 +251,20 @@ export function renderDice(root) {
     if (nextReadySent) return;
     nextReadySent = true;
     e.target.disabled = true;
-    e.target.textContent = 'Waiting for opponent…';
+    e.target.textContent = 'Waiting for other players…';
     socket.send({ type: MSG.DICE_NEXT });
-    checkBothNext();
+    checkAllNext();
   });
 
   // --- Socket events ---
   const onOppRoll = (ev) => {
-    oppRoll = ev.detail.value;
-    oppFaceEl.textContent = DICE_FACES[oppRoll];
-    if (myRoll !== null) revealAndResolve();
-    else rollStatus.textContent = 'Opponent rolled — your turn!';
+    const role = ev.detail.role;
+    if (!role || !(role in rolls)) return;
+    rolls[role] = ev.detail.value;
+    faceEls[role].textContent = DICE_FACES[ev.detail.value];
+    if (allRolled()) revealAndResolve();
+    else if (rolls[myRole] === null) rollStatus.textContent = `${nameFor(role)} rolled — your turn!`;
+    else rollStatus.textContent = 'Waiting for other players…';
   };
 
   const onDiceIntensity = (ev) => {
@@ -254,15 +276,15 @@ export function renderDice(root) {
     if (pct) pct.textContent = `${Math.round(level * 100)}%`;
   };
 
-  const onDiceNext = () => {
-    nextReadyReceived = true;
-    checkBothNext();
+  const onDiceNext = (ev) => {
+    if (ev.detail?.role) nextReadyRoles.add(ev.detail.role);
+    checkAllNext();
   };
 
   const onPeerLeft = () => {
     root.innerHTML = `
       <div class="card">
-        <h2>Opponent left</h2>
+        <h2>A player left</h2>
         <div class="actions"><button id="dice-peer-home">Home</button></div>
       </div>`;
     root.querySelector('#dice-peer-home').addEventListener('click', () => { location.hash = '#/'; });
@@ -287,7 +309,7 @@ export function renderDice(root) {
       },
       onResume: () => {
         edgePaused = false;
-        if (myRoll === null) rollBtn.disabled = false;
+        if (rolls[myRole] === null) rollBtn.disabled = false;
         haptics.resumeHaptics(savedHaptics);
       },
     });

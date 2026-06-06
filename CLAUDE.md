@@ -14,6 +14,14 @@ No test suite exists. No linter is configured.
 
 For external testing with ngrok: `ngrok http 5173`. Vite is configured with `allowedHosts: true` so any tunnel URL works without config changes.
 
+## Deployment
+
+Deployed to Render (free tier) as a single Docker web service (`Dockerfile` + `render.yaml`).
+See [DEPLOY.md](DEPLOY.md). Because all session state is in-memory and unshared, the app **must
+stay at one instance** (`numInstances: 1`). The Dockerfile runs `vite build` then serves `dist/`
++ `/ws` from `server/index.js`. The server reads `process.env.PORT` (Render injects it). Free
+services spin down after ~15 min idle (~50s cold start) and drop in-memory sessions — expected.
+
 ## Architecture
 
 Single `package.json` at root. Frontend source lives in `client/src/`, server in `server/`. Vite is configured (`vite.config.js`) with `root: 'client'` and proxies `/session` and `/ws` to the Node server during dev. Production: Node serves the `dist/` static build and handles WebSocket on the same port (3001).
