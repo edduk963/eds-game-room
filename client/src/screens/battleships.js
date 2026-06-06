@@ -826,6 +826,28 @@ export function renderBattleships(root) {
 
   const onBsEnd = () => { haptics.stopAll(); goLobby(); };
 
+  const onDisconnect = () => {
+    if (document.getElementById('bs-reconn-overlay')) return;
+    const overlay = document.createElement('div');
+    overlay.id = 'bs-reconn-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;z-index:999;';
+    overlay.innerHTML = '<div style="color:#fff;font-size:18px;text-align:center;line-height:1.6">⚡ Connection lost<br><span style="font-size:14px;opacity:0.65">Reconnecting…</span></div>';
+    document.body.appendChild(overlay);
+  };
+
+  const onRejoined = () => {
+    document.getElementById('bs-reconn-overlay')?.remove();
+  };
+
+  const onPeerReconnected = () => {
+    document.getElementById('bs-reconn-overlay')?.remove();
+    const toast = document.createElement('div');
+    toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#2a7a4f;color:#fff;padding:8px 20px;border-radius:8px;z-index:999;font-size:14px;';
+    toast.textContent = `${nameFor(oppRole)} reconnected`;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+  };
+
   const onPeerLeft = () => {
     haptics.stopAll();
     root.innerHTML = `
@@ -836,6 +858,9 @@ export function renderBattleships(root) {
     root.querySelector('#bs-peer-home').addEventListener('click', () => { location.hash = '#/'; });
   };
 
+  socket.addEventListener('disconnect',           onDisconnect);
+  socket.addEventListener(MSG.JOINED,            onRejoined);
+  socket.addEventListener(MSG.PEER_RECONNECTED,  onPeerReconnected);
   socket.addEventListener(MSG.BS_READY,          onBsReady);
   socket.addEventListener(MSG.BS_SHOT,           onBsShot);
   socket.addEventListener(MSG.BS_RESULT,         onBsResult);
@@ -879,6 +904,9 @@ export function renderBattleships(root) {
   window.addEventListener('hashchange', () => {
     if (vibeInterval) { clearInterval(vibeInterval); vibeInterval = null; }
     document.removeEventListener('keydown', onKey);
+    socket.removeEventListener('disconnect',           onDisconnect);
+    socket.removeEventListener(MSG.JOINED,            onRejoined);
+    socket.removeEventListener(MSG.PEER_RECONNECTED,  onPeerReconnected);
     socket.removeEventListener(MSG.BS_READY,          onBsReady);
     socket.removeEventListener(MSG.BS_SHOT,           onBsShot);
     socket.removeEventListener(MSG.BS_RESULT,         onBsResult);
@@ -887,6 +915,7 @@ export function renderBattleships(root) {
     socket.removeEventListener(MSG.BS_VIBE_CTRL,      onBsVibeCtrl);
     socket.removeEventListener(MSG.BS_END,            onBsEnd);
     socket.removeEventListener(MSG.PEER_LEFT,         onPeerLeft);
+    document.getElementById('bs-reconn-overlay')?.remove();
     haptics.stopAll();
   }, { once: true });
 

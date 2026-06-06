@@ -150,6 +150,11 @@ wss.on('connection', (ws) => {
         return;
       }
       ws.send(JSON.stringify({ type: 'joined', role, sessionId: s.id }));
+      if (s._reconnectTimers?.[role]) {
+        clearTimeout(s._reconnectTimers[role]);
+        delete s._reconnectTimers[role];
+        broadcast(s, { type: 'peer_reconnected', role }, ws);
+      }
       broadcast(s, lobbySnapshot(s));
       return;
     }
@@ -182,9 +187,9 @@ wss.on('connection', (ws) => {
       s.soMirrorThrottle = 0; s.soTokenCounts = { host: 0, guest: 0 };
       s.soRoundStartAt = Date.now(); s.soDraftPicks = [];
       s.soHostReady = false; s.soGuestReady = false;
-      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo', 'splitloot', 'wizardisland', 'beatdealer', 'standoff', 'lastcall', 'battleships'];
+      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo', 'splitloot', 'wizardisland', 'beatdealer', 'standoff', 'lastcall', 'battleships', 'uno'];
       const gameType = validGameTypes.includes(msg.gameType) ? msg.gameType : 'galactic';
-      const rounds = Number.isInteger(msg.rounds) && msg.rounds >= 2 && msg.rounds <= 5 ? msg.rounds : 3;
+      const rounds = Number.isInteger(msg.rounds) && msg.rounds >= 1 && msg.rounds <= 5 ? msg.rounds : 3;
       const mode = msg.mode === 'hard' ? 'hard' : 'easy';
       const validDurations = [15, 30, 60, 120, 300, 600];
       const forfeitDuration = validDurations.includes(msg.forfeitDuration) ? msg.forfeitDuration : 30;
@@ -216,9 +221,11 @@ wss.on('connection', (ws) => {
       const lcReward = msg.lcReward === 'half' ? 'half' : 'full';
       const bsGridSize = ['standard', 'large'].includes(msg.bsGridSize) ? msg.bsGridSize : 'standard';
       const bsVibeMultiplier = [1, 1.5, 2, 3].includes(Number(msg.bsVibeMultiplier)) ? Number(msg.bsVibeMultiplier) : 1.5;
+      const VALID_UNO_PACKS = ['plus10', 'edge', 'skipall', 'swaphands', 'doubledown', 'ctrl2'];
+      const unoSpecialPacks = Array.isArray(msg.unoSpecialPacks) ? msg.unoSpecialPacks.filter(p => VALID_UNO_PACKS.includes(p)) : [];
       s.edgeMode = edgeMode;
       const guest2Name = s.guest2?.name ?? null;
-      broadcast(s, { type: 'begin', seed: s.seed, startAt: null, gameType, rounds, mode, forfeitDuration, edgeMode, edgeLives, hiloMode, hiloCycles, hiloDeckSize, hiloVibeRamp, hiloLives, hiloVibeTarget, playerCount, guest2Name, stlDifficulty, stlForfeitCards, btdForfeits, btdMode, btdGameMode, wiWinCondition, wiSpellLimit, diceVibeRule, lcTimer, lcMinutes, lcDeckSize, lcReward, bsGridSize, bsVibeMultiplier });
+      broadcast(s, { type: 'begin', seed: s.seed, startAt: null, gameType, rounds, mode, forfeitDuration, edgeMode, edgeLives, hiloMode, hiloCycles, hiloDeckSize, hiloVibeRamp, hiloLives, hiloVibeTarget, playerCount, guest2Name, stlDifficulty, stlForfeitCards, btdForfeits, btdMode, btdGameMode, wiWinCondition, wiSpellLimit, diceVibeRule, lcTimer, lcMinutes, lcDeckSize, lcReward, bsGridSize, bsVibeMultiplier, unoSpecialPacks });
       return;
     }
 
@@ -253,13 +260,13 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.type === 'lobby_config' && role === 'host') {
-      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo', 'splitloot', 'wizardisland', 'beatdealer', 'standoff', 'lastcall', 'battleships'];
+      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo', 'splitloot', 'wizardisland', 'beatdealer', 'standoff', 'lastcall', 'battleships', 'uno'];
       const validDurations = [15, 30, 60, 120, 300, 600];
       const validHiloModes = ['submission', 'fixed', 'random'];
       broadcast(s, {
         type: 'lobby_config',
         gameType: validGameTypes.includes(msg.gameType) ? msg.gameType : 'galactic',
-        rounds: Number.isInteger(msg.rounds) && msg.rounds >= 2 && msg.rounds <= 5 ? msg.rounds : 3,
+        rounds: Number.isInteger(msg.rounds) && msg.rounds >= 1 && msg.rounds <= 5 ? msg.rounds : 3,
         mode: msg.mode === 'hard' ? 'hard' : 'easy',
         forfeitDuration: validDurations.includes(msg.forfeitDuration) ? msg.forfeitDuration : 30,
         edgeMode: !!msg.edgeMode,
@@ -284,6 +291,8 @@ wss.on('connection', (ws) => {
         lcReward: msg.lcReward === 'half' ? 'half' : 'full',
         bsGridSize: ['standard', 'large'].includes(msg.bsGridSize) ? msg.bsGridSize : 'standard',
         bsVibeMultiplier: [1, 1.5, 2, 3].includes(Number(msg.bsVibeMultiplier)) ? Number(msg.bsVibeMultiplier) : 1.5,
+        unoSpecialPacks: Array.isArray(msg.unoSpecialPacks) ? msg.unoSpecialPacks.filter(p => ['plus10','edge','skipall','swaphands','doubledown','ctrl2'].includes(p)) : [],
+        unoRounds: Number.isInteger(msg.unoRounds) && msg.unoRounds >= 1 && msg.unoRounds <= 10 ? msg.unoRounds : 5,
       }, ws);
       return;
     }
@@ -822,6 +831,63 @@ wss.on('connection', (ws) => {
     }
     // ── End Battleships ───────────────────────────────────────────────────────
 
+    // ── UNO messages ─────────────────────────────────────────────────────────
+    if (msg.type === 'uno_play') {
+      const cardId = msg.cardId | 0;
+      const chosenColor = ['red', 'yellow', 'green', 'blue', 'wild'].includes(msg.chosenColor) ? msg.chosenColor : null;
+      const from = ['host', 'guest', 'guest2'].includes(msg.from) ? msg.from : null;
+      const swapTarget = ['host', 'guest', 'guest2'].includes(msg.swapTarget) ? msg.swapTarget : null;
+      broadcast(s, { type: 'uno_play', cardId, chosenColor, from, swapTarget }, ws);
+      return;
+    }
+
+    if (msg.type === 'uno_draw') {
+      const count = Math.max(1, Math.min(16, msg.count | 0));
+      const from = ['host', 'guest', 'guest2'].includes(msg.from) ? msg.from : null;
+      broadcast(s, { type: 'uno_draw', count, from }, ws);
+      return;
+    }
+
+    if (msg.type === 'uno_call_uno') {
+      const from = ['host', 'guest', 'guest2'].includes(msg.from) ? msg.from : null;
+      broadcast(s, { type: 'uno_call_uno', from }, ws);
+      return;
+    }
+
+    if (msg.type === 'uno_challenge') {
+      const from = ['host', 'guest', 'guest2'].includes(msg.from) ? msg.from : null;
+      const target = ['host', 'guest', 'guest2'].includes(msg.target) ? msg.target : null;
+      broadcast(s, { type: 'uno_challenge', from, target }, ws);
+      return;
+    }
+
+    if (msg.type === 'uno_vibe_ctrl') {
+      const from = ['host', 'guest', 'guest2'].includes(msg.from) ? msg.from : null;
+      const intensity = Math.max(0, Math.min(1, Number(msg.intensity) || 0));
+      broadcast(s, { type: 'uno_vibe_ctrl', intensity, from }, ws);
+      return;
+    }
+
+    if (msg.type === 'uno_forfeit_ctrl') {
+      const from = ['host', 'guest', 'guest2'].includes(msg.from) ? msg.from : null;
+      const target = ['host', 'guest', 'guest2'].includes(msg.target) ? msg.target : null;
+      const intensity = Math.max(0, Math.min(1, Number(msg.intensity) || 0));
+      const VALID_PATTERNS = ['steady', 'pulse', 'wave', 'surge'];
+      const pattern = VALID_PATTERNS.includes(msg.pattern) ? msg.pattern : 'steady';
+      const targetWs = target ? s[target]?.socket : null;
+      if (targetWs?.readyState === 1) {
+        targetWs.send(JSON.stringify({ type: 'uno_forfeit_ctrl', target, intensity, pattern, from }));
+      }
+      return;
+    }
+
+    if (msg.type === 'uno_forfeit_ready') {
+      const from = ['host', 'guest', 'guest2'].includes(msg.from) ? msg.from : null;
+      broadcast(s, { type: 'uno_forfeit_ready', from }, ws);
+      return;
+    }
+    // ── End UNO ───────────────────────────────────────────────────────────────
+
     if (msg.type === 'final' && Number.isFinite(msg.value)) {
       const v = msg.value | 0;
       const vibeSeconds = Number.isFinite(msg.vibeSeconds) ? Math.max(0, msg.vibeSeconds | 0) : 0;
@@ -838,7 +904,14 @@ wss.on('connection', (ws) => {
   ws.on('close', () => {
     clearInterval(pingInterval);
     const s = sessionId ? getSession(sessionId) : null;
-    if (s) broadcast(s, { type: 'peer_left', role }, ws);
+    if (s && role) {
+      s._reconnectTimers = s._reconnectTimers || {};
+      s._reconnectTimers[role] = setTimeout(() => {
+        const s2 = sessionId ? getSession(sessionId) : null;
+        if (s2) broadcast(s2, { type: 'peer_left', role });
+        if (s._reconnectTimers) delete s._reconnectTimers[role];
+      }, 5000);
+    }
     if (sessionId) detachSocket(sessionId, ws);
   });
 });

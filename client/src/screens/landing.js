@@ -12,6 +12,9 @@ export function renderLanding(root) {
         <button id="join-existing" class="ghost">Have a link?</button>
         <button id="create">Create session</button>
       </div>
+      <div style="margin-top:16px;text-align:center;">
+        <button id="open-wheel" class="ghost" style="width:100%;font-size:14px;">🎡 Spin the Wheel</button>
+      </div>
     </div>
   `;
 
@@ -36,6 +39,8 @@ export function renderLanding(root) {
       showError(errEl, 'Could not create session. Is the server running?');
     }
   });
+
+  root.querySelector('#open-wheel').addEventListener('click', () => navigate('#/wheel'));
 
   root.querySelector('#join-existing').addEventListener('click', () => {
     const code = prompt('Paste session code or full URL:');

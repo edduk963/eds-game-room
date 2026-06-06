@@ -17,6 +17,8 @@ import { renderBeatDealer } from './screens/beatdealer.js';
 import { renderStandoff } from './screens/standoff.js';
 import { renderLastCall } from './screens/lastcall.js';
 import { renderBattleships } from './screens/battleships.js';
+import { renderWheel } from './screens/wheel.js';
+import { renderUno } from './screens/uno.js';
 
 const app = document.getElementById('app');
 
@@ -123,6 +125,17 @@ function route() {
     return;
   }
 
+  if (hash === '#/uno') {
+    if (!state.seed) { navigate('#/'); return; }
+    renderUno(app);
+    return;
+  }
+
+  if (hash === '#/wheel') {
+    renderWheel(app);
+    return;
+  }
+
   if (hash === '#/results') {
     renderResults(app);
     return;
@@ -170,6 +183,8 @@ socket.addEventListener('begin', (ev) => {
   state.lcReward = ev.detail.lcReward || 'full';
   state.bsGridSize = ev.detail.bsGridSize || 'standard';
   state.bsVibeMultiplier = ev.detail.bsVibeMultiplier ?? 1.5;
+  if (ev.detail.gameType === 'uno') state.gameRounds = ev.detail.unoRounds || ev.detail.rounds || 5;
+  state.unoSpecialPacks = ev.detail.unoSpecialPacks || [];
   const gt = state.gameType;
   if (gt === 'mastermind') navigate(state.playerCount === 3 ? '#/mastermind3' : '#/mastermind');
   else if (gt === 'endurance') navigate('#/endurance');
@@ -182,6 +197,7 @@ socket.addEventListener('begin', (ev) => {
   else if (gt === 'standoff') navigate('#/standoff');
   else if (gt === 'lastcall') navigate('#/lastcall');
   else if (gt === 'battleships') navigate('#/battleships');
+  else if (gt === 'uno') navigate('#/uno');
   else navigate('#/game');
 });
 

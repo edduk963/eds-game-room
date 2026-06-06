@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 175 250">
+  <rect width="175" height="250" rx="18" fill="#f9a825"/>
+  <ellipse cx="87.5" cy="125" rx="67" ry="106" transform="rotate(-20 87.5 125)" fill="white"/>
+  <text x="87.5" y="135" text-anchor="middle" dominant-baseline="middle"
+        font-family="'Arial Black', Impact, Arial, sans-serif" font-size="100" font-weight="900"
+        fill="#f9a825">0</text>
+  <text x="16" y="28" font-family="'Arial Black', Arial, sans-serif" font-size="22" font-weight="900" fill="white" text-anchor="middle">0</text>
+  <text x="159" y="222" font-family="'Arial Black', Arial, sans-serif" font-size="22" font-weight="900" fill="white" text-anchor="middle" transform="rotate(180 159 222)">0</text>
+</svg>

@@ -173,6 +173,8 @@ export function startForfeitVibe(seconds) {
     } else if (_waveVibeMode) {
       _wavePhase++;
       vibe(waveIntensity(forfeitIntensity));
+    } else {
+      vibe(forfeitIntensity);
     }
   }, 100);
 }
@@ -212,6 +214,8 @@ export function addForfeitSeconds(n) {
       } else if (_waveVibeMode) {
         _wavePhase++;
         vibe(waveIntensity(forfeitIntensity));
+      } else {
+        vibe(forfeitIntensity);
       }
     }, 100);
   }

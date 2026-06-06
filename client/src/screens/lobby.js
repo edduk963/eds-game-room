@@ -37,6 +37,8 @@ export function renderLobby(root) {
   let selectedLcReward = 'full';
   let selectedBsGridSize = 'standard';
   let selectedBsVibeMultiplier = 1.5;
+  let selectedUnoRounds = 5;
+  let selectedUnoSpecialPacks = [];
 
   root.innerHTML = `
     <div class="card">
@@ -81,7 +83,7 @@ export function renderLobby(root) {
           <div class="game-tile game-tile-selectable" data-game="endurance">
             <div class="game-tile-icon">🛸</div>
             <div>
-              <div class="name">Endurance</div>
+              <div class="name-row"><span class="name">Endurance</span><span class="vibe-badge">Vibe</span></div>
               <div class="desc">Rapid fire stacks recoil vibe. Aliens reaching your line hit full intensity.</div>
             </div>
           </div>
@@ -91,36 +93,43 @@ export function renderLobby(root) {
           <div class="game-tile game-tile-selectable" data-game="hilo">
             <div class="game-tile-icon">🃏</div>
             <div>
-              <div class="name">Hi-Lo</div>
+              <div class="name-row"><span class="name">Hi-Lo</span><span class="vibe-badge">Vibe</span><span class="badge-3p">3P</span></div>
               <div class="desc">Guess higher or lower. Correct guesses vibe your opponent — intensity builds each card.</div>
             </div>
           </div>
           <div class="game-tile game-tile-selectable" data-game="beatdealer">
             <div class="game-tile-icon">🎴</div>
             <div>
-              <div class="name">Beat the Dealer</div>
+              <div class="name-row"><span class="name">Beat the Dealer</span><span class="badge-3p">3P</span></div>
               <div class="desc">Beat the computer dealer. Lose a hand and face the forfeit. 10 rounds.</div>
             </div>
           </div>
           <div class="game-tile game-tile-selectable" data-game="mastermind">
             <div class="game-tile-icon">🔐</div>
             <div>
-              <div class="name">Mastermind</div>
+              <div class="name-row"><span class="name">Mastermind</span><span class="badge-3p">3P</span></div>
               <div class="desc">Crack the colour code before your opponent. Each close guess vibrates them.</div>
             </div>
           </div>
           <div class="game-tile game-tile-selectable" data-game="dice">
             <div class="game-tile-icon">🎲</div>
             <div>
-              <div class="name">Dice</div>
+              <div class="name-row"><span class="name">Dice</span><span class="badge-3p">3P</span></div>
               <div class="desc">Roll each round. Loser suffers escalating forfeit — starts 15s and doubles on each loss.</div>
             </div>
           </div>
           <div class="game-tile game-tile-selectable" data-game="lastcall">
             <div class="game-tile-icon">🏁</div>
             <div>
-              <div class="name">Last Call</div>
+              <div class="name-row"><span class="name">Last Call</span><span class="vibe-badge">Vibe</span><span class="badge-3p">3P</span></div>
               <div class="desc">Win vibe time off Hi-Lo, then run it on yourself. Race to finish before the clock — whoever doesn't, forfeits.</div>
+            </div>
+          </div>
+          <div class="game-tile game-tile-selectable" data-game="uno">
+            <div class="game-tile-icon">🎴</div>
+            <div>
+              <div class="name-row"><span class="name">UNO</span><span class="vibe-badge">Vibe</span><span class="badge-3p">3P</span></div>
+              <div class="desc">Classic UNO — match colors and numbers. Draw 2 and Draw 4 buzz your opponent. Loser forfeits.</div>
             </div>
           </div>
         </div>
@@ -143,7 +152,7 @@ export function renderLobby(root) {
           <div class="game-tile game-tile-selectable" data-game="tugofwar">
             <div class="game-tile-icon">💪</div>
             <div>
-              <div class="name">Tug of War</div>
+              <div class="name-row"><span class="name">Tug of War</span><span class="vibe-badge">Vibe</span></div>
               <div class="desc">Both vibe continuously. The losing player feels it more. Pool escalates every 10s.</div>
             </div>
           </div>
@@ -227,6 +236,27 @@ export function renderLobby(root) {
           <button class="mm-rounds-btn mm-rounds-selected" data-stl-card="strip">Strip</button>
           <button class="mm-rounds-btn mm-rounds-selected" data-stl-card="control">Control</button>
           <button class="mm-rounds-btn mm-rounds-selected" data-stl-card="surrender">Surrender</button>
+        </div>
+      </div>
+      <div id="uno-config" style="display:none">
+        <div class="mm-rounds-row">
+          <span>Rounds:</span>
+          <div class="mm-rounds-btns" id="uno-rounds-btns">
+            <button class="mm-rounds-btn ghost" data-uno-rounds="1">1</button>
+            <button class="mm-rounds-btn ghost" data-uno-rounds="3">3</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-uno-rounds="5">5</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+          <span>Special card packs <span style="font-size:11px;color:var(--muted)">(tap to toggle)</span>:</span>
+          <div class="uno-packs-grid" id="uno-packs-grid">
+            <button class="uno-pack-btn ghost" data-uno-pack="plus10">+10 Pickup<br><span class="uno-pack-desc">Like Wild +4 but draws 10</span></button>
+            <button class="uno-pack-btn ghost" data-uno-pack="edge">+1 Edge<br><span class="uno-pack-desc">Per colour · stackable on draws</span></button>
+            <button class="uno-pack-btn ghost" data-uno-pack="skipall">Skip All<br><span class="uno-pack-desc">Wild · all opponents skipped</span></button>
+            <button class="uno-pack-btn ghost" data-uno-pack="swaphands">Swap Hands<br><span class="uno-pack-desc">Wild · swap hand with a player</span></button>
+            <button class="uno-pack-btn ghost" data-uno-pack="doubledown">Double Down<br><span class="uno-pack-desc">Wild · doubles pending draw (min ×2)</span></button>
+            <button class="uno-pack-btn ghost" data-uno-pack="ctrl2">2 Min Ctrl<br><span class="uno-pack-desc">Wild · winner controls loser's vibe for 2 min</span></button>
+          </div>
         </div>
       </div>
       <div id="mm-config" style="display:none">
@@ -415,6 +445,9 @@ export function renderLobby(root) {
   const startBtn = root.querySelector('#start');
   const errEl = root.querySelector('#err');
   const gameList = root.querySelector('#game-list');
+  const unoConfig = root.querySelector('#uno-config');
+  const unoRoundsBtns = root.querySelector('#uno-rounds-btns');
+  const unoPacksGrid = root.querySelector('#uno-packs-grid');
   const mmConfig = root.querySelector('#mm-config');
   const hiloConfig = root.querySelector('#hilo-config');
   const stlConfig = root.querySelector('#stl-config');
@@ -592,8 +625,22 @@ export function renderLobby(root) {
     const isSo = selectedGame === 'standoff';
     const isLc = selectedGame === 'lastcall';
     const isBs = selectedGame === 'battleships';
-    const hideForfeit = isHilo || isStl || isWi || isBtd || isSo || isBs || (isLc && !selectedLcTimer);
-    const noEdge = isHilo || isStl || isWi || isBtd || isSo || isLc || isBs;
+    const isUno = selectedGame === 'uno';
+    unoConfig.style.display = isUno ? 'block' : 'none';
+    unoRoundsBtns.querySelectorAll('[data-uno-rounds]').forEach(b => {
+      const sel = parseInt(b.dataset.unoRounds, 10) === selectedUnoRounds;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+      b.disabled = state.role !== 'host';
+    });
+    unoPacksGrid.querySelectorAll('[data-uno-pack]').forEach(b => {
+      const sel = selectedUnoSpecialPacks.includes(b.dataset.unoPack);
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+      b.disabled = state.role !== 'host';
+    });
+    const hideForfeit = isHilo || isStl || isWi || isBtd || isSo || isBs || isUno || (isLc && !selectedLcTimer);
+    const noEdge = isHilo || isStl || isWi || isBtd || isSo || isLc || isBs || isUno;
     forfeitRow.style.display   = hideForfeit ? 'none' : '';
     edgeModeRow.style.display  = noEdge ? 'none' : '';
     if (noEdge) edgeLivesRow.style.display = 'none';
@@ -644,6 +691,8 @@ export function renderLobby(root) {
     lcReward: selectedLcReward,
     bsGridSize: selectedBsGridSize,
     bsVibeMultiplier: selectedBsVibeMultiplier,
+    unoRounds: selectedUnoRounds,
+    unoSpecialPacks: selectedUnoSpecialPacks,
   });
 
   socket.connect();
@@ -705,6 +754,8 @@ export function renderLobby(root) {
     if (ev.detail.lcReward)                        selectedLcReward = ev.detail.lcReward;
     if (ev.detail.bsGridSize)                      selectedBsGridSize = ev.detail.bsGridSize;
     if (ev.detail.bsVibeMultiplier !== undefined)  selectedBsVibeMultiplier = ev.detail.bsVibeMultiplier;
+    if (ev.detail.unoRounds)                        selectedUnoRounds = ev.detail.unoRounds;
+    if (ev.detail.unoSpecialPacks)                  selectedUnoSpecialPacks = ev.detail.unoSpecialPacks;
     if (modeChanged) { renderLobby(root); return; }
     paintOptions();
   };
@@ -810,7 +861,7 @@ export function renderLobby(root) {
   });
 
   startBtn.addEventListener('click', () => {
-    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives, hiloMode: selectedHiloMode, hiloCycles: selectedHiloCycles, hiloDeckSize: selectedHiloDeckSize, hiloVibeRamp: selectedHiloVibeRamp, hiloLives: selectedHiloLives, hiloVibeTarget: selectedHiloVibeTarget, stlDifficulty: selectedStlDifficulty, stlForfeitCards: selectedStlForfeitCards, btdForfeits: selectedBtdForfeits, btdMode: selectedBtdMode, btdGameMode: selectedBtdGameMode, wiWinCondition: selectedWiWinCondition, wiSpellLimit: selectedWiSpellLimit, diceVibeRule: selectedDiceVibeRule, lcTimer: selectedLcTimer, lcMinutes: selectedLcMinutes, lcDeckSize: selectedLcDeckSize, lcReward: selectedLcReward, bsGridSize: selectedBsGridSize, bsVibeMultiplier: selectedBsVibeMultiplier });
+    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedGame === 'uno' ? selectedUnoRounds : selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives, hiloMode: selectedHiloMode, hiloCycles: selectedHiloCycles, hiloDeckSize: selectedHiloDeckSize, hiloVibeRamp: selectedHiloVibeRamp, hiloLives: selectedHiloLives, hiloVibeTarget: selectedHiloVibeTarget, stlDifficulty: selectedStlDifficulty, stlForfeitCards: selectedStlForfeitCards, btdForfeits: selectedBtdForfeits, btdMode: selectedBtdMode, btdGameMode: selectedBtdGameMode, wiWinCondition: selectedWiWinCondition, wiSpellLimit: selectedWiSpellLimit, diceVibeRule: selectedDiceVibeRule, lcTimer: selectedLcTimer, lcMinutes: selectedLcMinutes, lcDeckSize: selectedLcDeckSize, lcReward: selectedLcReward, bsGridSize: selectedBsGridSize, bsVibeMultiplier: selectedBsVibeMultiplier, unoRounds: selectedUnoRounds, unoSpecialPacks: selectedUnoSpecialPacks });
   });
 
   wiWinBtns.addEventListener('click', (e) => {
@@ -890,6 +941,29 @@ export function renderLobby(root) {
     const btn = e.target.closest('[data-bs-mult]');
     if (!btn) return;
     selectedBsVibeMultiplier = parseFloat(btn.dataset.bsMult);
+    paintOptions();
+    sendConfig();
+  });
+
+  unoRoundsBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-uno-rounds]');
+    if (!btn) return;
+    selectedUnoRounds = parseInt(btn.dataset.unoRounds, 10);
+    paintOptions();
+    sendConfig();
+  });
+
+  unoPacksGrid.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-uno-pack]');
+    if (!btn) return;
+    const pack = btn.dataset.unoPack;
+    if (selectedUnoSpecialPacks.includes(pack)) {
+      selectedUnoSpecialPacks = selectedUnoSpecialPacks.filter(p => p !== pack);
+    } else {
+      selectedUnoSpecialPacks = [...selectedUnoSpecialPacks, pack];
+    }
     paintOptions();
     sendConfig();
   });

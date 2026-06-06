@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 175 250">
+  <rect width="175" height="250" rx="18" fill="#111"/>
+  <clipPath id="c10"><ellipse cx="87.5" cy="125" rx="57" ry="95" transform="rotate(-20 87.5 125)"/></clipPath>
+  <g clip-path="url(#c10)">
+    <rect x="0" y="0" width="87.5" height="125" fill="#c62828"/>
+    <rect x="87.5" y="0" width="87.5" height="125" fill="#f9a825"/>
+    <rect x="0" y="125" width="87.5" height="125" fill="#2e7d32"/>
+    <rect x="87.5" y="125" width="87.5" height="125" fill="#1565c0"/>
+  </g>
+  <ellipse cx="87.5" cy="125" rx="57" ry="95" transform="rotate(-20 87.5 125)" fill="none" stroke="white" stroke-width="2.5"/>
+  <text x="87.5" y="130" text-anchor="middle" dominant-baseline="middle"
+        font-family="'Arial Black', Impact, Arial, sans-serif" font-size="44" font-weight="900"
+        fill="white" stroke="#111" stroke-width="5" paint-order="stroke">+10</text>
+  <circle cx="15" cy="15" r="5" fill="#c62828"/><circle cx="21" cy="22" r="4" fill="#f9a825"/>
+  <circle cx="160" cy="235" r="5" fill="#2e7d32"/><circle cx="154" cy="228" r="4" fill="#1565c0"/>
+</svg>
