@@ -93,21 +93,21 @@ export function renderLobby(root) {
           <div class="game-tile game-tile-selectable" data-game="hilo">
             <div class="game-tile-icon">🃏</div>
             <div>
-              <div class="name-row"><span class="name">Hi-Lo</span><span class="vibe-badge">Vibe</span><span class="badge-3p">3P</span></div>
-              <div class="desc">Guess higher or lower. Correct guesses vibe your opponent — intensity builds each card.</div>
+              <div class="name-row"><span class="name">Hi-Lo</span><span class="vibe-badge">Vibe</span><span class="badge-1p">1P</span><span class="badge-3p">3P</span></div>
+              <div class="desc">Guess higher or lower. Correct guesses vibe your opponent — intensity builds each card. Solo: vibe yourself.</div>
             </div>
           </div>
           <div class="game-tile game-tile-selectable" data-game="beatdealer">
             <div class="game-tile-icon">🎴</div>
             <div>
-              <div class="name-row"><span class="name">Beat the Dealer</span><span class="badge-3p">3P</span></div>
-              <div class="desc">Beat the computer dealer. Lose a hand and face the forfeit. 10 rounds.</div>
+              <div class="name-row"><span class="name">Beat the Dealer</span><span class="badge-1p">1P</span><span class="badge-3p">3P</span></div>
+              <div class="desc">Beat the computer dealer. Lose a hand and face the forfeit. 10 rounds. Playable solo.</div>
             </div>
           </div>
           <div class="game-tile game-tile-selectable" data-game="mastermind">
             <div class="game-tile-icon">🔐</div>
             <div>
-              <div class="name-row"><span class="name">Mastermind</span><span class="badge-3p">3P</span></div>
+              <div class="name-row"><span class="name">Mastermind</span><span class="badge-1p">1P</span><span class="badge-3p">3P</span></div>
               <div class="desc">Crack the colour code before your opponent. Each close guess vibrates them.</div>
             </div>
           </div>
@@ -121,7 +121,7 @@ export function renderLobby(root) {
           <div class="game-tile game-tile-selectable" data-game="lastcall">
             <div class="game-tile-icon">🏁</div>
             <div>
-              <div class="name-row"><span class="name">Last Call</span><span class="vibe-badge">Vibe</span><span class="badge-3p">3P</span></div>
+              <div class="name-row"><span class="name">Last Call</span><span class="vibe-badge">Vibe</span><span class="badge-1p">1P</span><span class="badge-3p">3P</span></div>
               <div class="desc">Win vibe time off Hi-Lo, then run it on yourself. Race to finish before the clock — whoever doesn't, forfeits.</div>
             </div>
           </div>
@@ -660,6 +660,14 @@ export function renderLobby(root) {
       b.classList.toggle('mm-rounds-selected', sel);
       b.classList.toggle('ghost', !sel);
     });
+    // Refresh start button when game selection changes (solo-capable games can start without a guest)
+    const _soloGames = ['beatdealer', 'hilo', 'mastermind', 'lastcall'];
+    const _isSolo = _soloGames.includes(selectedGame);
+    const _canStart = state.role === 'host' && state.hostName && (state.guestName || _isSolo);
+    startBtn.disabled = !_canStart;
+    startBtn.textContent = state.role === 'host'
+      ? (_canStart ? (state.guestName ? 'Start' : 'Play Solo') : 'Waiting for guest…')
+      : 'Waiting for host…';
   }
 
   const sendConfig = () => socket.send({
@@ -1102,10 +1110,12 @@ export function renderLobby(root) {
       pg2.classList.toggle('empty', !state.guest2Name);
       pg2.querySelector('.name').textContent = state.guest2Name || 'player 3 (optional)…';
     }
-    const canStart = state.role === 'host' && state.hostName && state.guestName;
+    const SOLO_GAMES = ['beatdealer', 'hilo'];
+    const isSoloCapable = SOLO_GAMES.includes(selectedGame);
+    const canStart = state.role === 'host' && state.hostName && (state.guestName || isSoloCapable);
     startBtn.disabled = !canStart;
     startBtn.textContent = state.role === 'host'
-      ? (canStart ? 'Start' : 'Waiting for guest…')
+      ? (canStart ? (state.guestName ? 'Start' : 'Play Solo') : 'Waiting for guest…')
       : 'Waiting for host…';
     paintOptions();
   }

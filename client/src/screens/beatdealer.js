@@ -19,7 +19,8 @@ export function renderBeatDealer(root) {
 
   // Canonical role order (fixed → deterministic scoring across clients) and the
   // display order (me first). guest2 only present in a 3-player session.
-  const ROLES = state.playerCount === 3 ? ['host', 'guest', 'guest2'] : ['host', 'guest'];
+  const isSolo = state.playerCount === 1;
+  const ROLES = state.playerCount === 3 ? ['host', 'guest', 'guest2'] : isSolo ? ['host'] : ['host', 'guest'];
   const displayRoles = [myRole, ...ROLES.filter(r => r !== myRole)];
 
   function nameOf(r) {
@@ -187,7 +188,7 @@ export function renderBeatDealer(root) {
   function chooseCard(idx) {
     if (phase !== 'playing' || chosen[myRole] !== null || prior[myRole].has(idx)) return;
     chosen[myRole] = idx;
-    socket.send({ type: MSG.BTD_PLAY, cardIndex: idx });
+    if (!isSolo) socket.send({ type: MSG.BTD_PLAY, cardIndex: idx });
     if (allChosen()) tryReveal();
     else render();
   }
@@ -378,11 +379,11 @@ export function renderBeatDealer(root) {
         const dealerLbl = cardLabel(currentDealerCard);
         if (chosen[myRole] === null) return `Dealer shows <strong>${dealerLbl}</strong> — beat it or sacrifice a card.`;
         if (waiting.length) return `Locked in. Waiting for ${esc(waiting.join(', '))}…`;
-        return 'Everyone has committed — revealing…';
+        return isSolo ? '🃏 Revealing…' : 'Everyone has committed — revealing…';
       }
       if (chosen[myRole] === null) return `Lay a card — highest wins, ties are safe.`;
       if (waiting.length) return `Locked in. Waiting for ${esc(waiting.join(', '))}…`;
-      return 'Everyone has committed — revealing…';
+      return isSolo ? '🃏 Revealing…' : 'Everyone has committed — revealing…';
     }
     if (phase === 'revealed') {
       return displayRoles.map(r =>
@@ -591,14 +592,14 @@ export function renderBeatDealer(root) {
       forfeitAssigned = true;
       drawnForfeitText = text;
       losers.forEach(r => addForfeit(r, text));
-      socket.send({ type: MSG.BTD_DRAW_FORFEIT, forfeit: text, losers });
+      if (!isSolo) socket.send({ type: MSG.BTD_DRAW_FORFEIT, forfeit: text, losers });
       render();
     });
 
     root.querySelector('#btd-next')?.addEventListener('click', () => {
       if (nextReady[myRole]) return;
       nextReady[myRole] = true;
-      socket.send({ type: MSG.BTD_NEXT_READY });
+      if (!isSolo) socket.send({ type: MSG.BTD_NEXT_READY });
       render();
       checkAdvance();
     });
@@ -794,16 +795,16 @@ export function renderBeatDealer(root) {
     root.querySelector('#btd-peer-home').addEventListener('click', () => { location.hash = '#/'; });
   };
 
-  socket.addEventListener(MSG.BTD_OPP_PLAY, onOppPlay);
-  socket.addEventListener(MSG.BTD_NEXT_READY, onNextReady);
-  socket.addEventListener(MSG.BTD_DRAW_FORFEIT, onDrawForfeit);
+  if (!isSolo) socket.addEventListener(MSG.BTD_OPP_PLAY, onOppPlay);
+  if (!isSolo) socket.addEventListener(MSG.BTD_NEXT_READY, onNextReady);
+  if (!isSolo) socket.addEventListener(MSG.BTD_DRAW_FORFEIT, onDrawForfeit);
   socket.addEventListener(MSG.BTD_TIMER_CMD, onTimerCmd);
   socket.addEventListener(MSG.BTD_D6_ROLL, onD6Roll);
   socket.addEventListener(MSG.BTD_VIBE_STOP, onVibeStop);
   socket.addEventListener(MSG.BTD_VIBE_ENABLE, onVibeEnable);
   socket.addEventListener(MSG.BTD_VIBE_CLAIM, onVibeClaim);
   socket.addEventListener(MSG.BTD_CLAIM_INTENSITY, onClaimIntensity);
-  socket.addEventListener(MSG.PEER_LEFT, onPeerLeft);
+  if (!isSolo) socket.addEventListener(MSG.PEER_LEFT, onPeerLeft);
 
   window.addEventListener('hashchange', () => {
     clearTimeout(revealTimer);
@@ -814,16 +815,16 @@ export function renderBeatDealer(root) {
     ROLES.forEach(r => { vibeClaimIntervals[r] = null; });
     myActiveClaim = false;
     setBtdVibe(0);
-    socket.removeEventListener(MSG.BTD_OPP_PLAY, onOppPlay);
-    socket.removeEventListener(MSG.BTD_NEXT_READY, onNextReady);
-    socket.removeEventListener(MSG.BTD_DRAW_FORFEIT, onDrawForfeit);
+    if (!isSolo) socket.removeEventListener(MSG.BTD_OPP_PLAY, onOppPlay);
+    if (!isSolo) socket.removeEventListener(MSG.BTD_NEXT_READY, onNextReady);
+    if (!isSolo) socket.removeEventListener(MSG.BTD_DRAW_FORFEIT, onDrawForfeit);
     socket.removeEventListener(MSG.BTD_TIMER_CMD, onTimerCmd);
     socket.removeEventListener(MSG.BTD_D6_ROLL, onD6Roll);
     socket.removeEventListener(MSG.BTD_VIBE_STOP, onVibeStop);
     socket.removeEventListener(MSG.BTD_VIBE_ENABLE, onVibeEnable);
     socket.removeEventListener(MSG.BTD_VIBE_CLAIM, onVibeClaim);
     socket.removeEventListener(MSG.BTD_CLAIM_INTENSITY, onClaimIntensity);
-    socket.removeEventListener(MSG.PEER_LEFT, onPeerLeft);
+    if (!isSolo) socket.removeEventListener(MSG.PEER_LEFT, onPeerLeft);
   }, { once: true });
 
   prepareRound(); // choose the dealer's card / cards for round 1 before first paint

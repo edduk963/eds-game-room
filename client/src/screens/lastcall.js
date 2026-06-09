@@ -14,7 +14,8 @@ import {
 export function renderLastCall(root) {
   const myRole      = state.role;
   const playerCount = state.playerCount || 2;
-  const playerRoles = playerCount === 3 ? ['host', 'guest', 'guest2'] : ['host', 'guest'];
+  const is1P = playerCount === 1;
+  const playerRoles = playerCount === 3 ? ['host', 'guest', 'guest2'] : is1P ? ['host'] : ['host', 'guest'];
   const playerNames = {
     host:   state.hostName   || 'Host',
     guest:  state.guestName  || 'Guest',
@@ -52,6 +53,7 @@ export function renderLastCall(root) {
   let currentGuesser = playerRoles[pickStarterIndex(makeRng(seed), playerCount)];
   let phase = 'playing'; // 'playing' | 'running' | 'gameover'
   let pot = 0;
+  let streak1P = 0; // consecutive correct answers without banking (1P only)
 
   const bank     = { host: 0, guest: 0, guest2: 0 };
   const finished = { host: false, guest: false, guest2: false };
@@ -171,7 +173,10 @@ export function renderLastCall(root) {
     const potEl = $('lc-pot');
     if (potEl) {
       potEl.style.display = (phase === 'playing' && pot > 0) ? 'block' : 'none';
-      potEl.innerHTML = `Pot this streak: <strong style="color:var(--accent)">${fmtSecs(pot)}</strong>`;
+      const streakInfo = is1P && streak1P > 1
+        ? ` <span style="color:var(--warn);font-size:12px;">×${Math.min(3, 1 + streak1P * 0.15).toFixed(2)} (${streak1P}-card streak)</span>`
+        : '';
+      potEl.innerHTML = `Pot this streak: <strong style="color:var(--accent)">${fmtSecs(pot)}</strong>${streakInfo}`;
     }
 
     const tl = $('lc-turn-label');
@@ -181,7 +186,8 @@ export function renderLastCall(root) {
           tl.textContent = '🏁 You finished — watching the rest play out';
           tl.className = 'hilo-turn-label';
         } else if (isMyTurn) {
-          tl.textContent = `Your turn — Higher or Lower? ${taxed[myRole] ? '(💸 taxed)' : ''}${doubleActive[myRole] ? ' (✕2)' : ''}`;
+          const streakBonus = is1P && streak1P > 0 ? ` (next: ×${Math.min(3, 1 + (streak1P + 1) * 0.15).toFixed(2)})` : '';
+          tl.textContent = `Your turn — Higher or Lower?${streakBonus} ${taxed[myRole] ? '(💸 taxed)' : ''}${doubleActive[myRole] ? ' (✕2)' : ''}`;
           tl.className = 'hilo-turn-label hilo-turn-me';
         } else {
           tl.textContent = `${escapeHtml(playerNames[currentGuesser])}'s turn`;
@@ -305,6 +311,11 @@ export function renderLastCall(root) {
     if (correct) {
       // Harder cards (middle values, ~50/50) pay more. Full = 2–10s, Half = 1–5s.
       let gain = lcCardSeconds(card.value, rewardScale);
+      if (is1P) {
+        streak1P++;
+        const streakMult = Math.min(3, 1 + streak1P * 0.15);
+        gain *= streakMult;
+      }
       if (doubleActive[guesser]) gain *= 2;
       if (taxed[guesser]) gain /= 2;
       gain = Math.round(gain * 10) / 10;
@@ -312,14 +323,17 @@ export function renderLastCall(root) {
       if (powerMap.has(cardIndex)) {
         const t = powerMap.get(cardIndex);
         powerups[guesser].push({ type: t, uid: `${cardIndex}` });
-        showFeedback(`✓ +${gain.toFixed(1)}s   🎁 ${guesser === myRole ? 'You' : escapeHtml(playerNames[guesser])} got ${LC_POWER_LABELS[t]}`, 'accent');
+        const streakTag = is1P && streak1P > 1 ? ` ×${Math.min(3, 1 + streak1P * 0.15).toFixed(2)}` : '';
+        showFeedback(`✓ +${gain.toFixed(1)}s${streakTag}   🎁 ${guesser === myRole ? 'You' : escapeHtml(playerNames[guesser])} got ${LC_POWER_LABELS[t]}`, 'accent');
       } else {
-        showFeedback(`✓ +${gain.toFixed(1)}s`, 'accent');
+        const streakTag = is1P && streak1P > 1 ? ` ×${Math.min(3, 1 + streak1P * 0.15).toFixed(2)}` : '';
+        showFeedback(`✓ +${gain.toFixed(1)}s${streakTag}`, 'accent');
       }
     } else {
       // Mistake — every unbanked second is dropped and the turn passes.
       const lost = pot;
       pot = 0;
+      if (is1P) streak1P = 0;
       doubleActive[guesser] = false;
       taxed[guesser] = false;
       showFeedback(guesser === myRole
@@ -344,13 +358,13 @@ export function renderLastCall(root) {
     ov.innerHTML = `
       <div class="hilo-overlay-box">
         <h2 style="text-align:center;margin:0 0 6px;">Bank ${fmtSecs(pot)}</h2>
-        <p style="text-align:center;color:var(--muted);margin:0 0 16px;">Stashed safe — your bank becomes <strong>${fmtSecs(projected)}</strong>. Your turn ends. Claim now or play on?</p>
+        <p style="text-align:center;color:var(--muted);margin:0 0 16px;">${is1P ? `Your bank becomes <strong>${fmtSecs(projected)}</strong>. Claim now to run the vibe, or keep guessing?` : `Stashed safe — your bank becomes <strong>${fmtSecs(projected)}</strong>. Your turn ends. Claim now or play on?`}</p>
         <div style="display:flex;flex-direction:column;gap:10px;">
-          <button data-bank="claim" style="background:var(--warn);" ${projected > 0 ? '' : 'disabled'}>▶ Claim now — run the vibes (${fmtSecs(projected)})</button>
-          <button data-bank="playon">⏭ Play on (keep it banked)</button>
+          <button data-bank="claim" style="background:var(--warn);" ${projected > 0 ? '' : 'disabled'}>▶ Claim now — run the vibe (${fmtSecs(projected)})</button>
+          <button data-bank="playon">⏭ ${is1P ? 'Keep guessing' : 'Play on (keep it banked)'}</button>
           <button class="ghost" data-bank="cancel" style="font-size:13px;">← keep guessing</button>
         </div>
-        <p style="text-align:center;font-size:12px;color:var(--muted);margin:14px 0 0;">Claiming drains every player's own bank while you control one shared intensity slider.</p>
+        ${is1P ? '' : '<p style="text-align:center;font-size:12px;color:var(--muted);margin:14px 0 0;">Claiming drains every player\'s own bank while you control one shared intensity slider.</p>'}
       </div>`;
     root.appendChild(ov);
     ov.addEventListener('click', (e) => {
@@ -364,7 +378,7 @@ export function renderLastCall(root) {
   function handleBankDecision(choice) {
     if (phase !== 'playing' || currentGuesser !== myRole) return;
     $('lc-bank-overlay')?.remove();
-    socket.send({ type: MSG.LC_RESOLVE, choice });
+    if (!is1P) socket.send({ type: MSG.LC_RESOLVE, choice });
     applyResolveBank(choice, myRole);
   }
 
@@ -373,6 +387,7 @@ export function renderLastCall(root) {
     $('lc-bank-overlay')?.remove();
     bank[fromRole] += pot;
     pot = 0;
+    if (is1P) streak1P = 0;
     if (choice === 'claim') startRun(fromRole);
     else advanceTurn(fromRole);
     renderState();
@@ -446,11 +461,11 @@ export function renderLastCall(root) {
 
     if (isRunner()) {
       runTickCount++;
-      if (runTickCount % 3 === 0) {
+      if (!is1P && runTickCount % 3 === 0) {
         socket.send({ type: MSG.LC_RUN_TICK, banks: snapshotBanks() });
       }
       if (!runActive.has(runRunner) || runActive.size === 0) {
-        socket.send({ type: MSG.LC_RUN_STOP, banks: snapshotBanks() });
+        if (!is1P) socket.send({ type: MSG.LC_RUN_STOP, banks: snapshotBanks() });
         endRun();
       }
     }
@@ -501,12 +516,12 @@ export function renderLastCall(root) {
       lastRunLevel = runLevel;
       $('lc-run-pct').textContent = `${slider.value}%`;
       applyMyDevice();
-      socket.send({ type: MSG.LC_RUN_LEVEL, level: runLevel });
+      if (!is1P) socket.send({ type: MSG.LC_RUN_LEVEL, level: runLevel });
     });
 
     $('lc-run-stop').addEventListener('click', () => {
       if (!isRunner()) return;
-      socket.send({ type: MSG.LC_RUN_STOP, banks: snapshotBanks() });
+      if (!is1P) socket.send({ type: MSG.LC_RUN_STOP, banks: snapshotBanks() });
       endRun();
     });
     $('lc-run-finish').addEventListener('click', handleFinish);
@@ -525,9 +540,11 @@ export function renderLastCall(root) {
     const stopBtn = $('lc-run-stop');
     const controllerRole = hijackController || runRunner;
     if (ctrlEl) {
-      ctrlEl.textContent = controllerRole === myRole
-        ? (hijackController === myRole ? 'You hijacked the controls!' : 'You control both devices')
-        : `${escapeHtml(playerNames[controllerRole])} controls the intensity`;
+      ctrlEl.textContent = is1P
+        ? 'You control the vibe'
+        : controllerRole === myRole
+          ? (hijackController === myRole ? 'You hijacked the controls!' : 'You control both devices')
+          : `${escapeHtml(playerNames[controllerRole])} controls the intensity`;
     }
     if (slider) {
       slider.disabled = !iControlSlider();
@@ -589,7 +606,7 @@ export function renderLastCall(root) {
       target = targets[0]; // 2-player: the only opponent. 3-player picks the leader.
       if (targets.length > 1) target = targets.reduce((a, b) => bank[b] > bank[a] ? b : a, targets[0]);
     }
-    socket.send({ type: MSG.LC_POWERUP, puType: type, target });
+    if (!is1P) socket.send({ type: MSG.LC_POWERUP, puType: type, target });
     applyPowerUp(type, myRole, target);
   }
 
@@ -669,7 +686,7 @@ export function renderLastCall(root) {
   // ── Finish ────────────────────────────────────────────────────────────────────
   function handleFinish() {
     if (finished[myRole] || phase === 'gameover') return;
-    socket.send({ type: MSG.LC_FINISH });
+    if (!is1P) socket.send({ type: MSG.LC_FINISH });
     applyFinish(myRole);
   }
 
@@ -834,19 +851,21 @@ export function renderLastCall(root) {
     root.querySelector('#lc-peer-home').addEventListener('click', () => { location.hash = '#/'; });
   };
 
-  socket.addEventListener(MSG.LC_GUESS, onGuess);
-  socket.addEventListener(MSG.LC_RESOLVE, onResolve);
-  socket.addEventListener(MSG.LC_POWERUP, onPowerUp);
-  socket.addEventListener(MSG.LC_FINISH, onFinish);
-  socket.addEventListener(MSG.LC_RUN_LEVEL, onRunLevel);
-  socket.addEventListener(MSG.LC_RUN_TICK, onRunTick);
-  socket.addEventListener(MSG.LC_RUN_STOP, onRunStop);
-  socket.addEventListener(MSG.PEER_LEFT, onPeerLeft);
+  if (!is1P) {
+    socket.addEventListener(MSG.LC_GUESS, onGuess);
+    socket.addEventListener(MSG.LC_RESOLVE, onResolve);
+    socket.addEventListener(MSG.LC_POWERUP, onPowerUp);
+    socket.addEventListener(MSG.LC_FINISH, onFinish);
+    socket.addEventListener(MSG.LC_RUN_LEVEL, onRunLevel);
+    socket.addEventListener(MSG.LC_RUN_TICK, onRunTick);
+    socket.addEventListener(MSG.LC_RUN_STOP, onRunStop);
+    socket.addEventListener(MSG.PEER_LEFT, onPeerLeft);
+  }
 
   // ── DOM handlers ──────────────────────────────────────────────────────────────
   function handleMyGuess(guess) {
     if (phase !== 'playing' || currentGuesser !== myRole || finished[myRole]) return;
-    socket.send({ type: MSG.LC_GUESS, guess });
+    if (!is1P) socket.send({ type: MSG.LC_GUESS, guess });
     applyGuess(guess);
   }
   $('lc-higher').addEventListener('click', () => handleMyGuess('higher'));
@@ -880,14 +899,16 @@ export function renderLastCall(root) {
     if (runLoop) { clearInterval(runLoop); runLoop = null; }
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
     clearTimeout(feedbackTimer);
-    socket.removeEventListener(MSG.LC_GUESS, onGuess);
-    socket.removeEventListener(MSG.LC_RESOLVE, onResolve);
-    socket.removeEventListener(MSG.LC_POWERUP, onPowerUp);
-    socket.removeEventListener(MSG.LC_FINISH, onFinish);
-    socket.removeEventListener(MSG.LC_RUN_LEVEL, onRunLevel);
-    socket.removeEventListener(MSG.LC_RUN_TICK, onRunTick);
-    socket.removeEventListener(MSG.LC_RUN_STOP, onRunStop);
-    socket.removeEventListener(MSG.PEER_LEFT, onPeerLeft);
+    if (!is1P) {
+      socket.removeEventListener(MSG.LC_GUESS, onGuess);
+      socket.removeEventListener(MSG.LC_RESOLVE, onResolve);
+      socket.removeEventListener(MSG.LC_POWERUP, onPowerUp);
+      socket.removeEventListener(MSG.LC_FINISH, onFinish);
+      socket.removeEventListener(MSG.LC_RUN_LEVEL, onRunLevel);
+      socket.removeEventListener(MSG.LC_RUN_TICK, onRunTick);
+      socket.removeEventListener(MSG.LC_RUN_STOP, onRunStop);
+      socket.removeEventListener(MSG.PEER_LEFT, onPeerLeft);
+    }
   }
   window.addEventListener('hashchange', () => { cleanup(); haptics.stopAll(); }, { once: true });
 

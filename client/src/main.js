@@ -7,10 +7,12 @@ import { renderGame } from './screens/game.js';
 import { renderResults } from './screens/results.js';
 import { renderMastermind } from './screens/mastermind.js';
 import { renderMastermind3 } from './screens/mastermind3.js';
+import { renderMastermind1P } from './screens/mastermind1p.js';
 import { renderEndurance } from './screens/endurance.js';
 import { renderTugOfWar } from './screens/tugofwar.js';
 import { renderDice } from './screens/dice.js';
 import { renderHilo } from './screens/hilo.js';
+import { renderHilo1P } from './screens/hilo1p.js';
 import { renderSplitLoot } from './screens/splitloot.js';
 import { renderWizardIsland } from './screens/wizardisland.js';
 import { renderBeatDealer } from './screens/beatdealer.js';
@@ -66,6 +68,12 @@ function route() {
     return;
   }
 
+  if (hash === '#/mastermind1p') {
+    if (!state.seed) { navigate('#/'); return; }
+    renderMastermind1P(app);
+    return;
+  }
+
   if (hash === '#/endurance') {
     if (!state.seed) { navigate('#/'); return; }
     renderEndurance(app);
@@ -86,6 +94,12 @@ function route() {
   if (hash === '#/hilo') {
     if (!state.seed) { navigate('#/'); return; }
     renderHilo(app);
+    return;
+  }
+
+  if (hash === '#/hilo1p') {
+    if (!state.seed) { navigate('#/'); return; }
+    renderHilo1P(app);
     return;
   }
 
@@ -186,11 +200,11 @@ socket.addEventListener('begin', (ev) => {
   if (ev.detail.gameType === 'uno') state.gameRounds = ev.detail.unoRounds || ev.detail.rounds || 5;
   state.unoSpecialPacks = ev.detail.unoSpecialPacks || [];
   const gt = state.gameType;
-  if (gt === 'mastermind') navigate(state.playerCount === 3 ? '#/mastermind3' : '#/mastermind');
+  if (gt === 'mastermind') navigate(state.playerCount === 3 ? '#/mastermind3' : state.playerCount === 1 ? '#/mastermind1p' : '#/mastermind');
   else if (gt === 'endurance') navigate('#/endurance');
   else if (gt === 'tugofwar') navigate('#/tugofwar');
   else if (gt === 'dice') navigate('#/dice');
-  else if (gt === 'hilo') navigate('#/hilo');
+  else if (gt === 'hilo') navigate(state.playerCount === 1 ? '#/hilo1p' : '#/hilo');
   else if (gt === 'splitloot') navigate('#/splitloot');
   else if (gt === 'wizardisland') navigate('#/wizardisland');
   else if (gt === 'beatdealer') navigate('#/beatdealer');

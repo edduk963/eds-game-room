@@ -167,7 +167,7 @@ button.ghost {
 .game-tile .name-row { display: flex; align-items: center; gap: 6px; }
 .game-tile .desc { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
 
-.vibe-badge, .badge-3p {
+.vibe-badge, .badge-3p, .badge-1p {
   display: inline-block;
   font-size: 10px;
   font-weight: 700;
@@ -186,6 +186,10 @@ button.ghost {
 .badge-3p {
   color: #c084fc;
   border: 1px solid #c084fc;
+}
+.badge-1p {
+  color: #4ade80;
+  border: 1px solid #4ade80;
 }
 
 .actions { display: flex; gap: 12px; justify-content: flex-end; }

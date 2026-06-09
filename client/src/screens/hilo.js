@@ -715,16 +715,16 @@ export function renderHilo(root) {
     document.getElementById('hilo-stop-btn').addEventListener('click', () => {
       if (playAgainAnswers[myRole] !== undefined) return;
       playAgainAnswers[myRole] = false;
-      socket.send({ type: MSG.HILO_PLAY_AGAIN, confirm: false });
+      if (playerCount > 1) socket.send({ type: MSG.HILO_PLAY_AGAIN, confirm: false });
       showGameOver(null);
     });
 
     document.getElementById('hilo-continue-btn').addEventListener('click', () => {
       if (playAgainAnswers[myRole] !== undefined) return;
       playAgainAnswers[myRole] = true;
-      socket.send({ type: MSG.HILO_PLAY_AGAIN, confirm: true });
+      if (playerCount > 1) socket.send({ type: MSG.HILO_PLAY_AGAIN, confirm: true });
       document.getElementById('hilo-continue-btn').disabled = true;
-      document.getElementById('hilo-continue-btn').textContent = 'Waiting…';
+      document.getElementById('hilo-continue-btn').textContent = playerCount > 1 ? 'Waiting…' : 'Starting…';
       updatePlayAgainStatus();
       checkAllPlayAgain();
     });
@@ -793,7 +793,7 @@ export function renderHilo(root) {
       root.appendChild(ov);
       ov.querySelector('#hilo-forfeit-ready-btn')?.addEventListener('click', () => {
         haptics.stopAll();
-        socket.send({ type: MSG.HILO_VIBE_STOP });
+        if (playerCount > 1) socket.send({ type: MSG.HILO_VIBE_STOP });
         vibeStopAcks.add(myRole);
         const btn = document.getElementById('hilo-forfeit-ready-btn');
         if (btn) { btn.disabled = true; btn.textContent = 'Ready ✓'; }
@@ -830,12 +830,12 @@ export function renderHilo(root) {
         const level = slider.value / 100;
         pct.textContent = `${slider.value}%`;
         if (haptics.isConnected()) haptics.testVibe(level);
-        socket.send({ type: MSG.HILO_VIBE_LEVEL, level });
+        if (playerCount > 1) socket.send({ type: MSG.HILO_VIBE_LEVEL, level });
       });
 
       ov.querySelector('#hilo-forfeit-ready-btn')?.addEventListener('click', () => {
         haptics.stopAll();
-        socket.send({ type: MSG.HILO_VIBE_STOP });
+        if (playerCount > 1) socket.send({ type: MSG.HILO_VIBE_STOP });
         vibeStopAcks.add(myRole);
         const btn = document.getElementById('hilo-forfeit-ready-btn');
         if (btn) { btn.disabled = true; btn.textContent = 'Ready ✓'; }
@@ -946,7 +946,7 @@ export function renderHilo(root) {
   // ── My action handlers ────────────────────────────────────────────────────────
   function handleMyGuess(guess) {
     if (!isMyTurn() || phase !== 'playing') return;
-    socket.send({ type: MSG.HILO_GUESS, guess });
+    if (playerCount > 1) socket.send({ type: MSG.HILO_GUESS, guess });
     applyGuess(guess);
   }
 
@@ -954,14 +954,14 @@ export function renderHilo(root) {
     if (!amVibing() || phase !== 'playing') return;
     if (getMyLives() <= 0) return;
     if (freezeActive && !mirrorActive) { showFeedback('❄️ Frozen — spacebar blocked!', 'warn'); return; }
-    socket.send({ type: MSG.HILO_SPACEBAR });
+    if (playerCount > 1) socket.send({ type: MSG.HILO_SPACEBAR });
     applySpacebar(myRole);
   }
 
   function usePowerUp(type, idx) {
     const inv = getMyPU();
     if (idx >= inv.length || inv[idx].type !== type) return;
-    socket.send({ type: MSG.HILO_POWERUP_USE, powerUpType: type });
+    if (playerCount > 1) socket.send({ type: MSG.HILO_POWERUP_USE, powerUpType: type });
     applyPowerUpUse(type, myRole);
   }
 
@@ -1040,7 +1040,7 @@ export function renderHilo(root) {
 
   document.getElementById('hilo-submit-btn').addEventListener('click', () => {
     if (phase !== 'playing') return;
-    socket.send({ type: MSG.HILO_SUBMIT });
+    if (playerCount > 1) socket.send({ type: MSG.HILO_SUBMIT });
     showGameOver('i_submitted');
   });
 
@@ -1062,7 +1062,7 @@ export function renderHilo(root) {
   document.getElementById('hilo-wave-btn')?.addEventListener('click', () => {
     const enabled = !waveModeEnabled;
     applyWaveMode(enabled);
-    socket.send({ type: MSG.HILO_WAVE_MODE, enabled });
+    if (playerCount > 1) socket.send({ type: MSG.HILO_WAVE_MODE, enabled });
   });
 
   document.getElementById('hilo-leave').addEventListener('click', () => {

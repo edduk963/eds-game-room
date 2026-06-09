@@ -162,7 +162,8 @@ wss.on('connection', (ws) => {
     const s = sessionId ? getSession(sessionId) : null;
     if (!s) return;
 
-    if (msg.type === 'start' && role === 'host' && s.guest) {
+    const SOLO_CAPABLE = ['beatdealer', 'hilo', 'mastermind', 'lastcall'];
+    if (msg.type === 'start' && role === 'host' && (s.guest || SOLO_CAPABLE.includes(msg.gameType))) {
       s.status = 'playing';
       s.seed = randomBytes(4).readUInt32BE(0);
       s.host.finalScore = null;
@@ -204,7 +205,7 @@ wss.on('connection', (ws) => {
       const hiloLives = Number.isInteger(msg.hiloLives) && msg.hiloLives >= 1 && msg.hiloLives <= 10 ? msg.hiloLives : 3;
       const validHiloVibeTargets = ['both', 'highest_lives', 'random'];
       const hiloVibeTarget = validHiloVibeTargets.includes(msg.hiloVibeTarget) ? msg.hiloVibeTarget : 'both';
-      const playerCount = s.guest2 ? 3 : 2;
+      const playerCount = !s.guest ? 1 : s.guest2 ? 3 : 2;
       const validStlDifficulties = ['easy', 'normal', 'hard'];
       const stlDifficulty = validStlDifficulties.includes(msg.stlDifficulty) ? msg.stlDifficulty : 'normal';
       const stlForfeitCards = Array.isArray(msg.stlForfeitCards) ? msg.stlForfeitCards.filter(c => typeof c === 'string').map(c => c.slice(0, 32)).slice(0, 10) : [];
