@@ -315,6 +315,7 @@ export function renderHilo(root) {
     if (type === 'maxIntensity')  return isMyTurn() && vibeCountdown > 0 && vibeTargets.length > 0;
     if (type === 'shield')        return !shielded[myRole];
     if (type === 'mirror')        return !isMyTurn() && vibeCountdown > 0 && !mirrorActive;
+    if (type === 'deflect')       return !isMyTurn() && vibeCountdown > 0 && vibeTargets.includes(myRole);
     return false;
   }
 
@@ -331,6 +332,7 @@ export function renderHilo(root) {
       maxIntensity: 'Instantly set vibe intensity to 100% for all vibers',
       shield:       'Your next spacebar press costs 0 lives — absorbs any penalty including All or Nothing',
       mirror:       'Sync all vibers to the same countdown, guessing pauses — anyone pressing spacebar stops the vibe for everyone (costs 1 life)',
+      deflect:      'Transfer your remaining vibe time to the guesser and take control — you become the guesser',
     }[type] || '';
   }
 
@@ -613,6 +615,20 @@ export function renderHilo(root) {
           haptics.addForfeitSeconds(vibeCountdown);
         }
         showFeedback('🪞 Mirror! All vibers locked in — press space to escape', 'warn');
+        break;
+      }
+      case 'deflect': {
+        const formerGuesser = currentRole;
+        currentRole = fromRole;
+        vibeTargets = vibeTargets.filter(r => r !== fromRole);
+        if (!vibeTargets.includes(formerGuesser)) vibeTargets.push(formerGuesser);
+        spacePauseUntil[formerGuesser] = 0;
+        if (myRole === fromRole && haptics.isConnected()) haptics.stopAll();
+        if (myRole === formerGuesser && haptics.isConnected()) {
+          haptics.setForfeitIntensity(vibeIntensity || 0.5);
+          haptics.addForfeitSeconds(vibeCountdown);
+        }
+        showFeedback(`↩ Deflect! ${actorLabel} passed the vibe back!`, 'warn');
         break;
       }
     }
