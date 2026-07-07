@@ -1089,6 +1089,13 @@ wss.on('connection', (ws) => {
       broadcast(s, { type: 'mem_win', role }, ws);
       return;
     }
+
+    if (msg.type === 'mem_skip_turn') {
+      const skippedRole = ['host', 'guest', 'guest2'].includes(msg.role) ? msg.role : null;
+      if (!skippedRole) return;
+      broadcast(s, { type: 'mem_skip_turn', role: skippedRole }, ws);
+      return;
+    }
     // ── End Memory Match ───────────────────────────────────────────────────────
 
     if (msg.type === 'final' && Number.isFinite(msg.value)) {

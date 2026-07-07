@@ -44,6 +44,7 @@ export function renderMemory(root) {
   const banks = {};
   playerRoles.forEach(r => { banks[r] = { forfeits: [], vibe: [] }; });
   const vibingRoles = new Set();
+  const departedRoles = new Set(); // roles whose socket has disconnected mid-game (versus only)
 
   let flippedThisTurn = [];
   let turnLocked = false;
@@ -67,6 +68,7 @@ export function renderMemory(root) {
         ${showConnectBtn ? `<button id="mem-vibe-btn" class="ghost">${haptics.isConnected() ? '📳' : 'Connect Vibe'}</button>` : ''}
       </div>
       <div class="mem-status" id="mem-status"></div>
+      <div id="mem-skip-wrap"></div>
       <div id="mem-vibe-active-wrap"></div>
       <div id="mem-trigger-wrap"></div>
       <div class="mem-board-area" id="mem-board-area">
@@ -80,20 +82,31 @@ export function renderMemory(root) {
   // ── Render ────────────────────────────────────────────────────────────────
   function renderStatus() {
     const el = document.getElementById('mem-status');
-    if (!el) return;
-    if (gamePhase === 'ended') {
-      el.textContent = winnerRole === myRole ? 'You win! 🏆' : `${playerNames[winnerRole]} wins!`;
-      return;
+    if (el) {
+      if (gamePhase === 'ended') {
+        el.textContent = winnerRole === myRole ? 'You win! 🏆' : `${playerNames[winnerRole]} wins!`;
+      } else if (amWatcher) {
+        el.textContent = "Watching — trigger their vibe charges whenever you like";
+      } else if (memMode === 'versus') {
+        el.textContent = isMyTurn() ? 'Your turn — pick two cards' : `${playerNames[currentRole]}'s turn`;
+      } else {
+        el.textContent = 'Pick two cards';
+      }
     }
-    if (amWatcher) {
-      el.textContent = "Watching — trigger their vibe charges whenever you like";
-      return;
-    }
-    if (memMode === 'versus') {
-      el.textContent = isMyTurn() ? 'Your turn — pick two cards' : `${playerNames[currentRole]}'s turn`;
-      return;
-    }
-    el.textContent = 'Pick two cards';
+    renderSkipTurn();
+  }
+
+  function renderSkipTurn() {
+    const wrap = document.getElementById('mem-skip-wrap');
+    if (!wrap) return;
+    const stuck = memMode === 'versus' && gamePhase === 'playing' && departedRoles.has(currentRole);
+    if (!stuck) { wrap.innerHTML = ''; return; }
+    wrap.innerHTML = `
+      <div class="mem-skip-row">
+        <span>${escapeHtml(playerNames[currentRole])} disconnected mid-turn.</span>
+        <button id="mem-skip-btn" class="ghost">Skip their turn</button>
+      </div>`;
+    document.getElementById('mem-skip-btn').addEventListener('click', skipDisconnectedTurn);
   }
 
   function renderPlayerPanel(r) {
@@ -290,6 +303,20 @@ export function renderMemory(root) {
     renderStatus();
   }
 
+  // Lets remaining players continue after the active player's socket disconnects mid-turn —
+  // otherwise the game would wait forever for a flip that can never arrive.
+  function skipDisconnectedTurn() {
+    if (gamePhase !== 'playing' || !departedRoles.has(currentRole)) return;
+    const skippedRole = currentRole;
+    currentRole = nextRole(playerRoles, currentRole);
+    flippedThisTurn = [];
+    turnLocked = false;
+    renderGrid();
+    renderSidePanels();
+    renderStatus();
+    if (!noSocket) socket.send({ type: MSG.MEM_SKIP_TURN, role: skippedRole });
+  }
+
   function endGame(winner) {
     if (gamePhase === 'ended') return;
     gamePhase = 'ended';
@@ -398,9 +425,24 @@ export function renderMemory(root) {
     renderSidePanels();
   }
   function onMemWin(ev) { endGame(ev.detail.role); }
-  function onPeerLeft() {
-    const el = document.getElementById('mem-status');
-    if (el && gamePhase === 'playing') el.textContent = 'Other player left the game.';
+  function onMemSkipTurn(ev) {
+    if (ev.detail.role !== currentRole) return; // stale — already moved on
+    currentRole = nextRole(playerRoles, currentRole);
+    flippedThisTurn = [];
+    turnLocked = false;
+    renderGrid();
+    renderSidePanels();
+    renderStatus();
+  }
+  function onPeerLeft(ev) {
+    const leftRole = ev.detail?.role;
+    if (leftRole && playerRoles.includes(leftRole)) departedRoles.add(leftRole);
+    renderStatus();
+  }
+  function onPeerReconnected(ev) {
+    const rejoinedRole = ev.detail?.role;
+    if (rejoinedRole) departedRoles.delete(rejoinedRole);
+    renderStatus();
   }
 
   if (!noSocket) {
@@ -408,7 +450,9 @@ export function renderMemory(root) {
     socket.addEventListener(MSG.MEM_VIBE_TRIGGER, onMemVibeTrigger);
     socket.addEventListener(MSG.MEM_VIBE_PAUSE, onMemVibePause);
     socket.addEventListener(MSG.MEM_WIN, onMemWin);
+    socket.addEventListener(MSG.MEM_SKIP_TURN, onMemSkipTurn);
     socket.addEventListener(MSG.PEER_LEFT, onPeerLeft);
+    socket.addEventListener(MSG.PEER_RECONNECTED, onPeerReconnected);
   }
 
   window.addEventListener('hashchange', function onHashChange() {
@@ -419,7 +463,9 @@ export function renderMemory(root) {
       socket.removeEventListener(MSG.MEM_VIBE_TRIGGER, onMemVibeTrigger);
       socket.removeEventListener(MSG.MEM_VIBE_PAUSE, onMemVibePause);
       socket.removeEventListener(MSG.MEM_WIN, onMemWin);
+      socket.removeEventListener(MSG.MEM_SKIP_TURN, onMemSkipTurn);
       socket.removeEventListener(MSG.PEER_LEFT, onPeerLeft);
+      socket.removeEventListener(MSG.PEER_RECONNECTED, onPeerReconnected);
     }
   });
 

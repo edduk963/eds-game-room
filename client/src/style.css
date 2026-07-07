@@ -2933,6 +2933,21 @@ button.ghost {
   text-align: center;
 }
 
+.mem-skip-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid #4a2a2a;
+  background: rgba(200, 60, 60, 0.08);
+  border-radius: 10px;
+  padding: 6px 10px;
+  text-align: center;
+}
+
 /* Board + side panels sit in one grid row so the board's own column stays a fixed
    size no matter how long either player's forfeit list grows — panels scroll instead. */
 .mem-board-area {
@@ -3084,6 +3099,7 @@ button.ghost {
   justify-content: center;
   font-weight: 700;
   user-select: none;
+  overflow: hidden;
 }
 
 .mem-card-back {
@@ -3106,7 +3122,15 @@ button.ghost {
 
 .mem-card-front.mem-card-red { color: #cc1111; }
 .mem-card-front .mem-card-icon { font-size: 24px; line-height: 1; }
-.mem-card-front .mem-card-label { font-size: 11px; line-height: 1.2; word-break: break-word; }
+.mem-card-front .mem-card-label {
+  font-size: 11px;
+  line-height: 1.2;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
 
 .mem-card-front.mem-card-win {
   background: linear-gradient(135deg, #f5c542, #e0a423);

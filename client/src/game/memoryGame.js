@@ -44,10 +44,17 @@ export function buildDeck({ forfeitLines = [], vibeDurations = [], gridSize = '6
   const pairsNeeded = Math.floor(total / 2);
   const pairs = [];
 
-  forfeitLines.forEach((label, i) => {
+  // The win pair always gets a slot; forfeit/vibe lists are clamped to whatever's left so a
+  // too-big config (normally blocked by the lobby's own budget check) can never overflow the
+  // grid instead of silently trusting the caller.
+  const extrasBudget = Math.max(0, pairsNeeded - 1);
+  const clampedForfeits = forfeitLines.slice(0, extrasBudget);
+  const clampedVibes = vibeDurations.slice(0, Math.max(0, extrasBudget - clampedForfeits.length));
+
+  clampedForfeits.forEach((label, i) => {
     pairs.push({ kind: 'forfeit', pairId: `forfeit-${i}`, label });
   });
-  vibeDurations.forEach((seconds, i) => {
+  clampedVibes.forEach((seconds, i) => {
     pairs.push({ kind: 'vibe', pairId: `vibe-${i}`, label: `${seconds}s`, duration: seconds });
   });
   pairs.push({ kind: 'win', pairId: 'win', label: 'WIN' });

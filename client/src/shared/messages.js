@@ -136,4 +136,5 @@ export const MSG = {
   MEM_VIBE_TRIGGER:    'mem_vibe_trigger',
   MEM_VIBE_PAUSE:      'mem_vibe_pause',
   MEM_WIN:             'mem_win',
+  MEM_SKIP_TURN:       'mem_skip_turn',
 };
