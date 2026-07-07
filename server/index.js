@@ -163,7 +163,9 @@ wss.on('connection', (ws) => {
     if (!s) return;
 
     const SOLO_CAPABLE = ['beatdealer', 'hilo', 'mastermind', 'lastcall'];
-    if (msg.type === 'start' && role === 'host' && (s.guest || SOLO_CAPABLE.includes(msg.gameType))) {
+    const snlSolo = msg.gameType === 'snakes' && msg.snlMode === 'solo';
+    const memSolo = msg.gameType === 'memory' && msg.memMode === 'solo';
+    if (msg.type === 'start' && role === 'host' && (s.guest || SOLO_CAPABLE.includes(msg.gameType) || snlSolo || memSolo)) {
       s.status = 'playing';
       s.seed = randomBytes(4).readUInt32BE(0);
       s.host.finalScore = null;
@@ -180,6 +182,9 @@ wss.on('connection', (ws) => {
       s.guestWiBattleReady = false;
       s.hostWiForfeitAck = false;
       s.guestWiForfeitAck = false;
+      s.hostWiDestReady = false; s.guestWiDestReady = false;
+      s.hostWiDest = null; s.guestWiDest = null;
+      s.hostWiCoopChoice = null; s.guestWiCoopChoice = null;
       s.soHostCommit = null; s.soGuestCommit = null;
       s.soAutoCommitTimer = null; s.soPowerTimer = null;
       s.soPowerPlays = {}; s.soChickenStop = null; s.soChickenTimer = null;
@@ -188,7 +193,8 @@ wss.on('connection', (ws) => {
       s.soMirrorThrottle = 0; s.soTokenCounts = { host: 0, guest: 0 };
       s.soRoundStartAt = Date.now(); s.soDraftPicks = [];
       s.soHostReady = false; s.soGuestReady = false;
-      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo', 'splitloot', 'wizardisland', 'beatdealer', 'standoff', 'lastcall', 'battleships', 'uno'];
+      s.snlHostRollReady = false; s.snlGuestRollReady = false; s.snlTurnIndex = 0;
+      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo', 'splitloot', 'wizardisland', 'beatdealer', 'standoff', 'lastcall', 'battleships', 'uno', 'snakes', 'memory'];
       const gameType = validGameTypes.includes(msg.gameType) ? msg.gameType : 'galactic';
       const rounds = Number.isInteger(msg.rounds) && msg.rounds >= 1 && msg.rounds <= 5 ? msg.rounds : 3;
       const mode = msg.mode === 'hard' ? 'hard' : 'easy';
@@ -224,9 +230,30 @@ wss.on('connection', (ws) => {
       const bsVibeMultiplier = [1, 1.5, 2, 3].includes(Number(msg.bsVibeMultiplier)) ? Number(msg.bsVibeMultiplier) : 1.5;
       const VALID_UNO_PACKS = ['plus10', 'edge', 'skipall', 'swaphands', 'doubledown', 'ctrl2'];
       const unoSpecialPacks = Array.isArray(msg.unoSpecialPacks) ? msg.unoSpecialPacks.filter(p => VALID_UNO_PACKS.includes(p)) : [];
+      const snlMode = ['versus', 'solo', 'watched'].includes(msg.snlMode) ? msg.snlMode : 'versus';
+      const snlBoardSize = ['short', 'standard', 'long'].includes(msg.snlBoardSize) ? msg.snlBoardSize : 'standard';
+      const snlDensity = ['tame', 'even', 'brutal'].includes(msg.snlDensity) ? msg.snlDensity : 'even';
+      const snlStakeMix = ['vibe', 'forfeits', 'mixed'].includes(msg.snlStakeMix) ? msg.snlStakeMix : 'mixed';
+      const snlVibeScale = ['full', 'half'].includes(msg.snlVibeScale) ? msg.snlVibeScale : 'full';
+      const snlWinCondition = ['race', 'endurance'].includes(msg.snlWinCondition) ? msg.snlWinCondition : 'race';
+      const snlFinalRule = ['exact', 'pass'].includes(msg.snlFinalRule) ? msg.snlFinalRule : 'exact';
+      const snlPushLuck = msg.snlPushLuck !== false;
+      const snlPowerups = msg.snlPowerups !== false;
+      const snlCoopBetray = !!msg.snlCoopBetray;
+      const VALID_SNL_FORFEITS = ['vibe', 'edge', 'strip', 'control', 'task', 'surrender'];
+      const snlForfeitCards = Array.isArray(msg.snlForfeitCards) ? msg.snlForfeitCards.filter(c => VALID_SNL_FORFEITS.includes(c)) : VALID_SNL_FORFEITS;
+      const snlForfeitLines = Array.isArray(msg.snlForfeitLines) ? msg.snlForfeitLines.filter(c => typeof c === 'string').map(c => c.slice(0, 200)).slice(0, 100) : [];
+      const snlAmbient = !!msg.snlAmbient;
+      const snlTapOut = !!msg.snlTapOut;
+      const validMemModes = ['versus', 'solo', 'watched'];
+      const memMode = validMemModes.includes(msg.memMode) ? msg.memMode : 'versus';
+      const memForfeitLines = Array.isArray(msg.memForfeitLines) ? msg.memForfeitLines.filter(c => typeof c === 'string').map(c => c.slice(0, 200)).slice(0, 60) : [];
+      const memVibeDurations = Array.isArray(msg.memVibeDurations) ? msg.memVibeDurations.filter(n => Number.isFinite(n)).map(n => Math.max(1, Math.min(600, Math.round(n)))).slice(0, 30) : [];
+      const validMemGridSizes = ['4x4', '5x5', '6x6', '8x8'];
+      const memGridSize = validMemGridSizes.includes(msg.memGridSize) ? msg.memGridSize : '6x6';
       s.edgeMode = edgeMode;
       const guest2Name = s.guest2?.name ?? null;
-      broadcast(s, { type: 'begin', seed: s.seed, startAt: null, gameType, rounds, mode, forfeitDuration, edgeMode, edgeLives, hiloMode, hiloCycles, hiloDeckSize, hiloVibeRamp, hiloLives, hiloVibeTarget, playerCount, guest2Name, stlDifficulty, stlForfeitCards, btdForfeits, btdMode, btdGameMode, wiWinCondition, wiSpellLimit, diceVibeRule, lcTimer, lcMinutes, lcDeckSize, lcReward, bsGridSize, bsVibeMultiplier, unoSpecialPacks });
+      broadcast(s, { type: 'begin', seed: s.seed, startAt: null, gameType, rounds, mode, forfeitDuration, edgeMode, edgeLives, hiloMode, hiloCycles, hiloDeckSize, hiloVibeRamp, hiloLives, hiloVibeTarget, playerCount, guest2Name, stlDifficulty, stlForfeitCards, btdForfeits, btdMode, btdGameMode, wiWinCondition, wiSpellLimit, diceVibeRule, lcTimer, lcMinutes, lcDeckSize, lcReward, bsGridSize, bsVibeMultiplier, unoSpecialPacks, snlMode, snlBoardSize, snlDensity, snlStakeMix, snlVibeScale, snlWinCondition, snlFinalRule, snlPushLuck, snlPowerups, snlCoopBetray, snlForfeitCards, snlForfeitLines, snlAmbient, snlTapOut, memMode, memForfeitLines, memVibeDurations, memGridSize });
       return;
     }
 
@@ -261,7 +288,7 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.type === 'lobby_config' && role === 'host') {
-      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo', 'splitloot', 'wizardisland', 'beatdealer', 'standoff', 'lastcall', 'battleships', 'uno'];
+      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo', 'splitloot', 'wizardisland', 'beatdealer', 'standoff', 'lastcall', 'battleships', 'uno', 'snakes', 'memory'];
       const validDurations = [15, 30, 60, 120, 300, 600];
       const validHiloModes = ['submission', 'fixed', 'random'];
       broadcast(s, {
@@ -294,6 +321,24 @@ wss.on('connection', (ws) => {
         bsVibeMultiplier: [1, 1.5, 2, 3].includes(Number(msg.bsVibeMultiplier)) ? Number(msg.bsVibeMultiplier) : 1.5,
         unoSpecialPacks: Array.isArray(msg.unoSpecialPacks) ? msg.unoSpecialPacks.filter(p => ['plus10','edge','skipall','swaphands','doubledown','ctrl2'].includes(p)) : [],
         unoRounds: Number.isInteger(msg.unoRounds) && msg.unoRounds >= 1 && msg.unoRounds <= 10 ? msg.unoRounds : 5,
+        snlMode: ['versus', 'solo', 'watched'].includes(msg.snlMode) ? msg.snlMode : 'versus',
+        snlBoardSize: ['short', 'standard', 'long'].includes(msg.snlBoardSize) ? msg.snlBoardSize : 'standard',
+        snlDensity: ['tame', 'even', 'brutal'].includes(msg.snlDensity) ? msg.snlDensity : 'even',
+        snlStakeMix: ['vibe', 'forfeits', 'mixed'].includes(msg.snlStakeMix) ? msg.snlStakeMix : 'mixed',
+        snlVibeScale: ['full', 'half'].includes(msg.snlVibeScale) ? msg.snlVibeScale : 'full',
+        snlWinCondition: ['race', 'endurance'].includes(msg.snlWinCondition) ? msg.snlWinCondition : 'race',
+        snlFinalRule: ['exact', 'pass'].includes(msg.snlFinalRule) ? msg.snlFinalRule : 'exact',
+        snlPushLuck: msg.snlPushLuck !== false,
+        snlPowerups: msg.snlPowerups !== false,
+        snlCoopBetray: !!msg.snlCoopBetray,
+        snlForfeitCards: Array.isArray(msg.snlForfeitCards) ? msg.snlForfeitCards.filter(c => ['vibe','edge','strip','control','task','surrender'].includes(c)) : ['vibe','edge','strip','control','task','surrender'],
+        snlForfeitLines: Array.isArray(msg.snlForfeitLines) ? msg.snlForfeitLines.filter(c => typeof c === 'string').map(c => c.slice(0, 200)).slice(0, 100) : [],
+        snlAmbient: !!msg.snlAmbient,
+        snlTapOut: !!msg.snlTapOut,
+        memMode: ['versus', 'solo', 'watched'].includes(msg.memMode) ? msg.memMode : 'versus',
+        memForfeitLines: Array.isArray(msg.memForfeitLines) ? msg.memForfeitLines.filter(c => typeof c === 'string').map(c => c.slice(0, 200)).slice(0, 60) : [],
+        memVibeDurations: Array.isArray(msg.memVibeDurations) ? msg.memVibeDurations.filter(n => Number.isFinite(n)).map(n => Math.max(1, Math.min(600, Math.round(n)))).slice(0, 30) : [],
+        memGridSize: ['4x4', '5x5', '6x6', '8x8'].includes(msg.memGridSize) ? msg.memGridSize : '6x6',
       }, ws);
       return;
     }
@@ -348,23 +393,67 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    if (msg.type === 'wi_spell_play' && typeof msg.spellId === 'string' && VALID_SPELL_IDS.has(msg.spellId)) {
-      const targetIsland = Number.isInteger(msg.targetIsland) && msg.targetIsland >= 0 && msg.targetIsland <= 7 ? msg.targetIsland : -1;
-      if (msg.spellId === 'smite') {
-        broadcast(s, { type: 'wi_haptic', intensity: 0.7, duration: 3000 });
-      } else if (msg.spellId === 'overload') {
-        const now = Date.now();
-        if (!s._lastOverload || now - s._lastOverload > 6000) {
-          s._lastOverload = now;
-          broadcast(s, { type: 'wi_haptic', intensity: 1.0, duration: 5000, target: role === 'host' ? 'A' : 'B' });
+    if (msg.type === 'wi_spell_play') {
+      if (typeof msg.spellName === 'string') {
+        // New-format spell play (spell name from card data)
+        broadcast(s, { type: 'wi_spell_play', spellName: msg.spellName.slice(0, 64) }, ws);
+      } else if (typeof msg.spellId === 'string' && VALID_SPELL_IDS.has(msg.spellId)) {
+        // Legacy spell play
+        const targetIsland = Number.isInteger(msg.targetIsland) && msg.targetIsland >= 0 && msg.targetIsland <= 7 ? msg.targetIsland : -1;
+        if (msg.spellId === 'smite') {
+          broadcast(s, { type: 'wi_haptic', intensity: 0.7, duration: 3000 });
+        } else if (msg.spellId === 'overload') {
+          const now = Date.now();
+          if (!s._lastOverload || now - s._lastOverload > 6000) {
+            s._lastOverload = now;
+            broadcast(s, { type: 'wi_haptic', intensity: 1.0, duration: 5000, target: role === 'host' ? 'A' : 'B' });
+          }
         }
+        broadcast(s, { type: 'wi_spell_play', spellId: msg.spellId, targetIsland }, ws);
       }
-      broadcast(s, { type: 'wi_spell_play', spellId: msg.spellId, targetIsland }, ws);
       return;
     }
 
     if (msg.type === 'wi_spell_discard' && typeof msg.spellId === 'string' && VALID_SPELL_IDS.has(msg.spellId)) {
       broadcast(s, { type: 'wi_spell_discard', spellId: msg.spellId }, ws);
+      return;
+    }
+
+    if (msg.type === 'wi_dest_ready') {
+      const dest = msg.dest === 'wizard' ? 'wizard' : (Number.isInteger(msg.dest) && msg.dest >= 0 && msg.dest <= 7 ? msg.dest : null);
+      if (dest === null) return;
+      if (role === 'host') { s.hostWiDestReady = true; s.hostWiDest = dest; }
+      else { s.guestWiDestReady = true; s.guestWiDest = dest; }
+      if (s.hostWiDestReady && s.guestWiDestReady) {
+        const destA = s.hostWiDest;
+        const destB = s.guestWiDest;
+        s.hostWiDestReady = false; s.guestWiDestReady = false;
+        s.hostWiDest = null; s.guestWiDest = null;
+        broadcast(s, { type: 'wi_dest_go', destA, destB });
+      }
+      return;
+    }
+
+    if (msg.type === 'wi_wizard_stat' && ['attack', 'defence', 'armour'].includes(msg.stat)) {
+      broadcast(s, { type: 'wi_wizard_stat', stat: msg.stat }, ws);
+      return;
+    }
+
+    if (msg.type === 'wi_battle_retreat') {
+      const island = Number.isInteger(msg.island) && msg.island >= 0 && msg.island <= 7 ? msg.island : 0;
+      broadcast(s, { type: 'wi_opp_retreat', island }, ws);
+      return;
+    }
+
+    if (msg.type === 'wi_cooperate_choice' && ['cooperate', 'betray'].includes(msg.choice)) {
+      if (role === 'host') s.hostWiCoopChoice = msg.choice;
+      else s.guestWiCoopChoice = msg.choice;
+      if (s.hostWiCoopChoice && s.guestWiCoopChoice) {
+        const choiceA = s.hostWiCoopChoice;
+        const choiceB = s.guestWiCoopChoice;
+        s.hostWiCoopChoice = null; s.guestWiCoopChoice = null;
+        broadcast(s, { type: 'wi_cooperate_reveal', choiceA, choiceB });
+      }
       return;
     }
 
@@ -888,6 +977,119 @@ wss.on('connection', (ws) => {
       return;
     }
     // ── End UNO ───────────────────────────────────────────────────────────────
+
+    // ── Snakes & Ladders ──────────────────────────────────────────────────────
+    if (msg.type === 'snl_roll_ready') {
+      if (role === 'host') s.snlHostRollReady = true;
+      else s.snlGuestRollReady = true;
+      if (s.snlHostRollReady || s.snlGuestRollReady) {
+        s.snlHostRollReady = false;
+        s.snlGuestRollReady = false;
+        s.snlTurnIndex = (s.snlTurnIndex | 0) + 1;
+        broadcast(s, { type: 'snl_roll_go', turnIndex: s.snlTurnIndex });
+      }
+      return;
+    }
+
+    if (msg.type === 'snl_move_done') {
+      const tile = Number.isInteger(msg.tile) && msg.tile >= 1 ? msg.tile : 1;
+      const final = !!msg.final;
+      // targetRole lets sender move a different player's token (e.g. Deflect powerup)
+      const targetRole = ['host', 'guest', 'guest2'].includes(msg.targetRole) ? msg.targetRole : role;
+      broadcast(s, { type: 'snl_move_done', role: targetRole, tile, final }, ws);
+      return;
+    }
+
+    if (msg.type === 'snl_powerup') {
+      const puId = typeof msg.puId === 'string' ? msg.puId.slice(0, 32) : '';
+      const target = ['host', 'guest', 'guest2'].includes(msg.target) ? msg.target : null;
+      const draw = !!msg.draw;
+      broadcast(s, { type: 'snl_powerup', role, puId, target, draw }, ws);
+      return;
+    }
+
+    if (msg.type === 'snl_forfeit_draw') {
+      const cardIndex = Number.isInteger(msg.cardIndex) ? Math.max(0, msg.cardIndex) : 0;
+      const secs = Number.isFinite(msg.secs) ? Math.max(0, msg.secs) : 0;
+      broadcast(s, { type: 'snl_forfeit_draw', role, cardIndex, secs }, ws);
+      return;
+    }
+
+    if (msg.type === 'snl_forfeit_ack') {
+      broadcast(s, { type: 'snl_opp_forfeit_ack', role }, ws);
+      return;
+    }
+
+    if (msg.type === 'snl_forfeit_assign') {
+      const cardIndex = Number.isInteger(msg.cardIndex) ? Math.max(0, msg.cardIndex) : 0;
+      const target = ['host', 'guest', 'guest2'].includes(msg.target) ? msg.target : null;
+      broadcast(s, { type: 'snl_forfeit_assign', role, cardIndex, target }, ws);
+      return;
+    }
+
+    if (msg.type === 'snl_coop_choice') {
+      const choice = msg.choice === 'cooperate' ? 'cooperate' : 'betray';
+      broadcast(s, { type: 'snl_coop_choice', role, choice }, ws);
+      return;
+    }
+
+    if (msg.type === 'snl_coop_reveal') {
+      const hostChoice = ['cooperate', 'betray'].includes(msg.hostChoice) ? msg.hostChoice : 'cooperate';
+      const guestChoice = ['cooperate', 'betray'].includes(msg.guestChoice) ? msg.guestChoice : 'cooperate';
+      broadcast(s, { type: 'snl_coop_reveal', hostChoice, guestChoice });
+      return;
+    }
+
+    if (msg.type === 'snl_vibe_ctrl' && Number.isFinite(msg.intensity)) {
+      const target = ['host', 'guest', 'guest2'].includes(msg.target) ? msg.target : null;
+      const intensity = Math.max(0, Math.min(1, msg.intensity));
+      const targetWs = target ? s[target]?.socket : null;
+      if (targetWs?.readyState === 1) {
+        targetWs.send(JSON.stringify({ type: 'snl_vibe_ctrl', intensity, from: role }));
+      } else {
+        broadcast(s, { type: 'snl_vibe_ctrl', intensity, from: role }, ws);
+      }
+      return;
+    }
+
+    if (msg.type === 'snl_vibe_stop') {
+      const target = ['host', 'guest', 'guest2'].includes(msg.target) ? msg.target : null;
+      broadcast(s, { type: 'snl_vibe_stop', role, target }, ws);
+      return;
+    }
+
+    if (msg.type === 'snl_vibe_start') {
+      const secs = Number.isFinite(msg.secs) ? Math.max(1, msg.secs) : 10;
+      broadcast(s, { type: 'snl_vibe_start', role, secs }, ws);
+      return;
+    }
+    // ── End Snakes & Ladders ──────────────────────────────────────────────────
+
+    // ── Memory Match ───────────────────────────────────────────────────────────
+    if (msg.type === 'mem_flip' && Number.isInteger(msg.pos)) {
+      broadcast(s, { type: 'mem_flip', pos: msg.pos, role }, ws);
+      return;
+    }
+
+    if (msg.type === 'mem_vibe_trigger') {
+      const targetRole = ['host', 'guest', 'guest2'].includes(msg.targetRole) ? msg.targetRole : null;
+      if (!targetRole || !Number.isInteger(msg.chargeIndex)) return;
+      const intensity = Number.isFinite(msg.intensity) ? Math.max(0, Math.min(1, msg.intensity)) : 0.5;
+      const pattern = typeof msg.pattern === 'string' ? msg.pattern.slice(0, 32) : 'steady';
+      broadcast(s, { type: 'mem_vibe_trigger', targetRole, chargeIndex: msg.chargeIndex, intensity, pattern, from: role }, ws);
+      return;
+    }
+
+    if (msg.type === 'mem_vibe_pause') {
+      broadcast(s, { type: 'mem_vibe_pause', role }, ws);
+      return;
+    }
+
+    if (msg.type === 'mem_win') {
+      broadcast(s, { type: 'mem_win', role }, ws);
+      return;
+    }
+    // ── End Memory Match ───────────────────────────────────────────────────────
 
     if (msg.type === 'final' && Number.isFinite(msg.value)) {
       const v = msg.value | 0;

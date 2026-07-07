@@ -40,6 +40,25 @@ export const state = {
   lcReward: 'full',
   bsGridSize: 'standard',
   bsVibeMultiplier: 1.5,
+  snlMode: 'versus',
+  snlBoardSize: 'standard',
+  snlDensity: 'even',
+  snlStakeMix: 'mixed',
+  snlVibeScale: 'full',
+  snlWinCondition: 'race',
+  snlFinalRule: 'exact',
+  snlPushLuck: true,
+  snlPowerups: true,
+  snlCoopBetray: false,
+  snlForfeitCards: ['vibe', 'edge', 'strip', 'control', 'task', 'surrender'],
+  snlForfeitLines: [],
+  snlAmbient: false,
+  snlTapOut: false,
+  unoSpecialPacks: [],
+  memMode: 'versus',
+  memForfeitLines: [],
+  memVibeDurations: [],
+  memGridSize: '6x6',
 };
 
 export function reset() {
@@ -83,4 +102,22 @@ export function reset() {
   state.lcReward = 'full';
   state.bsGridSize = 'standard';
   state.bsVibeMultiplier = 1.5;
+  state.snlMode = 'versus';
+  state.snlBoardSize = 'standard';
+  state.snlDensity = 'even';
+  state.snlStakeMix = 'mixed';
+  state.snlVibeScale = 'full';
+  state.snlWinCondition = 'race';
+  state.snlFinalRule = 'exact';
+  state.snlPushLuck = true;
+  state.snlPowerups = true;
+  state.snlCoopBetray = false;
+  state.snlForfeitCards = ['vibe', 'edge', 'strip', 'control', 'task', 'surrender'];
+  state.snlForfeitLines = [];
+  state.snlAmbient = false;
+  state.snlTapOut = false;
+  state.memMode = 'versus';
+  state.memForfeitLines = [];
+  state.memVibeDurations = [];
+  state.memGridSize = '6x6';
 }

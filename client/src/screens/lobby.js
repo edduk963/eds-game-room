@@ -4,6 +4,7 @@ import { navigate } from '../main.js';
 import { MSG } from '../shared/messages.js';
 import * as haptics from '../haptics.js';
 import { DEFAULT_FORFEIT_LINES } from '../game/beatdealerGame.js';
+import { pairBudget as memPairBudget, fitsGrid as memFitsGrid } from '../game/memoryGame.js';
 
 export function renderLobby(root) {
   if (!state.myName) {
@@ -39,6 +40,25 @@ export function renderLobby(root) {
   let selectedBsVibeMultiplier = 1.5;
   let selectedUnoRounds = 5;
   let selectedUnoSpecialPacks = [];
+  let selectedSnlMode = 'versus';
+  let selectedSnlBoardSize = 'standard';
+  let selectedSnlDensity = 'even';
+  let selectedSnlStakeMix = 'mixed';
+  let selectedSnlVibeScale = 'full';
+  let selectedSnlWinCondition = 'race';
+  let selectedSnlFinalRule = 'exact';
+  let selectedSnlPushLuck = true;
+  let selectedSnlPowerups = true;
+  let selectedSnlCoopBetray = false;
+  let selectedSnlForfeitCards = ['vibe', 'edge', 'strip', 'control', 'task', 'surrender'];
+  let selectedSnlForfeitLines = [];
+  let selectedSnlAmbient = false;
+  let selectedSnlTapOut = false;
+  let selectedMemMode = 'versus';
+  let selectedMemForfeitLines = [];
+  let selectedMemVibeDurations = [];
+  let selectedMemGridSize = '6x6';
+  let selectedMemFits = true;
 
   root.innerHTML = `
     <div class="card">
@@ -132,6 +152,13 @@ export function renderLobby(root) {
               <div class="desc">Classic UNO — match colors and numbers. Draw 2 and Draw 4 buzz your opponent. Loser forfeits.</div>
             </div>
           </div>
+          <div class="game-tile game-tile-selectable" data-game="memory">
+            <div class="game-tile-icon">🧠</div>
+            <div>
+              <div class="name-row"><span class="name">Memory Match</span><span class="vibe-badge">Vibe</span><span class="badge-1p">1P</span><span class="badge-3p">3P</span></div>
+              <div class="desc">Flip pairs on a custom grid. Mismatches bank your own forfeits and vibe charges — anyone can trigger a rival's vibe stash any time. Find both win cards to take it all.</div>
+            </div>
+          </div>
         </div>
         <div class="game-category-label">Strategy</div>
         <div class="game-category-grid">
@@ -154,6 +181,20 @@ export function renderLobby(root) {
             <div>
               <div class="name-row"><span class="name">Tug of War</span><span class="vibe-badge">Vibe</span></div>
               <div class="desc">Both vibe continuously. The losing player feels it more. Pool escalates every 10s.</div>
+            </div>
+          </div>
+          <div class="game-tile game-tile-selectable" data-game="wizardisland">
+            <div class="game-tile-icon">🏝</div>
+            <div>
+              <div class="name">Wizard Island</div>
+              <div class="desc">Explore 8 islands, collect stat cards and spells, battle each other and the Dark Wizard. Reduce his armour to zero to win.</div>
+            </div>
+          </div>
+          <div class="game-tile game-tile-selectable" data-game="snakes">
+            <div class="game-tile-icon">🐍</div>
+            <div>
+              <div class="name-row"><span class="name">Vipers &amp; Vines</span><span class="vibe-badge">Vibe</span><span class="badge-1p">1P</span><span class="badge-3p">3P</span></div>
+              <div class="desc">Race up the board. Climb a ladder and punish your opponent. Land on a snake and pay — stakes scale with height.</div>
             </div>
           </div>
         </div>
@@ -397,6 +438,131 @@ export function renderLobby(root) {
           </div>
         </div>
       </div>
+      <div id="memory-config" style="display:none">
+        <div class="mm-rounds-row">
+          <span>Mode:</span>
+          <div class="mm-rounds-btns" id="mem-mode-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-mem-mode="versus" title="2-3 players take turns flipping cards, competing to find the win pair">Versus</button>
+            <button class="mm-rounds-btn ghost" data-mem-mode="solo" title="Play alone — vibe charges you collect fire automatically without pausing play">Solo</button>
+            <button class="mm-rounds-btn ghost" data-mem-mode="watched" title="Play alone while a second connected player watches and controls your vibe charges">Solo + Watcher</button>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.55;margin:-2px 0 8px;" id="mem-mode-desc"></div>
+        <div class="mm-rounds-row" style="margin-top:4px;">
+          <span>Grid size:</span>
+          <div class="mm-rounds-btns" id="mem-grid-btns">
+            <button class="mm-rounds-btn ghost" data-mem-grid="4x4">4×4</button>
+            <button class="mm-rounds-btn ghost" data-mem-grid="5x5">5×5</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-mem-grid="6x6">6×6</button>
+            <button class="mm-rounds-btn ghost" data-mem-grid="8x8">8×8</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row" style="flex-direction:column;align-items:stretch;gap:6px;margin-top:8px;">
+          <span>Forfeits <span style="font-size:11px;color:var(--muted)">(one per line — each becomes a matching pair on the board)</span>:</span>
+          <textarea id="mem-forfeits-input" rows="5"
+            placeholder="Take a shot&#10;20 push-ups&#10;Truth or dare"
+            style="width:100%;box-sizing:border-box;resize:vertical;font-size:13px;line-height:1.5;padding:8px 10px;border-radius:8px;border:1px solid #2a3556;background:#0f1626;color:var(--ink);font-family:inherit;"></textarea>
+        </div>
+        <div id="mem-vibe-durations-row" class="mm-rounds-row" style="flex-direction:column;align-items:stretch;gap:6px;margin-top:8px;">
+          <span>Vibe durations in seconds <span style="font-size:11px;color:var(--muted)">(one per line — each becomes a matching pair. Leave empty for no vibe cards)</span>:</span>
+          <textarea id="mem-vibe-durations-input" rows="4"
+            placeholder="15&#10;30&#10;60"
+            style="width:100%;box-sizing:border-box;resize:vertical;font-size:13px;line-height:1.5;padding:8px 10px;border-radius:8px;border:1px solid #2a3556;background:#0f1626;color:var(--ink);font-family:inherit;"></textarea>
+        </div>
+        <div id="mem-budget-msg" style="font-size:12px;margin-top:6px;"></div>
+      </div>
+      <div id="snl-config" style="display:none">
+        <div class="mm-rounds-row">
+          <span>Players:</span>
+          <div class="mm-rounds-btns" id="snl-mode-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-snl-mode="versus">Versus (2–3P)</button>
+            <button class="mm-rounds-btn ghost" data-snl-mode="solo">Solo</button>
+            <button class="mm-rounds-btn ghost" data-snl-mode="watched">Watched</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row" style="margin-top:4px;">
+          <span>Board size:</span>
+          <div class="mm-rounds-btns" id="snl-board-btns">
+            <button class="mm-rounds-btn ghost" data-snl-board="short">Short (60)</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-snl-board="standard">Standard (100)</button>
+            <button class="mm-rounds-btn ghost" data-snl-board="long">Long (150)</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row" style="margin-top:4px;">
+          <span>Density:</span>
+          <div class="mm-rounds-btns" id="snl-density-btns">
+            <button class="mm-rounds-btn ghost" data-snl-density="tame">Tame</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-snl-density="even">Even</button>
+            <button class="mm-rounds-btn ghost" data-snl-density="brutal">Brutal</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row" style="margin-top:4px;">
+          <span>Stakes:</span>
+          <div class="mm-rounds-btns" id="snl-stake-btns">
+            <button class="mm-rounds-btn ghost" data-snl-stake="vibe">Vibe only</button>
+            <button class="mm-rounds-btn ghost" data-snl-stake="forfeits">Forfeits only</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-snl-stake="mixed">Mixed</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row" style="margin-top:4px;">
+          <span>Win condition:</span>
+          <div class="mm-rounds-btns" id="snl-win-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-snl-win="race">Race</button>
+            <button class="mm-rounds-btn ghost" data-snl-win="endurance">Endurance</button>
+          </div>
+        </div>
+        <div id="snl-finalrule-row" class="mm-rounds-row" style="margin-top:4px;">
+          <span>Final tile:</span>
+          <div class="mm-rounds-btns" id="snl-finalrule-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-snl-final="exact">Exact</button>
+            <button class="mm-rounds-btn ghost" data-snl-final="pass">Pass</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row" style="margin-top:4px;">
+          <span>Push-your-luck:</span>
+          <div class="mm-rounds-btns" id="snl-pushluck-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-snl-pushluck="on">On</button>
+            <button class="mm-rounds-btn ghost" data-snl-pushluck="off">Off</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row" style="margin-top:4px;">
+          <span>Powerups:</span>
+          <div class="mm-rounds-btns" id="snl-powerups-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-snl-powerups="on">On</button>
+            <button class="mm-rounds-btn ghost" data-snl-powerups="off">Off</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row" style="margin-top:4px;" id="snl-fork-row">
+          <span>Fork tiles:</span>
+          <div class="mm-rounds-btns" id="snl-fork-btns">
+            <button class="mm-rounds-btn ghost" data-snl-fork="on">On</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-snl-fork="off">Off</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row" style="margin-top:8px;flex-wrap:wrap;gap:6px;" id="snl-cards-row">
+          <span style="width:100%">Forfeit cards:</span>
+          <button class="mm-rounds-btn mm-rounds-selected" data-snl-card="vibe">⚡ Vibe</button>
+          <button class="mm-rounds-btn mm-rounds-selected" data-snl-card="edge">🌀 Edge</button>
+          <button class="mm-rounds-btn mm-rounds-selected" data-snl-card="strip">👕 Strip</button>
+          <button class="mm-rounds-btn mm-rounds-selected" data-snl-card="control">🎛 Control</button>
+          <button class="mm-rounds-btn mm-rounds-selected" data-snl-card="task">🪢 Task</button>
+          <button class="mm-rounds-btn mm-rounds-selected" data-snl-card="surrender">🏳 Surrender</button>
+        </div>
+        <div id="snl-ambient-row" class="mm-rounds-row" style="margin-top:4px;display:none;">
+          <span>Ambient vibe:</span>
+          <div class="mm-rounds-btns" id="snl-ambient-btns">
+            <button class="mm-rounds-btn ghost" data-snl-ambient="on">On</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-snl-ambient="off">Off</button>
+          </div>
+        </div>
+        <div id="snl-tapout-row" class="mm-rounds-row" style="margin-top:4px;display:none;">
+          <span>Tap-out:</span>
+          <div class="mm-rounds-btns" id="snl-tapout-btns">
+            <button class="mm-rounds-btn ghost" data-snl-tapout="on">On</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-snl-tapout="off">Off</button>
+          </div>
+        </div>
+      </div>
       <div id="forfeit-row" class="mm-rounds-row" style="margin-top:16px;">
         <span>Forfeit vibe:</span>
         <div class="mm-rounds-btns" id="forfeit-btns">
@@ -485,6 +651,48 @@ export function renderLobby(root) {
   const bsConfig = root.querySelector('#bs-config');
   const bsGridBtns = root.querySelector('#bs-grid-btns');
   const bsVibeBtns = root.querySelector('#bs-vibe-mult-btns');
+  const snlConfig = root.querySelector('#snl-config');
+  const snlModeBtns = root.querySelector('#snl-mode-btns');
+  const snlBoardBtns = root.querySelector('#snl-board-btns');
+  const snlDensityBtns = root.querySelector('#snl-density-btns');
+  const snlStakeBtns = root.querySelector('#snl-stake-btns');
+  const snlWinBtns = root.querySelector('#snl-win-btns');
+  const snlFinalRuleRow = root.querySelector('#snl-finalrule-row');
+  const snlFinalRuleBtns = root.querySelector('#snl-finalrule-btns');
+  const snlPushLuckBtns = root.querySelector('#snl-pushluck-btns');
+  const snlPowerupsBtns = root.querySelector('#snl-powerups-btns');
+  const snlForkRow = root.querySelector('#snl-fork-row');
+  const snlForkBtns = root.querySelector('#snl-fork-btns');
+  const snlCardsRow = root.querySelector('#snl-cards-row');
+  const snlAmbientRow = root.querySelector('#snl-ambient-row');
+  const snlAmbientBtns = root.querySelector('#snl-ambient-btns');
+  const snlTapOutRow = root.querySelector('#snl-tapout-row');
+  const snlTapOutBtns = root.querySelector('#snl-tapout-btns');
+  const memConfig = root.querySelector('#memory-config');
+  const memModeBtns = root.querySelector('#mem-mode-btns');
+  const memModeDesc = root.querySelector('#mem-mode-desc');
+  const memGridBtns = root.querySelector('#mem-grid-btns');
+  const memForfeitsInput = root.querySelector('#mem-forfeits-input');
+  const memVibeDurationsRow = root.querySelector('#mem-vibe-durations-row');
+  const memVibeDurationsInput = root.querySelector('#mem-vibe-durations-input');
+  const memBudgetMsg = root.querySelector('#mem-budget-msg');
+
+  const MEM_MODE_DESC = {
+    versus: 'Everyone takes turns. Mismatches bank forfeits/vibe to your own pile — any other player can trigger your vibe charges at any time.',
+    solo: 'Just you. Vibe charges you collect fire automatically as soon as you bank them, at a comfortable default intensity — play keeps going, pause it any time from the vibe bar.',
+    watched: 'You play alone, but a second connected player sees the board and manually controls your vibe charges — pattern, intensity, and timing are up to them.',
+  };
+
+  function updateMemBudget() {
+    const vibeDurations = selectedMemVibeDurations;
+    selectedMemFits = memFitsGrid({ forfeitLines: selectedMemForfeitLines, vibeDurations, gridSize: selectedMemGridSize });
+    const budget = memPairBudget(selectedMemGridSize);
+    const needed = selectedMemForfeitLines.length + vibeDurations.length + 1;
+    memBudgetMsg.textContent = selectedMemFits
+      ? `${needed} of ${budget} pairs used.`
+      : `Too many cards for this grid — ${needed} pairs needed but only ${budget} fit. Trim a list or pick a bigger grid.`;
+    memBudgetMsg.style.color = selectedMemFits ? 'var(--muted)' : '#e05252';
+  }
 
   function paintOptions() {
     btdConfig.style.display = selectedGame === 'beatdealer' ? 'block' : 'none';
@@ -625,7 +833,113 @@ export function renderLobby(root) {
     const isSo = selectedGame === 'standoff';
     const isLc = selectedGame === 'lastcall';
     const isBs = selectedGame === 'battleships';
+    const isMemory = selectedGame === 'memory';
     const isUno = selectedGame === 'uno';
+    const isSnl = selectedGame === 'snakes';
+    snlConfig.style.display = isSnl ? 'block' : 'none';
+    if (isSnl) {
+      snlModeBtns.querySelectorAll('[data-snl-mode]').forEach(b => {
+        const sel = b.dataset.snlMode === selectedSnlMode;
+        b.classList.toggle('mm-rounds-selected', sel);
+        b.classList.toggle('ghost', !sel);
+        b.disabled = state.role !== 'host';
+      });
+      snlBoardBtns.querySelectorAll('[data-snl-board]').forEach(b => {
+        const sel = b.dataset.snlBoard === selectedSnlBoardSize;
+        b.classList.toggle('mm-rounds-selected', sel);
+        b.classList.toggle('ghost', !sel);
+        b.disabled = state.role !== 'host';
+      });
+      snlDensityBtns.querySelectorAll('[data-snl-density]').forEach(b => {
+        const sel = b.dataset.snlDensity === selectedSnlDensity;
+        b.classList.toggle('mm-rounds-selected', sel);
+        b.classList.toggle('ghost', !sel);
+        b.disabled = state.role !== 'host';
+      });
+      snlStakeBtns.querySelectorAll('[data-snl-stake]').forEach(b => {
+        const sel = b.dataset.snlStake === selectedSnlStakeMix;
+        b.classList.toggle('mm-rounds-selected', sel);
+        b.classList.toggle('ghost', !sel);
+        b.disabled = state.role !== 'host';
+      });
+      snlWinBtns.querySelectorAll('[data-snl-win]').forEach(b => {
+        const sel = b.dataset.snlWin === selectedSnlWinCondition;
+        b.classList.toggle('mm-rounds-selected', sel);
+        b.classList.toggle('ghost', !sel);
+        b.disabled = state.role !== 'host';
+      });
+      snlFinalRuleRow.style.display = selectedSnlWinCondition === 'race' ? 'flex' : 'none';
+      snlFinalRuleBtns.querySelectorAll('[data-snl-final]').forEach(b => {
+        const sel = b.dataset.snlFinal === selectedSnlFinalRule;
+        b.classList.toggle('mm-rounds-selected', sel);
+        b.classList.toggle('ghost', !sel);
+        b.disabled = state.role !== 'host';
+      });
+      snlPushLuckBtns.querySelectorAll('[data-snl-pushluck]').forEach(b => {
+        const sel = (b.dataset.snlPushluck === 'on') === selectedSnlPushLuck;
+        b.classList.toggle('mm-rounds-selected', sel);
+        b.classList.toggle('ghost', !sel);
+        b.disabled = state.role !== 'host';
+      });
+      snlPowerupsBtns.querySelectorAll('[data-snl-powerups]').forEach(b => {
+        const sel = (b.dataset.snlPowerups === 'on') === selectedSnlPowerups;
+        b.classList.toggle('mm-rounds-selected', sel);
+        b.classList.toggle('ghost', !sel);
+        b.disabled = state.role !== 'host';
+      });
+      const vsMode = selectedSnlMode === 'versus';
+      snlForkRow.style.display = vsMode ? 'flex' : 'none';
+      snlForkBtns.querySelectorAll('[data-snl-fork]').forEach(b => {
+        const sel = (b.dataset.snlFork === 'on') === selectedSnlCoopBetray;
+        b.classList.toggle('mm-rounds-selected', sel);
+        b.classList.toggle('ghost', !sel);
+        b.disabled = state.role !== 'host';
+      });
+      snlCardsRow.querySelectorAll('[data-snl-card]').forEach(b => {
+        const sel = selectedSnlForfeitCards.includes(b.dataset.snlCard);
+        b.classList.toggle('mm-rounds-selected', sel);
+        b.classList.toggle('ghost', !sel);
+        b.disabled = state.role !== 'host';
+      });
+      const soloWatched = selectedSnlMode === 'solo' || selectedSnlMode === 'watched';
+      snlAmbientRow.style.display = soloWatched ? 'flex' : 'none';
+      snlAmbientBtns.querySelectorAll('[data-snl-ambient]').forEach(b => {
+        const sel = (b.dataset.snlAmbient === 'on') === selectedSnlAmbient;
+        b.classList.toggle('mm-rounds-selected', sel);
+        b.classList.toggle('ghost', !sel);
+        b.disabled = state.role !== 'host';
+      });
+      snlTapOutRow.style.display = soloWatched ? 'flex' : 'none';
+      snlTapOutBtns.querySelectorAll('[data-snl-tapout]').forEach(b => {
+        const sel = (b.dataset.snlTapout === 'on') === selectedSnlTapOut;
+        b.classList.toggle('mm-rounds-selected', sel);
+        b.classList.toggle('ghost', !sel);
+        b.disabled = state.role !== 'host';
+      });
+    }
+    memConfig.style.display = selectedGame === 'memory' ? 'block' : 'none';
+    memModeBtns.querySelectorAll('[data-mem-mode]').forEach(b => {
+      const sel = b.dataset.memMode === selectedMemMode;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+      b.disabled = state.role !== 'host';
+    });
+    memModeDesc.textContent = MEM_MODE_DESC[selectedMemMode] || '';
+    memGridBtns.querySelectorAll('[data-mem-grid]').forEach(b => {
+      const sel = b.dataset.memGrid === selectedMemGridSize;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+      b.disabled = state.role !== 'host';
+    });
+    memForfeitsInput.disabled = state.role !== 'host';
+    if (document.activeElement !== memForfeitsInput) {
+      memForfeitsInput.value = selectedMemForfeitLines.join('\n');
+    }
+    memVibeDurationsInput.disabled = state.role !== 'host';
+    if (document.activeElement !== memVibeDurationsInput) {
+      memVibeDurationsInput.value = selectedMemVibeDurations.join('\n');
+    }
+    updateMemBudget();
     unoConfig.style.display = isUno ? 'block' : 'none';
     unoRoundsBtns.querySelectorAll('[data-uno-rounds]').forEach(b => {
       const sel = parseInt(b.dataset.unoRounds, 10) === selectedUnoRounds;
@@ -639,8 +953,8 @@ export function renderLobby(root) {
       b.classList.toggle('ghost', !sel);
       b.disabled = state.role !== 'host';
     });
-    const hideForfeit = isHilo || isStl || isWi || isBtd || isSo || isBs || isUno || (isLc && !selectedLcTimer);
-    const noEdge = isHilo || isStl || isWi || isBtd || isSo || isLc || isBs || isUno;
+    const hideForfeit = isHilo || isStl || isWi || isBtd || isSo || isBs || isUno || isSnl || isMemory || (isLc && !selectedLcTimer);
+    const noEdge = isHilo || isStl || isWi || isBtd || isSo || isLc || isBs || isUno || isSnl || isMemory;
     forfeitRow.style.display   = hideForfeit ? 'none' : '';
     edgeModeRow.style.display  = noEdge ? 'none' : '';
     if (noEdge) edgeLivesRow.style.display = 'none';
@@ -662,8 +976,11 @@ export function renderLobby(root) {
     });
     // Refresh start button when game selection changes (solo-capable games can start without a guest)
     const _soloGames = ['beatdealer', 'hilo', 'mastermind', 'lastcall'];
-    const _isSolo = _soloGames.includes(selectedGame);
-    const _canStart = state.role === 'host' && state.hostName && (state.guestName || _isSolo);
+    let _isSolo = _soloGames.includes(selectedGame);
+    if (selectedGame === 'snakes' && selectedSnlMode === 'solo') _isSolo = true;
+    if (selectedGame === 'memory' && selectedMemMode === 'solo') _isSolo = true;
+    const _memOk = selectedGame !== 'memory' || selectedMemFits;
+    const _canStart = state.role === 'host' && state.hostName && (state.guestName || _isSolo) && _memOk;
     startBtn.disabled = !_canStart;
     startBtn.textContent = state.role === 'host'
       ? (_canStart ? (state.guestName ? 'Start' : 'Play Solo') : 'Waiting for guest…')
@@ -701,6 +1018,24 @@ export function renderLobby(root) {
     bsVibeMultiplier: selectedBsVibeMultiplier,
     unoRounds: selectedUnoRounds,
     unoSpecialPacks: selectedUnoSpecialPacks,
+    snlMode: selectedSnlMode,
+    snlBoardSize: selectedSnlBoardSize,
+    snlDensity: selectedSnlDensity,
+    snlStakeMix: selectedSnlStakeMix,
+    snlVibeScale: selectedSnlVibeScale,
+    snlWinCondition: selectedSnlWinCondition,
+    snlFinalRule: selectedSnlFinalRule,
+    snlPushLuck: selectedSnlPushLuck,
+    snlPowerups: selectedSnlPowerups,
+    snlCoopBetray: selectedSnlCoopBetray,
+    snlForfeitCards: selectedSnlForfeitCards,
+    snlForfeitLines: selectedSnlForfeitLines,
+    snlAmbient: selectedSnlAmbient,
+    snlTapOut: selectedSnlTapOut,
+    memMode: selectedMemMode,
+    memForfeitLines: selectedMemForfeitLines,
+    memVibeDurations: selectedMemVibeDurations,
+    memGridSize: selectedMemGridSize,
   });
 
   socket.connect();
@@ -764,6 +1099,24 @@ export function renderLobby(root) {
     if (ev.detail.bsVibeMultiplier !== undefined)  selectedBsVibeMultiplier = ev.detail.bsVibeMultiplier;
     if (ev.detail.unoRounds)                        selectedUnoRounds = ev.detail.unoRounds;
     if (ev.detail.unoSpecialPacks)                  selectedUnoSpecialPacks = ev.detail.unoSpecialPacks;
+    if (ev.detail.snlMode)                          selectedSnlMode = ev.detail.snlMode;
+    if (ev.detail.snlBoardSize)                     selectedSnlBoardSize = ev.detail.snlBoardSize;
+    if (ev.detail.snlDensity)                       selectedSnlDensity = ev.detail.snlDensity;
+    if (ev.detail.snlStakeMix)                      selectedSnlStakeMix = ev.detail.snlStakeMix;
+    if (ev.detail.snlVibeScale)                     selectedSnlVibeScale = ev.detail.snlVibeScale;
+    if (ev.detail.snlWinCondition)                  selectedSnlWinCondition = ev.detail.snlWinCondition;
+    if (ev.detail.snlFinalRule)                     selectedSnlFinalRule = ev.detail.snlFinalRule;
+    if (ev.detail.snlPushLuck !== undefined)        selectedSnlPushLuck = !!ev.detail.snlPushLuck;
+    if (ev.detail.snlPowerups !== undefined)        selectedSnlPowerups = !!ev.detail.snlPowerups;
+    if (ev.detail.snlCoopBetray !== undefined)      selectedSnlCoopBetray = !!ev.detail.snlCoopBetray;
+    if (ev.detail.snlForfeitCards)                  selectedSnlForfeitCards = ev.detail.snlForfeitCards;
+    if (ev.detail.snlForfeitLines)                  selectedSnlForfeitLines = ev.detail.snlForfeitLines;
+    if (ev.detail.snlAmbient !== undefined)         selectedSnlAmbient = !!ev.detail.snlAmbient;
+    if (ev.detail.snlTapOut !== undefined)          selectedSnlTapOut = !!ev.detail.snlTapOut;
+    if (ev.detail.memMode)                          selectedMemMode = ev.detail.memMode;
+    if (ev.detail.memForfeitLines)                  selectedMemForfeitLines = ev.detail.memForfeitLines;
+    if (ev.detail.memVibeDurations)                 selectedMemVibeDurations = ev.detail.memVibeDurations;
+    if (ev.detail.memGridSize)                      selectedMemGridSize = ev.detail.memGridSize;
     if (modeChanged) { renderLobby(root); return; }
     paintOptions();
   };
@@ -828,6 +1181,46 @@ export function renderLobby(root) {
     sendConfig();
   });
 
+  memModeBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-mem-mode]');
+    if (!btn) return;
+    selectedMemMode = btn.dataset.memMode;
+    paintOptions();
+    sendConfig();
+  });
+
+  memGridBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-mem-grid]');
+    if (!btn) return;
+    selectedMemGridSize = btn.dataset.memGrid;
+    paintOptions();
+    sendConfig();
+  });
+
+  memForfeitsInput.addEventListener('input', () => {
+    if (state.role !== 'host') return;
+    selectedMemForfeitLines = memForfeitsInput.value
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 0)
+      .slice(0, 60);
+    updateMemBudget();
+    sendConfig();
+  });
+
+  memVibeDurationsInput.addEventListener('input', () => {
+    if (state.role !== 'host') return;
+    selectedMemVibeDurations = memVibeDurationsInput.value
+      .split('\n')
+      .map(l => parseInt(l.trim(), 10))
+      .filter(n => Number.isFinite(n) && n > 0)
+      .slice(0, 30);
+    updateMemBudget();
+    sendConfig();
+  });
+
   btdForfeitsInput.addEventListener('input', () => {
     if (state.role !== 'host') return;
     selectedBtdForfeits = btdForfeitsInput.value
@@ -869,7 +1262,7 @@ export function renderLobby(root) {
   });
 
   startBtn.addEventListener('click', () => {
-    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedGame === 'uno' ? selectedUnoRounds : selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives, hiloMode: selectedHiloMode, hiloCycles: selectedHiloCycles, hiloDeckSize: selectedHiloDeckSize, hiloVibeRamp: selectedHiloVibeRamp, hiloLives: selectedHiloLives, hiloVibeTarget: selectedHiloVibeTarget, stlDifficulty: selectedStlDifficulty, stlForfeitCards: selectedStlForfeitCards, btdForfeits: selectedBtdForfeits, btdMode: selectedBtdMode, btdGameMode: selectedBtdGameMode, wiWinCondition: selectedWiWinCondition, wiSpellLimit: selectedWiSpellLimit, diceVibeRule: selectedDiceVibeRule, lcTimer: selectedLcTimer, lcMinutes: selectedLcMinutes, lcDeckSize: selectedLcDeckSize, lcReward: selectedLcReward, bsGridSize: selectedBsGridSize, bsVibeMultiplier: selectedBsVibeMultiplier, unoRounds: selectedUnoRounds, unoSpecialPacks: selectedUnoSpecialPacks });
+    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedGame === 'uno' ? selectedUnoRounds : selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives, hiloMode: selectedHiloMode, hiloCycles: selectedHiloCycles, hiloDeckSize: selectedHiloDeckSize, hiloVibeRamp: selectedHiloVibeRamp, hiloLives: selectedHiloLives, hiloVibeTarget: selectedHiloVibeTarget, stlDifficulty: selectedStlDifficulty, stlForfeitCards: selectedStlForfeitCards, btdForfeits: selectedBtdForfeits, btdMode: selectedBtdMode, btdGameMode: selectedBtdGameMode, wiWinCondition: selectedWiWinCondition, wiSpellLimit: selectedWiSpellLimit, diceVibeRule: selectedDiceVibeRule, lcTimer: selectedLcTimer, lcMinutes: selectedLcMinutes, lcDeckSize: selectedLcDeckSize, lcReward: selectedLcReward, bsGridSize: selectedBsGridSize, bsVibeMultiplier: selectedBsVibeMultiplier, unoRounds: selectedUnoRounds, unoSpecialPacks: selectedUnoSpecialPacks, snlMode: selectedSnlMode, snlBoardSize: selectedSnlBoardSize, snlDensity: selectedSnlDensity, snlStakeMix: selectedSnlStakeMix, snlVibeScale: selectedSnlVibeScale, snlWinCondition: selectedSnlWinCondition, snlFinalRule: selectedSnlFinalRule, snlPushLuck: selectedSnlPushLuck, snlPowerups: selectedSnlPowerups, snlCoopBetray: selectedSnlCoopBetray, snlForfeitCards: selectedSnlForfeitCards, snlForfeitLines: selectedSnlForfeitLines, snlAmbient: selectedSnlAmbient, snlTapOut: selectedSnlTapOut, memMode: selectedMemMode, memForfeitLines: selectedMemForfeitLines, memVibeDurations: selectedMemVibeDurations, memGridSize: selectedMemGridSize });
   });
 
   wiWinBtns.addEventListener('click', (e) => {
@@ -974,6 +1367,42 @@ export function renderLobby(root) {
     }
     paintOptions();
     sendConfig();
+  });
+
+  snlConfig.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const modeBtn = e.target.closest('[data-snl-mode]');
+    if (modeBtn) { selectedSnlMode = modeBtn.dataset.snlMode; paintOptions(); sendConfig(); return; }
+    const boardBtn = e.target.closest('[data-snl-board]');
+    if (boardBtn) { selectedSnlBoardSize = boardBtn.dataset.snlBoard; paintOptions(); sendConfig(); return; }
+    const densityBtn = e.target.closest('[data-snl-density]');
+    if (densityBtn) { selectedSnlDensity = densityBtn.dataset.snlDensity; paintOptions(); sendConfig(); return; }
+    const stakeBtn = e.target.closest('[data-snl-stake]');
+    if (stakeBtn) { selectedSnlStakeMix = stakeBtn.dataset.snlStake; paintOptions(); sendConfig(); return; }
+    const winBtn = e.target.closest('[data-snl-win]');
+    if (winBtn) { selectedSnlWinCondition = winBtn.dataset.snlWin; paintOptions(); sendConfig(); return; }
+    const finalBtn = e.target.closest('[data-snl-final]');
+    if (finalBtn) { selectedSnlFinalRule = finalBtn.dataset.snlFinal; paintOptions(); sendConfig(); return; }
+    const pushBtn = e.target.closest('[data-snl-pushluck]');
+    if (pushBtn) { selectedSnlPushLuck = pushBtn.dataset.snlPushluck === 'on'; paintOptions(); sendConfig(); return; }
+    const powerupsBtn = e.target.closest('[data-snl-powerups]');
+    if (powerupsBtn) { selectedSnlPowerups = powerupsBtn.dataset.snlPowerups === 'on'; paintOptions(); sendConfig(); return; }
+    const forkBtn = e.target.closest('[data-snl-fork]');
+    if (forkBtn) { selectedSnlCoopBetray = forkBtn.dataset.snlFork === 'on'; paintOptions(); sendConfig(); return; }
+    const cardBtn = e.target.closest('[data-snl-card]');
+    if (cardBtn) {
+      const card = cardBtn.dataset.snlCard;
+      if (selectedSnlForfeitCards.includes(card)) {
+        selectedSnlForfeitCards = selectedSnlForfeitCards.filter(c => c !== card);
+      } else {
+        selectedSnlForfeitCards = [...selectedSnlForfeitCards, card];
+      }
+      paintOptions(); sendConfig(); return;
+    }
+    const ambientBtn = e.target.closest('[data-snl-ambient]');
+    if (ambientBtn) { selectedSnlAmbient = ambientBtn.dataset.snlAmbient === 'on'; paintOptions(); sendConfig(); return; }
+    const tapOutBtn = e.target.closest('[data-snl-tapout]');
+    if (tapOutBtn) { selectedSnlTapOut = tapOutBtn.dataset.snlTapout === 'on'; paintOptions(); sendConfig(); return; }
   });
 
   stlConfig.addEventListener('click', (e) => {
@@ -1110,13 +1539,6 @@ export function renderLobby(root) {
       pg2.classList.toggle('empty', !state.guest2Name);
       pg2.querySelector('.name').textContent = state.guest2Name || 'player 3 (optional)…';
     }
-    const SOLO_GAMES = ['beatdealer', 'hilo'];
-    const isSoloCapable = SOLO_GAMES.includes(selectedGame);
-    const canStart = state.role === 'host' && state.hostName && (state.guestName || isSoloCapable);
-    startBtn.disabled = !canStart;
-    startBtn.textContent = state.role === 'host'
-      ? (canStart ? (state.guestName ? 'Start' : 'Play Solo') : 'Waiting for guest…')
-      : 'Waiting for host…';
     paintOptions();
   }
   paint();

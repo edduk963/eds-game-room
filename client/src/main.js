@@ -21,6 +21,8 @@ import { renderLastCall } from './screens/lastcall.js';
 import { renderBattleships } from './screens/battleships.js';
 import { renderWheel } from './screens/wheel.js';
 import { renderUno } from './screens/uno.js';
+import { renderSnakes } from './screens/snakes.js';
+import { renderMemory } from './screens/memory.js';
 
 const app = document.getElementById('app');
 
@@ -145,6 +147,18 @@ function route() {
     return;
   }
 
+  if (hash === '#/snakes') {
+    if (!state.seed) { navigate('#/'); return; }
+    renderSnakes(app);
+    return;
+  }
+
+  if (hash === '#/memory') {
+    if (!state.seed) { navigate('#/'); return; }
+    renderMemory(app);
+    return;
+  }
+
   if (hash === '#/wheel') {
     renderWheel(app);
     return;
@@ -199,6 +213,24 @@ socket.addEventListener('begin', (ev) => {
   state.bsVibeMultiplier = ev.detail.bsVibeMultiplier ?? 1.5;
   if (ev.detail.gameType === 'uno') state.gameRounds = ev.detail.unoRounds || ev.detail.rounds || 5;
   state.unoSpecialPacks = ev.detail.unoSpecialPacks || [];
+  state.snlMode = ev.detail.snlMode || 'versus';
+  state.snlBoardSize = ev.detail.snlBoardSize || 'standard';
+  state.snlDensity = ev.detail.snlDensity || 'even';
+  state.snlStakeMix = ev.detail.snlStakeMix || 'mixed';
+  state.snlVibeScale = ev.detail.snlVibeScale || 'full';
+  state.snlWinCondition = ev.detail.snlWinCondition || 'race';
+  state.snlFinalRule = ev.detail.snlFinalRule || 'exact';
+  state.snlPushLuck = ev.detail.snlPushLuck !== false;
+  state.snlPowerups = ev.detail.snlPowerups !== false;
+  state.snlCoopBetray = !!ev.detail.snlCoopBetray;
+  state.snlForfeitCards = ev.detail.snlForfeitCards || ['vibe', 'edge', 'strip', 'control', 'task', 'surrender'];
+  state.snlForfeitLines = ev.detail.snlForfeitLines || [];
+  state.snlAmbient = !!ev.detail.snlAmbient;
+  state.snlTapOut = !!ev.detail.snlTapOut;
+  state.memMode = ev.detail.memMode || 'versus';
+  state.memForfeitLines = ev.detail.memForfeitLines || [];
+  state.memVibeDurations = ev.detail.memVibeDurations || [];
+  state.memGridSize = ev.detail.memGridSize || '6x6';
   const gt = state.gameType;
   if (gt === 'mastermind') navigate(state.playerCount === 3 ? '#/mastermind3' : state.playerCount === 1 ? '#/mastermind1p' : '#/mastermind');
   else if (gt === 'endurance') navigate('#/endurance');
@@ -212,6 +244,8 @@ socket.addEventListener('begin', (ev) => {
   else if (gt === 'lastcall') navigate('#/lastcall');
   else if (gt === 'battleships') navigate('#/battleships');
   else if (gt === 'uno') navigate('#/uno');
+  else if (gt === 'snakes') navigate('#/snakes');
+  else if (gt === 'memory') navigate('#/memory');
   else navigate('#/game');
 });
 
