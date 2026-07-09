@@ -48,10 +48,14 @@ export function renderMemory(root) {
 
   let flippedThisTurn = [];
   let turnLocked = false;
+  let resolveTimer = null;
   let gamePhase = 'playing'; // 'playing' | 'ended'
   let winnerRole = null;
 
   let selectedTrigger = null; // { role, idx }
+  let firingTrigger = null; // { role } — set once "Fire" is pressed; driver stays live until Stop
+  let firingSecondsLeft = 0; // driver-side countdown, all fired charges for the live role added together
+  let firingCountdownTimer = null;
   let triggerIntensity = 0.6;
   let triggerPattern = 'steady';
 
@@ -99,14 +103,25 @@ export function renderMemory(root) {
   function renderSkipTurn() {
     const wrap = document.getElementById('mem-skip-wrap');
     if (!wrap) return;
-    const stuck = memMode === 'versus' && gamePhase === 'playing' && departedRoles.has(currentRole);
-    if (!stuck) { wrap.innerHTML = ''; return; }
+    const versusStuck = memMode === 'versus' && gamePhase === 'playing' && departedRoles.has(currentRole);
+    // solo/watched has no turn to skip — the host is the only player, so a host disconnect
+    // just permanently pauses the board for any watchers with nothing else to trigger it.
+    const soloStuck = memMode !== 'versus' && gamePhase === 'playing' && departedRoles.has('host');
+    if (!versusStuck && !soloStuck) { wrap.innerHTML = ''; return; }
+    const message = versusStuck
+      ? `${escapeHtml(playerNames[currentRole])} disconnected mid-turn.`
+      : `${escapeHtml(playerNames.host)} disconnected — game paused.`;
     wrap.innerHTML = `
       <div class="mem-skip-row">
-        <span>${escapeHtml(playerNames[currentRole])} disconnected mid-turn.</span>
-        <button id="mem-skip-btn" class="ghost">Skip their turn</button>
+        <span>${message}</span>
+        ${versusStuck ? '<button id="mem-skip-btn" class="ghost">Skip their turn</button>' : ''}
+        <button id="mem-return-lobby-btn" class="ghost">Return to Lobby</button>
       </div>`;
-    document.getElementById('mem-skip-btn').addEventListener('click', skipDisconnectedTurn);
+    if (versusStuck) document.getElementById('mem-skip-btn').addEventListener('click', skipDisconnectedTurn);
+    document.getElementById('mem-return-lobby-btn').addEventListener('click', () => {
+      state.seed = null;
+      navigate(`#/session/${state.sessionId}`);
+    });
   }
 
   function renderPlayerPanel(r) {
@@ -189,10 +204,15 @@ export function renderMemory(root) {
     if (!selectedTrigger) { wrap.innerHTML = ''; return; }
     const { role, idx } = selectedTrigger;
     const charge = banks[role]?.vibe?.[idx];
-    if (!charge || charge.used) { selectedTrigger = null; wrap.innerHTML = ''; return; }
+    const isLive = !!(firingTrigger && firingTrigger.role === role);
+    if (!charge || (charge.used && !isLive)) { selectedTrigger = null; firingTrigger = null; wrap.innerHTML = ''; return; }
     wrap.innerHTML = `
       <div class="mem-trigger-panel">
-        <div class="mem-trigger-row"><strong>Trigger ${escapeHtml(playerNames[role])}'s ${charge.duration}s charge</strong></div>
+        <div class="mem-trigger-row"><strong>${isLive
+          ? `Driving ${escapeHtml(playerNames[role])}'s vibe`
+          : `Trigger ${escapeHtml(playerNames[role])}'s ${charge.duration}s charge`}</strong>${isLive
+          ? `<span class="mem-trigger-timer">${firingSecondsLeft.toFixed(1)}s</span>`
+          : ''}</div>
         <div class="mem-trigger-row">
           <span>Intensity</span>
           <input type="range" id="mem-trigger-intensity" class="mem-trigger-slider" min="0" max="100" value="${Math.round(triggerIntensity * 100)}">
@@ -204,28 +224,35 @@ export function renderMemory(root) {
           <button class="mm-rounds-btn${triggerPattern === 'wave'   ? ' mm-rounds-selected' : ' ghost'}" data-mem-pattern="wave">Wave</button>
         </div>
         <div class="mem-trigger-row">
-          <button id="mem-trigger-fire" class="ghost">🔥 Fire</button>
-          <button id="mem-trigger-cancel" class="ghost">Cancel</button>
+          ${isLive
+            ? '<button id="mem-trigger-stop" class="ghost">⏹ Stop</button>'
+            : '<button id="mem-trigger-fire" class="ghost">🔥 Fire</button><button id="mem-trigger-cancel" class="ghost">Cancel</button>'}
         </div>
       </div>`;
 
     document.getElementById('mem-trigger-intensity').addEventListener('input', (e) => {
       triggerIntensity = parseInt(e.target.value, 10) / 100;
       document.getElementById('mem-trigger-intensity-val').textContent = `${e.target.value}%`;
+      if (isLive) sendTriggerAdjust();
     });
     document.getElementById('mem-trigger-pattern-btns').addEventListener('click', (e) => {
       const btn = e.target.closest('[data-mem-pattern]');
       if (!btn) return;
       triggerPattern = btn.dataset.memPattern;
       renderTriggerPanel();
+      if (isLive) sendTriggerAdjust();
     });
-    document.getElementById('mem-trigger-fire').addEventListener('click', () => {
-      fireTrigger(role, idx, triggerIntensity, triggerPattern);
-    });
-    document.getElementById('mem-trigger-cancel').addEventListener('click', () => {
-      selectedTrigger = null;
-      renderTriggerPanel();
-    });
+    if (isLive) {
+      document.getElementById('mem-trigger-stop').addEventListener('click', stopTrigger);
+    } else {
+      document.getElementById('mem-trigger-fire').addEventListener('click', () => {
+        fireTrigger(role, idx, triggerIntensity, triggerPattern);
+      });
+      document.getElementById('mem-trigger-cancel').addEventListener('click', () => {
+        selectedTrigger = null;
+        renderTriggerPanel();
+      });
+    }
   }
 
   function renderPayout() {
@@ -251,17 +278,17 @@ export function renderMemory(root) {
         }).join('')}
         <button id="mem-play-again" class="ghost">Back to Lobby</button>
       </div>`;
-    document.getElementById('mem-play-again').addEventListener('click', () => navigate('#/'));
+    document.getElementById('mem-play-again').addEventListener('click', () => navigate(`#/session/${state.sessionId}`));
   }
 
   // ── Turn logic ────────────────────────────────────────────────────────────
   function flipCard(pos) {
-    if (cards[pos].matched || flippedThisTurn.includes(pos) || flippedThisTurn.length >= 2) return;
+    if (!cards[pos] || cards[pos].matched || flippedThisTurn.includes(pos) || flippedThisTurn.length >= 2) return;
     flippedThisTurn.push(pos);
     renderGrid();
     if (flippedThisTurn.length === 2) {
       turnLocked = true;
-      setTimeout(resolveTurn, 900);
+      resolveTimer = setTimeout(resolveTurn, 900);
     }
   }
 
@@ -340,9 +367,51 @@ export function renderMemory(root) {
   }
 
   function fireTrigger(targetRole, idx, intensity, pattern) {
+    const charge = banks[targetRole]?.vibe?.[idx];
+    if (!charge || charge.used) return;
+    const duration = charge.duration;
     applyVibeTrigger(targetRole, idx, intensity, pattern);
     if (!noSocket) socket.send({ type: MSG.MEM_VIBE_TRIGGER, targetRole, chargeIndex: idx, intensity, pattern });
+    // Panel stays open in "live" mode — the driver keeps control of intensity/pattern
+    // and decides when to stop, rather than firing a fixed duration and walking away.
+    firingTrigger = { role: targetRole };
+    selectedTrigger = { role: targetRole, idx };
+    addFiringSeconds(duration);
+    renderTriggerPanel();
+  }
+
+  // Driver-side countdown of total time fired so far — every charge fired while already
+  // live for this role stacks onto the same running counter instead of restarting it.
+  // Stops itself (and the target) automatically once it runs out, same as pressing Stop.
+  function addFiringSeconds(duration) {
+    firingSecondsLeft += duration;
+    if (!firingCountdownTimer) {
+      firingCountdownTimer = setInterval(() => {
+        firingSecondsLeft = Math.max(0, firingSecondsLeft - 0.1);
+        if (firingSecondsLeft <= 0) { stopTrigger(); return; }
+        renderTriggerPanel();
+      }, 100);
+    }
+  }
+
+  function sendTriggerAdjust() {
+    if (!firingTrigger) return;
+    const { role } = firingTrigger;
+    if (!noSocket) socket.send({ type: MSG.MEM_VIBE_ADJUST, targetRole: role, intensity: triggerIntensity, pattern: triggerPattern });
+    if (role === myRole) adjustMyVibeLocal(triggerIntensity, triggerPattern);
+  }
+
+  function stopTrigger() {
+    if (!firingTrigger) return;
+    const { role } = firingTrigger;
+    vibingRoles.delete(role);
+    if (!noSocket) socket.send({ type: MSG.MEM_VIBE_STOP, targetRole: role });
+    if (role === myRole) stopMyVibeLocal();
+    firingTrigger = null;
     selectedTrigger = null;
+    firingSecondsLeft = 0;
+    if (firingCountdownTimer) { clearInterval(firingCountdownTimer); firingCountdownTimer = null; }
+    renderSidePanels();
     renderTriggerPanel();
   }
 
@@ -369,13 +438,30 @@ export function renderMemory(root) {
     renderActiveVibe();
   }
 
-  function stopMyVibe() {
+  function adjustMyVibeLocal(intensity, pattern) {
+    if (!activeVibe) return;
+    activeVibe.intensity = intensity;
+    activeVibe.pattern = pattern;
+    if (haptics.isConnected()) {
+      haptics.setForfeitIntensity(intensity);
+      haptics.setWaveVibeMode(pattern === 'wave');
+    }
+    renderActiveVibe();
+  }
+
+  // Stops haptics/countdown on this client only — used both when I pause my own vibe
+  // and when the driver remotely stops it, without re-broadcasting a redundant message.
+  function stopMyVibeLocal() {
     haptics.pauseForfeitVibe();
     activeVibe = null;
     if (vibeCountdownTimer) { clearInterval(vibeCountdownTimer); vibeCountdownTimer = null; }
+    renderActiveVibe();
+  }
+
+  function stopMyVibe() {
+    stopMyVibeLocal();
     vibingRoles.delete(myRole);
     if (!noSocket) socket.send({ type: MSG.MEM_VIBE_PAUSE, role: myRole });
-    renderActiveVibe();
     renderSidePanels();
   }
 
@@ -410,18 +496,59 @@ export function renderMemory(root) {
   document.getElementById('mem-board-area').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-mem-trigger-role]');
     if (!btn) return;
-    selectedTrigger = { role: btn.dataset.memTriggerRole, idx: parseInt(btn.dataset.memTriggerIdx, 10) };
+    const role = btn.dataset.memTriggerRole;
+    const idx = parseInt(btn.dataset.memTriggerIdx, 10);
+    // Already driving this role — fire this charge straight onto the running countdown
+    // instead of swapping the panel to a fresh "Fire?" prompt for it.
+    if (firingTrigger && firingTrigger.role === role) {
+      fireTrigger(role, idx, triggerIntensity, triggerPattern);
+      return;
+    }
+    selectedTrigger = { role, idx };
     renderTriggerPanel();
   });
 
   // ── Socket events ─────────────────────────────────────────────────────────
-  function onMemFlip(ev) { flipCard(ev.detail.pos); }
+  function onMemFlip(ev) {
+    const { pos, role } = ev.detail;
+    if (role !== currentRole) return; // ignore out-of-turn / stale flips
+    if (!Number.isInteger(pos) || pos < 0 || pos >= cards.length) return;
+    flipCard(pos);
+  }
   function onMemVibeTrigger(ev) {
     const { targetRole, chargeIndex, intensity, pattern } = ev.detail;
     applyVibeTrigger(targetRole, chargeIndex, intensity, pattern);
   }
+  function onMemVibeAdjust(ev) {
+    const { targetRole, intensity, pattern } = ev.detail;
+    if (targetRole === myRole) adjustMyVibeLocal(intensity, pattern);
+  }
+  function onMemVibeStop(ev) {
+    const { targetRole } = ev.detail;
+    vibingRoles.delete(targetRole);
+    if (targetRole === myRole) stopMyVibeLocal();
+    // The driver already updated their own panel optimistically in stopTrigger() —
+    // this only matters for a bystander client that also had this trigger selected.
+    if (firingTrigger && firingTrigger.role === targetRole) {
+      firingTrigger = null;
+      selectedTrigger = null;
+      firingSecondsLeft = 0;
+      if (firingCountdownTimer) { clearInterval(firingCountdownTimer); firingCountdownTimer = null; }
+      renderTriggerPanel();
+    }
+    renderSidePanels();
+  }
   function onMemVibePause(ev) {
     vibingRoles.delete(ev.detail.role);
+    // The target paused themselves mid-drive — collapse the driver's live panel too,
+    // otherwise it's stuck showing "Stop" for a vibe that already ended.
+    if (firingTrigger && firingTrigger.role === ev.detail.role) {
+      firingTrigger = null;
+      selectedTrigger = null;
+      firingSecondsLeft = 0;
+      if (firingCountdownTimer) { clearInterval(firingCountdownTimer); firingCountdownTimer = null; }
+      renderTriggerPanel();
+    }
     renderSidePanels();
   }
   function onMemWin(ev) { endGame(ev.detail.role); }
@@ -448,6 +575,8 @@ export function renderMemory(root) {
   if (!noSocket) {
     socket.addEventListener(MSG.MEM_FLIP, onMemFlip);
     socket.addEventListener(MSG.MEM_VIBE_TRIGGER, onMemVibeTrigger);
+    socket.addEventListener(MSG.MEM_VIBE_ADJUST, onMemVibeAdjust);
+    socket.addEventListener(MSG.MEM_VIBE_STOP, onMemVibeStop);
     socket.addEventListener(MSG.MEM_VIBE_PAUSE, onMemVibePause);
     socket.addEventListener(MSG.MEM_WIN, onMemWin);
     socket.addEventListener(MSG.MEM_SKIP_TURN, onMemSkipTurn);
@@ -458,9 +587,15 @@ export function renderMemory(root) {
   window.addEventListener('hashchange', function onHashChange() {
     window.removeEventListener('hashchange', onHashChange);
     if (vibeCountdownTimer) clearInterval(vibeCountdownTimer);
+    if (firingCountdownTimer) clearInterval(firingCountdownTimer);
+    if (resolveTimer) clearTimeout(resolveTimer);
+    // Don't leave the target vibrating forever just because the driver navigated away.
+    if (firingTrigger && !noSocket) socket.send({ type: MSG.MEM_VIBE_STOP, targetRole: firingTrigger.role });
     if (!noSocket) {
       socket.removeEventListener(MSG.MEM_FLIP, onMemFlip);
       socket.removeEventListener(MSG.MEM_VIBE_TRIGGER, onMemVibeTrigger);
+      socket.removeEventListener(MSG.MEM_VIBE_ADJUST, onMemVibeAdjust);
+      socket.removeEventListener(MSG.MEM_VIBE_STOP, onMemVibeStop);
       socket.removeEventListener(MSG.MEM_VIBE_PAUSE, onMemVibePause);
       socket.removeEventListener(MSG.MEM_WIN, onMemWin);
       socket.removeEventListener(MSG.MEM_SKIP_TURN, onMemSkipTurn);

@@ -220,7 +220,6 @@ socket.addEventListener('begin', (ev) => {
   state.snlVibeScale = ev.detail.snlVibeScale || 'full';
   state.snlWinCondition = ev.detail.snlWinCondition || 'race';
   state.snlFinalRule = ev.detail.snlFinalRule || 'exact';
-  state.snlPushLuck = ev.detail.snlPushLuck !== false;
   state.snlPowerups = ev.detail.snlPowerups !== false;
   state.snlCoopBetray = !!ev.detail.snlCoopBetray;
   state.snlForfeitCards = ev.detail.snlForfeitCards || ['vibe', 'edge', 'strip', 'control', 'task', 'surrender'];

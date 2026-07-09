@@ -47,7 +47,6 @@ export function renderLobby(root) {
   let selectedSnlVibeScale = 'full';
   let selectedSnlWinCondition = 'race';
   let selectedSnlFinalRule = 'exact';
-  let selectedSnlPushLuck = true;
   let selectedSnlPowerups = true;
   let selectedSnlCoopBetray = false;
   let selectedSnlForfeitCards = ['vibe', 'edge', 'strip', 'control', 'task', 'surrender'];
@@ -519,13 +518,6 @@ export function renderLobby(root) {
           </div>
         </div>
         <div class="mm-rounds-row" style="margin-top:4px;">
-          <span>Push-your-luck:</span>
-          <div class="mm-rounds-btns" id="snl-pushluck-btns">
-            <button class="mm-rounds-btn mm-rounds-selected" data-snl-pushluck="on">On</button>
-            <button class="mm-rounds-btn ghost" data-snl-pushluck="off">Off</button>
-          </div>
-        </div>
-        <div class="mm-rounds-row" style="margin-top:4px;">
           <span>Powerups:</span>
           <div class="mm-rounds-btns" id="snl-powerups-btns">
             <button class="mm-rounds-btn mm-rounds-selected" data-snl-powerups="on">On</button>
@@ -547,6 +539,12 @@ export function renderLobby(root) {
           <button class="mm-rounds-btn mm-rounds-selected" data-snl-card="control">🎛 Control</button>
           <button class="mm-rounds-btn mm-rounds-selected" data-snl-card="task">🪢 Task</button>
           <button class="mm-rounds-btn mm-rounds-selected" data-snl-card="surrender">🏳 Surrender</button>
+        </div>
+        <div class="mm-rounds-row" style="flex-direction:column;align-items:stretch;gap:6px;margin-top:8px;">
+          <span>Custom forfeits <span style="font-size:11px;color:var(--muted)">(one per line — if any are entered they replace the categories above entirely; prefix with [1], [2], or [3] to set severity tier, default tier 1)</span>:</span>
+          <textarea id="snl-forfeits-input" rows="5"
+            placeholder="[1] 10 push-ups&#10;[2] Wear the vibe for 1 minute&#10;[3] Lose an item of clothing"
+            style="width:100%;box-sizing:border-box;resize:vertical;font-size:13px;line-height:1.5;padding:8px 10px;border-radius:8px;border:1px solid #2a3556;background:#0f1626;color:var(--ink);font-family:inherit;"></textarea>
         </div>
         <div id="snl-ambient-row" class="mm-rounds-row" style="margin-top:4px;display:none;">
           <span>Ambient vibe:</span>
@@ -659,11 +657,11 @@ export function renderLobby(root) {
   const snlWinBtns = root.querySelector('#snl-win-btns');
   const snlFinalRuleRow = root.querySelector('#snl-finalrule-row');
   const snlFinalRuleBtns = root.querySelector('#snl-finalrule-btns');
-  const snlPushLuckBtns = root.querySelector('#snl-pushluck-btns');
   const snlPowerupsBtns = root.querySelector('#snl-powerups-btns');
   const snlForkRow = root.querySelector('#snl-fork-row');
   const snlForkBtns = root.querySelector('#snl-fork-btns');
   const snlCardsRow = root.querySelector('#snl-cards-row');
+  const snlForfeitsInput = root.querySelector('#snl-forfeits-input');
   const snlAmbientRow = root.querySelector('#snl-ambient-row');
   const snlAmbientBtns = root.querySelector('#snl-ambient-btns');
   const snlTapOutRow = root.querySelector('#snl-tapout-row');
@@ -875,12 +873,6 @@ export function renderLobby(root) {
         b.classList.toggle('ghost', !sel);
         b.disabled = state.role !== 'host';
       });
-      snlPushLuckBtns.querySelectorAll('[data-snl-pushluck]').forEach(b => {
-        const sel = (b.dataset.snlPushluck === 'on') === selectedSnlPushLuck;
-        b.classList.toggle('mm-rounds-selected', sel);
-        b.classList.toggle('ghost', !sel);
-        b.disabled = state.role !== 'host';
-      });
       snlPowerupsBtns.querySelectorAll('[data-snl-powerups]').forEach(b => {
         const sel = (b.dataset.snlPowerups === 'on') === selectedSnlPowerups;
         b.classList.toggle('mm-rounds-selected', sel);
@@ -901,6 +893,10 @@ export function renderLobby(root) {
         b.classList.toggle('ghost', !sel);
         b.disabled = state.role !== 'host';
       });
+      snlForfeitsInput.disabled = state.role !== 'host';
+      if (document.activeElement !== snlForfeitsInput) {
+        snlForfeitsInput.value = selectedSnlForfeitLines.join('\n');
+      }
       const soloWatched = selectedSnlMode === 'solo' || selectedSnlMode === 'watched';
       snlAmbientRow.style.display = soloWatched ? 'flex' : 'none';
       snlAmbientBtns.querySelectorAll('[data-snl-ambient]').forEach(b => {
@@ -1025,7 +1021,6 @@ export function renderLobby(root) {
     snlVibeScale: selectedSnlVibeScale,
     snlWinCondition: selectedSnlWinCondition,
     snlFinalRule: selectedSnlFinalRule,
-    snlPushLuck: selectedSnlPushLuck,
     snlPowerups: selectedSnlPowerups,
     snlCoopBetray: selectedSnlCoopBetray,
     snlForfeitCards: selectedSnlForfeitCards,
@@ -1106,7 +1101,6 @@ export function renderLobby(root) {
     if (ev.detail.snlVibeScale)                     selectedSnlVibeScale = ev.detail.snlVibeScale;
     if (ev.detail.snlWinCondition)                  selectedSnlWinCondition = ev.detail.snlWinCondition;
     if (ev.detail.snlFinalRule)                     selectedSnlFinalRule = ev.detail.snlFinalRule;
-    if (ev.detail.snlPushLuck !== undefined)        selectedSnlPushLuck = !!ev.detail.snlPushLuck;
     if (ev.detail.snlPowerups !== undefined)        selectedSnlPowerups = !!ev.detail.snlPowerups;
     if (ev.detail.snlCoopBetray !== undefined)      selectedSnlCoopBetray = !!ev.detail.snlCoopBetray;
     if (ev.detail.snlForfeitCards)                  selectedSnlForfeitCards = ev.detail.snlForfeitCards;
@@ -1199,6 +1193,16 @@ export function renderLobby(root) {
     sendConfig();
   });
 
+  snlForfeitsInput.addEventListener('input', () => {
+    if (state.role !== 'host') return;
+    selectedSnlForfeitLines = snlForfeitsInput.value
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 0)
+      .slice(0, 100);
+    sendConfig();
+  });
+
   memForfeitsInput.addEventListener('input', () => {
     if (state.role !== 'host') return;
     selectedMemForfeitLines = memForfeitsInput.value
@@ -1262,7 +1266,7 @@ export function renderLobby(root) {
   });
 
   startBtn.addEventListener('click', () => {
-    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedGame === 'uno' ? selectedUnoRounds : selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives, hiloMode: selectedHiloMode, hiloCycles: selectedHiloCycles, hiloDeckSize: selectedHiloDeckSize, hiloVibeRamp: selectedHiloVibeRamp, hiloLives: selectedHiloLives, hiloVibeTarget: selectedHiloVibeTarget, stlDifficulty: selectedStlDifficulty, stlForfeitCards: selectedStlForfeitCards, btdForfeits: selectedBtdForfeits, btdMode: selectedBtdMode, btdGameMode: selectedBtdGameMode, wiWinCondition: selectedWiWinCondition, wiSpellLimit: selectedWiSpellLimit, diceVibeRule: selectedDiceVibeRule, lcTimer: selectedLcTimer, lcMinutes: selectedLcMinutes, lcDeckSize: selectedLcDeckSize, lcReward: selectedLcReward, bsGridSize: selectedBsGridSize, bsVibeMultiplier: selectedBsVibeMultiplier, unoRounds: selectedUnoRounds, unoSpecialPacks: selectedUnoSpecialPacks, snlMode: selectedSnlMode, snlBoardSize: selectedSnlBoardSize, snlDensity: selectedSnlDensity, snlStakeMix: selectedSnlStakeMix, snlVibeScale: selectedSnlVibeScale, snlWinCondition: selectedSnlWinCondition, snlFinalRule: selectedSnlFinalRule, snlPushLuck: selectedSnlPushLuck, snlPowerups: selectedSnlPowerups, snlCoopBetray: selectedSnlCoopBetray, snlForfeitCards: selectedSnlForfeitCards, snlForfeitLines: selectedSnlForfeitLines, snlAmbient: selectedSnlAmbient, snlTapOut: selectedSnlTapOut, memMode: selectedMemMode, memForfeitLines: selectedMemForfeitLines, memVibeDurations: selectedMemVibeDurations, memGridSize: selectedMemGridSize });
+    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedGame === 'uno' ? selectedUnoRounds : selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives, hiloMode: selectedHiloMode, hiloCycles: selectedHiloCycles, hiloDeckSize: selectedHiloDeckSize, hiloVibeRamp: selectedHiloVibeRamp, hiloLives: selectedHiloLives, hiloVibeTarget: selectedHiloVibeTarget, stlDifficulty: selectedStlDifficulty, stlForfeitCards: selectedStlForfeitCards, btdForfeits: selectedBtdForfeits, btdMode: selectedBtdMode, btdGameMode: selectedBtdGameMode, wiWinCondition: selectedWiWinCondition, wiSpellLimit: selectedWiSpellLimit, diceVibeRule: selectedDiceVibeRule, lcTimer: selectedLcTimer, lcMinutes: selectedLcMinutes, lcDeckSize: selectedLcDeckSize, lcReward: selectedLcReward, bsGridSize: selectedBsGridSize, bsVibeMultiplier: selectedBsVibeMultiplier, unoRounds: selectedUnoRounds, unoSpecialPacks: selectedUnoSpecialPacks, snlMode: selectedSnlMode, snlBoardSize: selectedSnlBoardSize, snlDensity: selectedSnlDensity, snlStakeMix: selectedSnlStakeMix, snlVibeScale: selectedSnlVibeScale, snlWinCondition: selectedSnlWinCondition, snlFinalRule: selectedSnlFinalRule, snlPowerups: selectedSnlPowerups, snlCoopBetray: selectedSnlCoopBetray, snlForfeitCards: selectedSnlForfeitCards, snlForfeitLines: selectedSnlForfeitLines, snlAmbient: selectedSnlAmbient, snlTapOut: selectedSnlTapOut, memMode: selectedMemMode, memForfeitLines: selectedMemForfeitLines, memVibeDurations: selectedMemVibeDurations, memGridSize: selectedMemGridSize });
   });
 
   wiWinBtns.addEventListener('click', (e) => {
@@ -1383,8 +1387,6 @@ export function renderLobby(root) {
     if (winBtn) { selectedSnlWinCondition = winBtn.dataset.snlWin; paintOptions(); sendConfig(); return; }
     const finalBtn = e.target.closest('[data-snl-final]');
     if (finalBtn) { selectedSnlFinalRule = finalBtn.dataset.snlFinal; paintOptions(); sendConfig(); return; }
-    const pushBtn = e.target.closest('[data-snl-pushluck]');
-    if (pushBtn) { selectedSnlPushLuck = pushBtn.dataset.snlPushluck === 'on'; paintOptions(); sendConfig(); return; }
     const powerupsBtn = e.target.closest('[data-snl-powerups]');
     if (powerupsBtn) { selectedSnlPowerups = powerupsBtn.dataset.snlPowerups === 'on'; paintOptions(); sendConfig(); return; }
     const forkBtn = e.target.closest('[data-snl-fork]');

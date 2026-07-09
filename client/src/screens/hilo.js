@@ -124,6 +124,7 @@ export function renderHilo(root) {
         <button id="hilo-vibe-btn" class="ghost" style="font-size:13px;padding:6px 12px;">${haptics.isConnected() ? '📳' : 'Connect Vibe'}</button>
         ${myRole === 'host' ? `<button id="hilo-wave-btn" class="ghost" style="font-size:13px;padding:6px 12px;" title="Toggle vibe variation for all players">〰 Variation: Off</button>` : ''}
       </div>
+      <div id="hilo-disconnect-wrap"></div>
 
       <div class="hilo-arena" id="hilo-arena">
         <div class="hilo-deck-col">
@@ -982,7 +983,7 @@ export function renderHilo(root) {
   }
 
   // ── Socket event handlers ─────────────────────────────────────────────────────
-  const onHiloGuess      = (ev) => applyGuess(ev.detail.guess);
+  const onHiloGuess      = (ev) => { if (ev.detail.role === currentRole) applyGuess(ev.detail.guess); };
   const onHiloSpacebar   = (ev) => applySpacebar(ev.detail.role);
   const onHiloPowerUpUse = (ev) => applyPowerUpUse(ev.detail.powerUpType, ev.detail.role);
   const onHiloSubmit     = () => showGameOver('opp_submitted');
@@ -1024,15 +1025,28 @@ export function renderHilo(root) {
     checkVibeStopReady();
   };
 
+  // Non-destructive: a brief network drop can reconnect within a few seconds (the socket
+  // auto-reconnects and the server re-announces the role), so don't tear down the whole
+  // game screen — just warn and offer a way out, and clear it again if they come back.
   const onPeerLeft = (ev) => {
     stopHiloVibe();
-    const leftName = ev.detail?.role ? escapeHtml(playerNames[ev.detail.role] || ev.detail.role) : 'A player';
-    root.innerHTML = `
-      <div class="card">
-        <h2>${leftName} left</h2>
-        <div class="actions"><button id="hilo-peer-home">Home</button></div>
+    const leftRole = ev.detail?.role;
+    const leftName = leftRole ? escapeHtml(playerNames[leftRole] || leftRole) : 'A player';
+    const wrap = document.getElementById('hilo-disconnect-wrap');
+    if (!wrap) return;
+    wrap.innerHTML = `
+      <div class="hilo-disconnect-row">
+        <span>${leftName} disconnected.</span>
+        <button id="hilo-peer-lobby" class="ghost">Return to Lobby</button>
       </div>`;
-    root.querySelector('#hilo-peer-home').addEventListener('click', () => { location.hash = '#/'; });
+    wrap.querySelector('#hilo-peer-lobby').addEventListener('click', () => {
+      state.seed = null;
+      navigate(`#/session/${state.sessionId}`);
+    });
+  };
+  const onPeerReconnected = () => {
+    const wrap = document.getElementById('hilo-disconnect-wrap');
+    if (wrap) wrap.innerHTML = '';
   };
 
   socket.addEventListener(MSG.HILO_GUESS,          onHiloGuess);
@@ -1044,6 +1058,7 @@ export function renderHilo(root) {
   socket.addEventListener(MSG.HILO_VIBE_STOP,      onHiloVibeStop);
   socket.addEventListener(MSG.HILO_WAVE_MODE,      onHiloWaveMode);
   socket.addEventListener(MSG.PEER_LEFT,           onPeerLeft);
+  socket.addEventListener(MSG.PEER_RECONNECTED,    onPeerReconnected);
 
   // ── DOM event handlers ────────────────────────────────────────────────────────
   document.getElementById('hilo-higher').addEventListener('click', () => handleMyGuess('higher'));
@@ -1101,6 +1116,7 @@ export function renderHilo(root) {
     socket.removeEventListener(MSG.HILO_VIBE_STOP,      onHiloVibeStop);
     socket.removeEventListener(MSG.HILO_WAVE_MODE,      onHiloWaveMode);
     socket.removeEventListener(MSG.PEER_LEFT,           onPeerLeft);
+    socket.removeEventListener(MSG.PEER_RECONNECTED,    onPeerReconnected);
   }, { once: true });
 
   // ── Initial render ────────────────────────────────────────────────────────────

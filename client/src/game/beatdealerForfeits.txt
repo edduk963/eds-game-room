@@ -3,7 +3,6 @@
 # Each line may start with a difficulty tier in brackets: [1] easy, [2] medium, [3] hardest.
 # The dealer plays higher cards on higher-tier rounds, so harder forfeits are harder to avoid.
 # Lines with no [n] prefix default to tier 2.
-# Ctrl+Alt+1 through Ctrl+Alt+9 (host only) queues that line number as the next forfeit.
 
 [1] Edge once
 [2] +1 day denial

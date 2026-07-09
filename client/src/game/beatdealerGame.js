@@ -104,6 +104,11 @@ function parseForfeitLine(line) {
 // order from the shared seed.
 export function buildForfeitPool(seed, customForfeits = null) {
   const rng = makeRng((seed ^ 0xDEADBEEF) >>> 0);
+  // Reset to just the built-in tiers before applying this game's custom overrides — otherwise
+  // a tier registered by a previous game (same tab, different forfeit list) lingers forever
+  // since this map only ever grows via .set().
+  FORFEIT_TIERS.clear();
+  PARSED_FORFEITS.forEach(p => FORFEIT_TIERS.set(p.text, p.tier));
   let base = null;
   if (Array.isArray(customForfeits)) {
     base = customForfeits

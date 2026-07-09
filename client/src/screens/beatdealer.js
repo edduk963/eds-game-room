@@ -51,6 +51,7 @@ export function renderBeatDealer(root) {
     forfeits[r] = []; vibeTotal[r] = 0; vibeRunning[r] = false;
     vibeClaimIntervals[r] = null; claimIntensity[r] = 1.0;
   });
+  const departedRoles = new Set(); // roles whose socket has disconnected mid-game
 
   function freshDeal() {
     deal = dealHands(state.seed, dealIndex);
@@ -490,6 +491,13 @@ export function renderBeatDealer(root) {
 
         <div class="btd-round-label">${modeLabel} &nbsp;·&nbsp; Round ${roundIndex + 1} of ${TOTAL_ROUNDS} &nbsp;·&nbsp; Hand ${dealIndex + 1}</div>
 
+        ${departedRoles.size > 0 ? `
+          <div class="btd-disconnect-row">
+            <span>${esc([...departedRoles].map(nameOf).join(', '))} disconnected.</span>
+            <button id="btd-return-lobby" class="ghost">Return to Lobby</button>
+          </div>
+        ` : ''}
+
         ${revealBanner}
 
         <div class="btd-main">
@@ -583,6 +591,11 @@ export function renderBeatDealer(root) {
     root.querySelectorAll('.btd-btn-leave').forEach(btn =>
       btn.addEventListener('click', () => navigate(`#/session/${state.sessionId}`))
     );
+
+    root.querySelector('#btd-return-lobby')?.addEventListener('click', () => {
+      state.seed = null;
+      navigate(`#/session/${state.sessionId}`);
+    });
 
     root.querySelector('#btd-draw-forfeit')?.addEventListener('click', () => {
       if (forfeitDrawn) return;
@@ -782,17 +795,26 @@ export function renderBeatDealer(root) {
     render();
   };
 
-  const onPeerLeft = () => {
-    clearTimeout(revealTimer);
-    clearInterval(timerInterval);
-    root.innerHTML = `
-      <div class="card" style="text-align:center">
-        <h2>A player left</h2>
-        <div class="actions" style="justify-content:center;margin-top:16px;">
-          <button id="btd-peer-home">Home</button>
-        </div>
-      </div>`;
-    root.querySelector('#btd-peer-home').addEventListener('click', () => { location.hash = '#/'; });
+  // Non-destructive: a brief network drop can reconnect within a few seconds, and in
+  // dealer mode the remaining player(s) can keep playing against the computer regardless —
+  // so warn and offer an exit rather than tearing down a game that may still be playable.
+  const onPeerLeft = (ev) => {
+    // Same cleanup as the hashchange teardown below — without it a claim or the win-grace
+    // countdown keeps buzzing a connected toy with no button left on screen to stop it.
+    clearInterval(vibeOffInterval);
+    ROLES.forEach(r => clearInterval(vibeClaimIntervals[r]));
+    vibeOffInterval = null;
+    ROLES.forEach(r => { vibeClaimIntervals[r] = null; });
+    myActiveClaim = false;
+    setBtdVibe(0);
+    const r = ev.detail?.role;
+    if (r && ROLES.includes(r)) departedRoles.add(r);
+    render();
+  };
+  const onPeerReconnected = (ev) => {
+    const r = ev.detail?.role;
+    if (r) departedRoles.delete(r);
+    render();
   };
 
   if (!isSolo) socket.addEventListener(MSG.BTD_OPP_PLAY, onOppPlay);
@@ -805,6 +827,7 @@ export function renderBeatDealer(root) {
   socket.addEventListener(MSG.BTD_VIBE_CLAIM, onVibeClaim);
   socket.addEventListener(MSG.BTD_CLAIM_INTENSITY, onClaimIntensity);
   if (!isSolo) socket.addEventListener(MSG.PEER_LEFT, onPeerLeft);
+  if (!isSolo) socket.addEventListener(MSG.PEER_RECONNECTED, onPeerReconnected);
 
   window.addEventListener('hashchange', () => {
     clearTimeout(revealTimer);
@@ -825,6 +848,7 @@ export function renderBeatDealer(root) {
     socket.removeEventListener(MSG.BTD_VIBE_CLAIM, onVibeClaim);
     socket.removeEventListener(MSG.BTD_CLAIM_INTENSITY, onClaimIntensity);
     if (!isSolo) socket.removeEventListener(MSG.PEER_LEFT, onPeerLeft);
+    if (!isSolo) socket.removeEventListener(MSG.PEER_RECONNECTED, onPeerReconnected);
   }, { once: true });
 
   prepareRound(); // choose the dealer's card / cards for round 1 before first paint

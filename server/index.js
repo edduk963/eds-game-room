@@ -129,6 +129,7 @@ wss.on('connection', (ws) => {
       sessionId = s.id;
       const name = (msg.name || '').toString().trim().slice(0, 24) || 'Player';
 
+      let filledVacantSlot = false;
       if (s.host.socket === ws) {
         role = 'host';
       } else if (s.guest?.socket === ws) {
@@ -138,12 +139,15 @@ wss.on('connection', (ws) => {
       } else if (!s.host.socket) {
         role = 'host';
         attachSocket(s.id, 'host', ws, name);
+        filledVacantSlot = true;
       } else if (!s.guest) {
         role = 'guest';
         attachSocket(s.id, 'guest', ws, name);
+        filledVacantSlot = true;
       } else if (!s.guest2) {
         role = 'guest2';
         attachSocket(s.id, 'guest2', ws, name);
+        filledVacantSlot = true;
       } else {
         ws.send(JSON.stringify({ type: 'error', code: 'session_full' }));
         ws.close();
@@ -153,6 +157,11 @@ wss.on('connection', (ws) => {
       if (s._reconnectTimers?.[role]) {
         clearTimeout(s._reconnectTimers[role]);
         delete s._reconnectTimers[role];
+      }
+      // Announce the reconnect even if the 5s grace window (and thus peer_left) already
+      // passed — otherwise a late rejoin leaves the other players' "disconnected" banner
+      // stuck forever even though messages from this role work again immediately.
+      if (filledVacantSlot && s.status === 'playing') {
         broadcast(s, { type: 'peer_reconnected', role }, ws);
       }
       broadcast(s, lobbySnapshot(s));
@@ -237,7 +246,6 @@ wss.on('connection', (ws) => {
       const snlVibeScale = ['full', 'half'].includes(msg.snlVibeScale) ? msg.snlVibeScale : 'full';
       const snlWinCondition = ['race', 'endurance'].includes(msg.snlWinCondition) ? msg.snlWinCondition : 'race';
       const snlFinalRule = ['exact', 'pass'].includes(msg.snlFinalRule) ? msg.snlFinalRule : 'exact';
-      const snlPushLuck = msg.snlPushLuck !== false;
       const snlPowerups = msg.snlPowerups !== false;
       const snlCoopBetray = !!msg.snlCoopBetray;
       const VALID_SNL_FORFEITS = ['vibe', 'edge', 'strip', 'control', 'task', 'surrender'];
@@ -253,7 +261,7 @@ wss.on('connection', (ws) => {
       const memGridSize = validMemGridSizes.includes(msg.memGridSize) ? msg.memGridSize : '6x6';
       s.edgeMode = edgeMode;
       const guest2Name = s.guest2?.name ?? null;
-      broadcast(s, { type: 'begin', seed: s.seed, startAt: null, gameType, rounds, mode, forfeitDuration, edgeMode, edgeLives, hiloMode, hiloCycles, hiloDeckSize, hiloVibeRamp, hiloLives, hiloVibeTarget, playerCount, guest2Name, stlDifficulty, stlForfeitCards, btdForfeits, btdMode, btdGameMode, wiWinCondition, wiSpellLimit, diceVibeRule, lcTimer, lcMinutes, lcDeckSize, lcReward, bsGridSize, bsVibeMultiplier, unoSpecialPacks, snlMode, snlBoardSize, snlDensity, snlStakeMix, snlVibeScale, snlWinCondition, snlFinalRule, snlPushLuck, snlPowerups, snlCoopBetray, snlForfeitCards, snlForfeitLines, snlAmbient, snlTapOut, memMode, memForfeitLines, memVibeDurations, memGridSize });
+      broadcast(s, { type: 'begin', seed: s.seed, startAt: null, gameType, rounds, mode, forfeitDuration, edgeMode, edgeLives, hiloMode, hiloCycles, hiloDeckSize, hiloVibeRamp, hiloLives, hiloVibeTarget, playerCount, guest2Name, stlDifficulty, stlForfeitCards, btdForfeits, btdMode, btdGameMode, wiWinCondition, wiSpellLimit, diceVibeRule, lcTimer, lcMinutes, lcDeckSize, lcReward, bsGridSize, bsVibeMultiplier, unoSpecialPacks, snlMode, snlBoardSize, snlDensity, snlStakeMix, snlVibeScale, snlWinCondition, snlFinalRule, snlPowerups, snlCoopBetray, snlForfeitCards, snlForfeitLines, snlAmbient, snlTapOut, memMode, memForfeitLines, memVibeDurations, memGridSize });
       return;
     }
 
@@ -328,7 +336,6 @@ wss.on('connection', (ws) => {
         snlVibeScale: ['full', 'half'].includes(msg.snlVibeScale) ? msg.snlVibeScale : 'full',
         snlWinCondition: ['race', 'endurance'].includes(msg.snlWinCondition) ? msg.snlWinCondition : 'race',
         snlFinalRule: ['exact', 'pass'].includes(msg.snlFinalRule) ? msg.snlFinalRule : 'exact',
-        snlPushLuck: msg.snlPushLuck !== false,
         snlPowerups: msg.snlPowerups !== false,
         snlCoopBetray: !!msg.snlCoopBetray,
         snlForfeitCards: Array.isArray(msg.snlForfeitCards) ? msg.snlForfeitCards.filter(c => ['vibe','edge','strip','control','task','surrender'].includes(c)) : ['vibe','edge','strip','control','task','surrender'],
@@ -518,7 +525,8 @@ wss.on('connection', (ws) => {
     }
 
     // ── Beat the Dealer messages ───────────────────────────────────────────────
-    if (msg.type === 'btd_play' && Number.isInteger(msg.cardIndex) && msg.cardIndex >= 0 && msg.cardIndex <= 9) {
+    // 0..4 matches beatdealerGame.js's HAND_SIZE (5 cards per hand).
+    if (msg.type === 'btd_play' && Number.isInteger(msg.cardIndex) && msg.cardIndex >= 0 && msg.cardIndex <= 4) {
       broadcast(s, { type: 'btd_opp_play', cardIndex: msg.cardIndex, role }, ws);
       return;
     }
@@ -565,7 +573,10 @@ wss.on('connection', (ws) => {
       const payload = { type: 'btd_timer_cmd', cmd: msg.cmd };
       if (msg.cmd === 'start') payload.at = Date.now();
       if (msg.cmd === 'pause' && Number.isFinite(msg.elapsed)) payload.elapsed = Math.max(0, msg.elapsed);
-      broadcast(s, payload, ws);
+      // Broadcast to everyone, including the sender: 'start' carries the server's own
+      // clock (not the sender's), so the sender must also apply it or its stopwatch
+      // drifts from everyone else's by however much its clock differs from the server's.
+      broadcast(s, payload);
       return;
     }
 
@@ -644,7 +655,7 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    const validPowerUpTypes = ['doubleTime', 'freeLife', 'allOrNothing', 'peek', 'skip', 'freeze', 'surge', 'chain', 'maxIntensity', 'shield', 'mirror'];
+    const validPowerUpTypes = ['doubleTime', 'freeLife', 'allOrNothing', 'peek', 'skip', 'freeze', 'surge', 'chain', 'maxIntensity', 'shield', 'mirror', 'deflect'];
     if (msg.type === 'hilo_powerup_use' && validPowerUpTypes.includes(msg.powerUpType)) {
       broadcast(s, { type: 'hilo_powerup_use', powerUpType: msg.powerUpType, role }, ws);
       return;
@@ -1029,14 +1040,19 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'snl_coop_choice') {
       const choice = msg.choice === 'cooperate' ? 'cooperate' : 'betray';
-      broadcast(s, { type: 'snl_coop_choice', role, choice }, ws);
+      const target = ['host', 'guest', 'guest2'].includes(msg.target) ? msg.target : null;
+      broadcast(s, { type: 'snl_coop_choice', role, choice, target }, ws);
       return;
     }
 
     if (msg.type === 'snl_coop_reveal') {
-      const hostChoice = ['cooperate', 'betray'].includes(msg.hostChoice) ? msg.hostChoice : 'cooperate';
-      const guestChoice = ['cooperate', 'betray'].includes(msg.guestChoice) ? msg.guestChoice : 'cooperate';
-      broadcast(s, { type: 'snl_coop_reveal', hostChoice, guestChoice });
+      const validRoles = ['host', 'guest', 'guest2'];
+      const landerRole = validRoles.includes(msg.landerRole) ? msg.landerRole : null;
+      const partnerRole = validRoles.includes(msg.partnerRole) ? msg.partnerRole : null;
+      const landerChoice = ['cooperate', 'betray'].includes(msg.landerChoice) ? msg.landerChoice : 'cooperate';
+      const partnerChoice = ['cooperate', 'betray'].includes(msg.partnerChoice) ? msg.partnerChoice : 'cooperate';
+      if (!landerRole || !partnerRole) return;
+      broadcast(s, { type: 'snl_coop_reveal', landerRole, landerChoice, partnerRole, partnerChoice });
       return;
     }
 
@@ -1060,13 +1076,19 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'snl_vibe_start') {
       const secs = Number.isFinite(msg.secs) ? Math.max(1, msg.secs) : 10;
-      broadcast(s, { type: 'snl_vibe_start', role, secs }, ws);
+      const target = ['host', 'guest', 'guest2'].includes(msg.target) ? msg.target : null;
+      broadcast(s, { type: 'snl_vibe_start', role, secs, target }, ws);
+      return;
+    }
+
+    if (msg.type === 'snl_endurance_out') {
+      broadcast(s, { type: 'snl_endurance_out', role }, ws);
       return;
     }
     // ── End Snakes & Ladders ──────────────────────────────────────────────────
 
     // ── Memory Match ───────────────────────────────────────────────────────────
-    if (msg.type === 'mem_flip' && Number.isInteger(msg.pos)) {
+    if (msg.type === 'mem_flip' && Number.isInteger(msg.pos) && msg.pos >= 0 && msg.pos <= 63) {
       broadcast(s, { type: 'mem_flip', pos: msg.pos, role }, ws);
       return;
     }
@@ -1077,6 +1099,22 @@ wss.on('connection', (ws) => {
       const intensity = Number.isFinite(msg.intensity) ? Math.max(0, Math.min(1, msg.intensity)) : 0.5;
       const pattern = typeof msg.pattern === 'string' ? msg.pattern.slice(0, 32) : 'steady';
       broadcast(s, { type: 'mem_vibe_trigger', targetRole, chargeIndex: msg.chargeIndex, intensity, pattern, from: role }, ws);
+      return;
+    }
+
+    if (msg.type === 'mem_vibe_adjust') {
+      const targetRole = ['host', 'guest', 'guest2'].includes(msg.targetRole) ? msg.targetRole : null;
+      if (!targetRole) return;
+      const intensity = Number.isFinite(msg.intensity) ? Math.max(0, Math.min(1, msg.intensity)) : 0.5;
+      const pattern = typeof msg.pattern === 'string' ? msg.pattern.slice(0, 32) : 'steady';
+      broadcast(s, { type: 'mem_vibe_adjust', targetRole, intensity, pattern, from: role }, ws);
+      return;
+    }
+
+    if (msg.type === 'mem_vibe_stop') {
+      const targetRole = ['host', 'guest', 'guest2'].includes(msg.targetRole) ? msg.targetRole : null;
+      if (!targetRole) return;
+      broadcast(s, { type: 'mem_vibe_stop', targetRole, from: role }, ws);
       return;
     }
 

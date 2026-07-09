@@ -59,13 +59,16 @@ export function buildDeck({ forfeitLines = [], vibeDurations = [], gridSize = '6
   });
   pairs.push({ kind: 'win', pairId: 'win', label: 'WIN' });
 
+  // All 6 unordered suit pairings, so each (rank, suitPair) filler tuple stays visually
+  // unique across ranks*suitPairs = 78 combinations — comfortably above the largest grid's
+  // filler need (31 on 8x8) so no two fillers can ever render as the same two card faces.
+  const SUIT_PAIRS = [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]];
   const fillerNeeded = Math.max(0, pairsNeeded - pairs.length);
   for (let i = 0; i < fillerNeeded; i++) {
     const rank = RANKS[i % RANKS.length];
-    const cycle = Math.floor(i / RANKS.length);
-    const suitA = SUITS[(cycle * 2) % SUITS.length];
-    const suitB = SUITS[(cycle * 2 + 1) % SUITS.length];
-    pairs.push({ kind: 'standard', pairId: `std-${i}`, label: rank, suitA, suitB });
+    const suitPairIdx = Math.floor(i / RANKS.length) % SUIT_PAIRS.length;
+    const [aIdx, bIdx] = SUIT_PAIRS[suitPairIdx];
+    pairs.push({ kind: 'standard', pairId: `std-${i}`, label: rank, suitA: SUITS[aIdx], suitB: SUITS[bIdx] });
   }
 
   const cards = [];

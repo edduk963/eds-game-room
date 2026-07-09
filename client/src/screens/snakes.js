@@ -54,6 +54,7 @@ function renderController(root) {
         </div>
         <div id="snl-ctrl-forfeit"></div>
         <div class="snl-status" id="snl-status">Watching the climb…</div>
+        <div id="snl-ctrl-disconnect"></div>
         <div class="snl-forfeit-log" id="snl-forfeit-log">
           <div class="snl-forfeit-log-title">Forfeit Log</div>
           <div class="snl-forfeit-log-list" id="snl-forfeit-log-list"></div>
@@ -131,18 +132,18 @@ function renderController(root) {
     const card = forfeitDeck[cardIndex];
     if (!card) return;
     if (secs > 0) startCtrlTimer(secs);
-    const text = resolveForfeitText(card, state.seed, cardIndex);
+    const text = escapeHtml(resolveForfeitText(card, state.seed, cardIndex));
     logForfeit('host', card.tier, card.category, text);
     statusEl.textContent = 'Snake forfeit!';
-    let acked = false;
+    // The climber takes the forfeit themselves and acknowledges on their own screen —
+    // this is just a read-only mirror for the Controller, so dismissing it is purely local.
     ctrlForfeit.innerHTML = `<div class="snl-forfeit-card">
       <div class="snl-forfeit-tier">Tier ${card.tier} — ${card.category}</div>
       <div class="snl-forfeit-text">${text}</div>
-      <button id="snl-ctrl-ack" class="snl-btn-secondary">Acknowledged ✓</button>
+      <button id="snl-ctrl-ack" class="snl-btn-secondary">Got it</button>
     </div>`;
     ctrlForfeit.querySelector('#snl-ctrl-ack').addEventListener('click', () => {
       ctrlForfeit.innerHTML = '';
-      if (!acked) { acked = true; socket.send({ type: MSG.SNL_FORFEIT_ACK }); }
     });
   };
 
@@ -171,19 +172,40 @@ function renderController(root) {
 
   const onVibeStop = () => { clearInterval(timerInt); vibeSec.style.display = 'none'; };
 
+  // The climber and controller are the only two connections in Watched mode — either one
+  // leaving means the session can't continue, so offer a way back to the lobby to restart
+  // instead of leaving the controller staring at a board that will never move again.
+  const onPeerLeft = () => {
+    statusEl.textContent = 'The climber disconnected.';
+    const wrap = root.querySelector('#snl-ctrl-disconnect');
+    if (!wrap) return;
+    wrap.innerHTML = `
+      <div class="snl-disconnect-row">
+        <span>Climber disconnected.</span>
+        <button id="snl-ctrl-return-lobby" class="ghost">Return to Lobby</button>
+      </div>`;
+    wrap.querySelector('#snl-ctrl-return-lobby').addEventListener('click', () => {
+      state.seed = null;
+      navigate(`#/session/${state.sessionId}`);
+    });
+  };
+
   socket.addEventListener(MSG.SNL_MOVE_DONE,    onMoveDone);
   socket.addEventListener(MSG.SNL_FORFEIT_DRAW, onForfeitDraw);
   socket.addEventListener(MSG.SNL_VIBE_START,   onVibeStart);
   socket.addEventListener(MSG.SNL_VIBE_STOP,    onVibeStop);
+  socket.addEventListener('peer_left',          onPeerLeft);
 
   root.querySelector('#snl-leave').addEventListener('click', () => navigate('#/'));
   window.addEventListener('hashchange', () => {
     clearInterval(timerInt);
     clearTimeout(ctrlSkipTimeout);
+    bw.__snlResizeObs?.disconnect();
     socket.removeEventListener(MSG.SNL_MOVE_DONE,    onMoveDone);
     socket.removeEventListener(MSG.SNL_FORFEIT_DRAW, onForfeitDraw);
     socket.removeEventListener(MSG.SNL_VIBE_START,   onVibeStart);
     socket.removeEventListener(MSG.SNL_VIBE_STOP,    onVibeStop);
+    socket.removeEventListener('peer_left',          onPeerLeft);
   }, { once: true });
 }
 
@@ -192,20 +214,24 @@ function renderController(root) {
 // ─────────────────────────────────────────────────────────────────────────────
 function renderClimber(root) {
   const { seed, snlMode, snlBoardSize, snlDensity, snlStakeMix, snlVibeScale,
-          snlFinalRule, snlPushLuck, snlPowerups, snlCoopBetray,
+          snlFinalRule, snlWinCondition, snlPowerups, snlCoopBetray,
           snlForfeitCards, snlForfeitLines, snlAmbient, snlTapOut,
           playerCount, role, forfeitDuration } = state;
 
   const board = generateBoard(seed, { boardSize: snlBoardSize, density: snlDensity, coopBetray: snlCoopBetray });
   const { n, snakes, ladders, forfeitTiles, pickupTiles, forkTiles } = board;
 
-  const forfeitDeck = buildForfeitDeck(seed, snlForfeitCards, snlForfeitLines);
-  const powerupDeck = buildPowerupDeck(seed);
-
   const isSolo    = snlMode === 'solo';
   const isWatched = snlMode === 'watched';
 
-  const roles = isSolo ? ['host']
+  const forfeitDeck = buildForfeitDeck(seed, snlForfeitCards, snlForfeitLines);
+  const powerupDeck = buildPowerupDeck(seed, isSolo || isWatched);
+
+  // In Watched mode only the host (climber) ever runs this view — the guest is a
+  // controller, not a co-player, so they must never enter turn rotation or get a token.
+  // Treating them as a second role here previously stalled the climber every other turn
+  // waiting for a "guest" roll that would never come.
+  const roles = (isSolo || isWatched) ? ['host']
     : playerCount === 3 ? ['host', 'guest', 'guest2']
     : ['host', 'guest'];
 
@@ -224,15 +250,33 @@ function renderClimber(root) {
   let mirrorNext   = false;
   let loadedDie    = null;
   let extraRoll    = false;  // double move
-  let pushLuck     = false;
   let skipNext     = false;
   let dropPending  = false;
   let gameOver     = false;
   let mercyTokens  = 0;
+  const FORK_MUTUAL_BETRAY_VIBE_SECS = 180;
+
+  // ── Endurance win condition ── no finish line: play until a player has taken a fixed
+  // number of forfeits, then whoever's left under the cap wins. Each client only ever
+  // counts its OWN forfeits and broadcasts once it crosses the cap, so this never depends
+  // on inferring other players' state from network events.
+  const ENDURANCE_FORFEIT_CAP = 5;
+  const isEndurance = snlWinCondition === 'endurance' && !isSolo && !isWatched;
+  let myForfeitsTaken = 0;
+  const outRoles = new Set();
 
   function activeRole()   { return roles[activeIdx % roles.length]; }
   function isMyTurn()     { return activeRole() === role; }
   function oppOf(r)       { return roles.find(rr => rr !== r) || 'guest'; }
+  // 2P-only mechanics (Deflect, Mirror-assign, snake-vibe driver) need exactly one "other"
+  // player automatically — oppOf can't do that with two candidates in a 3P game, so pick
+  // whichever other player is currently trailing. Deterministic and identical on every
+  // client since it only reads already-synced positions.
+  function autoTarget(r) {
+    if (roles.length <= 2) return oppOf(r);
+    const others = roles.filter(rr => rr !== r);
+    return others.reduce((a, b) => (pos[a] <= pos[b] ? a : b));
+  }
   function name(r)        { return r === 'host' ? state.hostName : r === 'guest' ? state.guestName : (state.guest2Name || 'P3'); }
 
   root.innerHTML = `<div class="snl-root">
@@ -254,10 +298,9 @@ function renderClimber(root) {
         <div class="snl-roll-area">
           <div id="snl-die" class="snl-die">🎲</div>
           <button id="snl-roll-btn" class="snl-btn-primary" disabled>Roll</button>
-          ${snlPushLuck ? '<button id="snl-push-btn" class="snl-btn-secondary" style="display:none">Push Luck ↑</button>' : ''}
-          <div id="snl-push-lbl" class="snl-push-lbl" style="display:none">⚠️ Next snake +1 tier</div>
         </div>
         <div id="snl-status" class="snl-status">—</div>
+        <div id="snl-disconnect-wrap"></div>
         <div id="snl-vibe-row" class="snl-vibe-row" style="display:none">
           <label>Intensity <span id="snl-vibe-pct">50%</span></label>
           <input type="range" id="snl-vibe-slider" min="0" max="100" value="50" class="snl-slider">
@@ -277,7 +320,6 @@ function renderClimber(root) {
   injectStyles();
   const bw          = root.querySelector('#snl-board-wrap');
   const rollBtn     = root.querySelector('#snl-roll-btn');
-  const pushBtn     = root.querySelector('#snl-push-btn');
   const dieEl       = root.querySelector('#snl-die');
   const statusEl    = root.querySelector('#snl-status');
   const vibeRow     = root.querySelector('#snl-vibe-row');
@@ -297,6 +339,8 @@ function renderClimber(root) {
   let bannerInt = null;
   let vibeOnExpire = null;   // set by startSliderCountdown; skip fast-forwards to this
   let vibeSkipHandler = null; // set by waits that don't go through the slider countdown
+  let forkFallbackTimer = null; // auto-resolves a fork-reveal wait if the partner vanishes
+  const departedRoles = new Set(); // roles whose socket has disconnected mid-game
 
   // ── prominent vibe countdown, shown to whoever is being vibed or is driving ──
   function startVibeBanner(secs, label) {
@@ -368,6 +412,24 @@ function renderClimber(root) {
 
   function setStatus(m) { statusEl.textContent = m; }
   function showModal(h)  { modalEl.innerHTML = h; modalEl.style.display = 'flex'; }
+  // Lets the remaining player(s) restart instead of being stuck forever once someone leaves —
+  // the session/socket stay alive, so returning to the lobby lets the host start a fresh game.
+  function renderDisconnectBanner() {
+    const wrap = root.querySelector('#snl-disconnect-wrap');
+    if (!wrap) return;
+    if (departedRoles.size === 0 || gameOver) { wrap.innerHTML = ''; return; }
+    const names = [...departedRoles].map(r => name(r)).join(', ');
+    wrap.innerHTML = `
+      <div class="snl-disconnect-row">
+        <span>${escapeHtml(names)} disconnected.</span>
+        <button id="snl-return-lobby-btn" class="ghost">Return to Lobby</button>
+      </div>`;
+    wrap.querySelector('#snl-return-lobby-btn').addEventListener('click', () => {
+      haptics.stopAll();
+      state.seed = null;
+      navigate(`#/session/${state.sessionId}`);
+    });
+  }
   function hideModal()   { modalEl.innerHTML = ''; modalEl.style.display = 'none'; }
   function repaintBoard(){ renderBoard(bw, board, pos); }
 
@@ -386,13 +448,14 @@ function renderClimber(root) {
     turnIndEl.textContent = ar === role ? 'Your turn' : `${name(ar)}'s turn`;
     turnIndEl.className = 'snl-turn-ind' + (ar === role ? ' snl-my-turn' : '');
     rollBtn.disabled = !(isMyTurn() || extraRoll) || gameOver;
-    if (pushBtn) pushBtn.style.display = (isMyTurn() && snlPushLuck && !pushLuck) ? 'inline-block' : 'none';
   }
 
   // ── I-drive-opponent slider (for snake victim, I drive; for ladder, I drive) ──
+  // The victim is always the active player whose turn triggered this vibe — using
+  // activeRole() (rather than oppOf) keeps this correct in 3-player games too.
   vibeSlider.addEventListener('input', () => {
     vibePctEl.textContent = `${vibeSlider.value}%`;
-    socket.send({ type: MSG.SNL_VIBE_CTRL, intensity: vibeSlider.value / 100, target: oppOf(role) });
+    socket.send({ type: MSG.SNL_VIBE_CTRL, intensity: vibeSlider.value / 100, target: activeRole() });
   });
 
   function startSliderCountdown(secs, onExpire) {
@@ -413,33 +476,25 @@ function renderClimber(root) {
     }, 1000);
   }
 
-  // ── forfeit both-ack modal ──
+  // ── forfeit modal ── shown on every client, but only the player actually taking the
+  // forfeit needs to acknowledge; everyone else is just watching and can dismiss freely.
+  // (Previously required BOTH players to click before play could continue — if the
+  // witness never clicked, the recipient's turn stalled forever.)
   function showForfeitModal(card, cardIdx, roleLabel, onDone) {
-    const text = resolveForfeitText(card, seed, cardIdx);
+    const text = escapeHtml(resolveForfeitText(card, seed, cardIdx));
     logForfeit(roleLabel, card.tier, card.category, text);
-    let myAck = false, oppAck = false;
-    const tryDone = () => { if (myAck && oppAck) { hideModal(); onDone(); } };
     const isRecipient = roleLabel === role;
     showModal(`<div class="snl-forfeit-card">
       <div class="snl-forfeit-cat">${card.category}</div>
       <div class="snl-forfeit-tier">Tier ${card.tier}</div>
       <div class="snl-forfeit-text">${text}</div>
       ${!isRecipient ? `<div style="font-size:.78em;color:#6b7280">${name(roleLabel)} takes this.</div>` : ''}
-      <button id="snl-fack" class="snl-btn-${isRecipient ? 'primary' : 'secondary'}">${isRecipient ? "I'll do it ✓" : 'Acknowledged ✓'}</button>
-      <div id="snl-fwait" style="display:none;font-size:.78em;color:#6b7280">Waiting for other player…</div>
+      <button id="snl-fack" class="snl-btn-${isRecipient ? 'primary' : 'secondary'}">${isRecipient ? "I'll do it ✓" : 'Got it'}</button>
     </div>`);
     modalEl.querySelector('#snl-fack').addEventListener('click', () => {
-      modalEl.querySelector('#snl-fack').disabled = true;
-      modalEl.querySelector('#snl-fwait').style.display = 'block';
-      myAck = true;
-      socket.send({ type: MSG.SNL_FORFEIT_ACK });
-      if (isSolo) { oppAck = true; }
-      tryDone();
+      hideModal();
+      if (isRecipient) onDone();
     });
-    if (!isSolo) {
-      const onOpp = () => { socket.removeEventListener(MSG.SNL_OPP_FORFEIT_ACK, onOpp); oppAck = true; tryDone(); };
-      socket.addEventListener(MSG.SNL_OPP_FORFEIT_ACK, onOpp);
-    }
   }
 
   // ── draw forfeit ──
@@ -453,7 +508,10 @@ function renderClimber(root) {
     pickCount[r]++;
     const myP = pos[r], maxP = Math.max(...roles.map(rr => pos[rr]));
     const threshold = (myP >= maxP) ? 3 : 2;
-    if (pickCount[r] % threshold !== 0 || powerupIdx >= powerupDeck.length) return null;
+    // Rewards the 1st landing, then every `threshold` landings after that — pickCount
+    // starting the modulo at 1 meant the very first star ever collected always yielded
+    // nothing, and with only a handful of pickup tiles on the board that often meant none.
+    if ((pickCount[r] - 1) % threshold !== 0 || powerupIdx >= powerupDeck.length) return null;
     return powerupDeck[powerupIdx++];
   }
 
@@ -517,11 +575,7 @@ function renderClimber(root) {
     }
     activeIdx++;
     extraRoll = false;
-    pushLuck = false;
     paintTurnInd();
-    if (pushBtn) pushBtn.style.display = 'none';
-    const pl = root.querySelector('#snl-push-lbl');
-    if (pl) pl.style.display = 'none';
     setStatus(isMyTurn() ? 'Your turn — roll!' : `${name(activeRole())}'s turn.`);
   }
 
@@ -558,6 +612,53 @@ function renderClimber(root) {
     modalEl.querySelector('#snl-results')?.addEventListener('click', () => { haptics.stopAll(); navigate('#/results'); });
   }
 
+  // Call whenever I personally take a forfeit card; no-op unless Endurance mode is active.
+  function noteMyForfeitTaken() {
+    if (!isEndurance || gameOver || outRoles.has(role)) return;
+    myForfeitsTaken++;
+    if (myForfeitsTaken >= ENDURANCE_FORFEIT_CAP) {
+      outRoles.add(role);
+      socket.send({ type: MSG.SNL_ENDURANCE_OUT, role });
+      checkEnduranceEnd();
+    }
+  }
+
+  function checkEnduranceEnd() {
+    if (gameOver || outRoles.size < roles.length - 1) return;
+    const survivor = roles.find(r => !outRoles.has(r));
+    if (survivor === role) triggerEnduranceWin();
+    else triggerEnduranceLoss();
+  }
+
+  function triggerEnduranceWin() {
+    gameOver = true;
+    rollBtn.disabled = true;
+    haptics.winPattern();
+    socket.send({ type: 'final', value: pos[role], vibeSeconds: 0 });
+    showModal(`<div class="snl-forfeit-card">
+      <div class="snl-forfeit-tier">🏆 Last one standing!</div>
+      <div class="snl-forfeit-text">Everyone else tapped out — you win!</div>
+      <button id="snl-results" class="snl-btn-primary">Results →</button>
+    </div>`);
+    modalEl.querySelector('#snl-results')?.addEventListener('click', () => { haptics.stopAll(); navigate('#/results'); });
+  }
+
+  function triggerEnduranceLoss() {
+    if (gameOver) return;
+    gameOver = true;
+    rollBtn.disabled = true;
+    haptics.losePattern();
+    const secs = forfeitDuration || 30;
+    haptics.startForfeitVibe(secs);
+    socket.send({ type: 'final', value: pos[role], vibeSeconds: secs });
+    showModal(`<div class="snl-forfeit-card">
+      <div class="snl-forfeit-tier">You tapped out.</div>
+      <div class="snl-forfeit-text">${ENDURANCE_FORFEIT_CAP} forfeits was your limit — vibe for ${secs}s…</div>
+      <button id="snl-results" class="snl-btn-primary" style="margin-top:14px">Results →</button>
+    </div>`);
+    modalEl.querySelector('#snl-results')?.addEventListener('click', () => { haptics.stopAll(); navigate('#/results'); });
+  }
+
   function triggerFinale() {
     // called on opponents when they receive final from winner
     gameOver = true;
@@ -566,7 +667,7 @@ function renderClimber(root) {
     const { card, idx } = drawForfeit();
     const secs = forfeitDuration || 30;
     haptics.startForfeitVibe(secs);
-    const text = card ? resolveForfeitText(card, seed, idx) : 'Finale forfeit!';
+    const text = card ? escapeHtml(resolveForfeitText(card, seed, idx)) : 'Finale forfeit!';
     socket.send({ type: 'final', value: pos[role], vibeSeconds: secs });
     showModal(`<div class="snl-forfeit-card">
       <div class="snl-forfeit-tier">🏆 Winner reached the summit — Finale!</div>
@@ -618,13 +719,11 @@ function renderClimber(root) {
     // Snake
     if (snakes[tile] !== undefined) {
       const tail = snakes[tile];
-      const extraTier = pushLuck ? 1 : 0;
-      pushLuck = false;
-      const tier = Math.min(3, tierFor(tile - tail, tile, n) + extraTier);
+      const tier = Math.min(3, tierFor(tile - tail, tile, n));
 
       if (deflect) {
         deflect = false;
-        const opp = oppOf(role);
+        const opp = autoTarget(role);
         pos[opp] = Math.max(1, pos[opp] - (tile - tail));
         repaintBoard();
         socket.send({ type: MSG.SNL_MOVE_DONE, tile: pos[opp], final: false, targetRole: opp });
@@ -687,11 +786,13 @@ function renderClimber(root) {
           return;
         }
       } else {
+        const driver = hijacker || autoTarget(role);
         haptics.startForfeitVibe(secs);
-        startVibeBanner(secs, `🐍 ${name(hijacker || oppOf(role))} is driving your vibe`);
-        setStatus(`Snake vibe — ${secs}s. ${name(hijacker || oppOf(role))} drives.`);
-        // Tell opponent to show their driver-slider via SNL_VIBE_START
-        socket.send({ type: MSG.SNL_VIBE_START, secs });
+        startVibeBanner(secs, `🐍 ${name(driver)} is driving your vibe`);
+        setStatus(`Snake vibe — ${secs}s. ${name(driver)} drives.`);
+        // Tell the driver to show their slider via SNL_VIBE_START — targeted so that in a
+        // 3-player game only the intended driver reacts, not every other player.
+        socket.send({ type: MSG.SNL_VIBE_START, secs, target: driver });
         // Send immediate position update so opponent board reflects snake fall
         socket.send({ type: MSG.SNL_MOVE_DONE, tile: pos[role], final: false });
         // Advance turn when we receive SNL_VIBE_STOP
@@ -727,8 +828,10 @@ function renderClimber(root) {
       socket.send({ type: MSG.SNL_FORFEIT_DRAW, cardIndex: idx, secs: vibeForForfeit });
       if (mirrorNext) {
         mirrorNext = false;
-        socket.send({ type: MSG.SNL_FORFEIT_ASSIGN, cardIndex: idx, target: oppOf(role) });
+        socket.send({ type: MSG.SNL_FORFEIT_ASSIGN, cardIndex: idx, target: autoTarget(role) });
       }
+      noteMyForfeitTaken();
+      if (gameOver) return;
       showForfeitModal(card, idx, role, afterResolution);
     }
   }
@@ -741,8 +844,10 @@ function renderClimber(root) {
     socket.send({ type: MSG.SNL_FORFEIT_DRAW, cardIndex: idx, secs: 0 });
     if (mirrorNext) {
       mirrorNext = false;
-      socket.send({ type: MSG.SNL_FORFEIT_ASSIGN, cardIndex: idx, target: oppOf(role) });
+      socket.send({ type: MSG.SNL_FORFEIT_ASSIGN, cardIndex: idx, target: autoTarget(role) });
     }
+    noteMyForfeitTaken();
+    if (gameOver) return;
     showForfeitModal(card, idx, role, afterResolution);
   }
 
@@ -802,7 +907,7 @@ function renderClimber(root) {
       const { card, idx } = drawForfeit();
       if (!card) { afterResolution(); return; }
       socket.send({ type: MSG.SNL_FORFEIT_ASSIGN, cardIndex: idx, target });
-      const text = resolveForfeitText(card, seed, idx);
+      const text = escapeHtml(resolveForfeitText(card, seed, idx));
       logForfeit(target, card.tier, card.category, text);
       showModal(`<div class="snl-forfeit-card">
         <div class="snl-forfeit-tier">Assigned to ${name(target)}</div>
@@ -818,6 +923,11 @@ function renderClimber(root) {
   function doFork(tile) {
     const near = roles.find(rr => rr !== role && Math.abs(pos[role] - pos[rr]) <= 10);
     if (!near) { afterResolution(); return; }
+    // The partner's client otherwise never learns the lander landed on the fork tile
+    // (resolveLanding only updates local state) — without this, the coop-reveal math
+    // below runs from a stale base position on the partner's screen and the two
+    // clients end up disagreeing about where the lander actually is.
+    socket.send({ type: MSG.SNL_MOVE_DONE, tile: pos[role], final: false });
     showModal(`<div class="snl-forfeit-card">
       <div class="snl-forfeit-tier">Fork 🔱</div>
       <div class="snl-forfeit-text">Cooperate or Betray ${name(near)}?</div>
@@ -826,7 +936,22 @@ function renderClimber(root) {
         <button id="snl-fbetr" class="snl-btn-secondary">Betray</button>
       </div></div>`);
     _forkDone = afterResolution;
-    const go = c => { hideModal(); socket.send({ type: MSG.SNL_COOP_CHOICE, choice: c }); setStatus('Waiting for response…'); };
+    const go = c => {
+      hideModal();
+      socket.send({ type: MSG.SNL_COOP_CHOICE, choice: c, target: near });
+      setStatus('Waiting for response…');
+      // If the fork partner vanishes their reveal can never arrive — fall back to a
+      // neutral "cooperate" outcome after a generous wait so the turn doesn't hang forever.
+      clearTimeout(forkFallbackTimer);
+      forkFallbackTimer = setTimeout(() => {
+        if (!_forkDone) return; // already resolved by a real reveal
+        const fn = _forkDone; _forkDone = null;
+        setStatus(`${name(near)} didn't respond — treating it as cooperate.`);
+        pos[role] = Math.min(n - 1, pos[role] + 5);
+        repaintBoard();
+        fn();
+      }, 30_000);
+    };
     modalEl.querySelector('#snl-fcoop').addEventListener('click', () => go('cooperate'));
     modalEl.querySelector('#snl-fbetr').addEventListener('click', () => go('betray'));
   }
@@ -850,22 +975,8 @@ function renderClimber(root) {
   rollBtn.addEventListener('click', () => {
     if ((!isMyTurn() && !extraRoll) || gameOver) return;
     rollBtn.disabled = true;
-    const pl = root.querySelector('#snl-push-lbl');
-    if (pl) pl.style.display = 'none';
-    if (pushBtn) pushBtn.style.display = 'none';
     socket.send({ type: MSG.SNL_ROLL_READY });
   });
-
-  if (pushBtn && snlPushLuck) {
-    pushBtn.addEventListener('click', () => {
-      if (!isMyTurn() || gameOver) return;
-      pushLuck = true;
-      pushBtn.style.display = 'none';
-      const pl = root.querySelector('#snl-push-lbl');
-      if (pl) pl.style.display = 'block';
-      setStatus('Push luck active — next snake is +1 tier!');
-    });
-  }
 
   // ─── socket listeners ──────────────────────────────────────────────────────
 
@@ -916,9 +1027,11 @@ function renderClimber(root) {
     forfeitIdx = Math.max(forfeitIdx, cardIndex + 1);
     const card = forfeitDeck[cardIndex];
     if (!card) return;
-    const text = resolveForfeitText(card, seed, cardIndex);
+    const text = escapeHtml(resolveForfeitText(card, seed, cardIndex));
     logForfeit(target, card.tier, card.category, text);
     if (target !== role) return;
+    noteMyForfeitTaken();
+    if (gameOver) return;
     showModal(`<div class="snl-forfeit-card">
       <div class="snl-forfeit-cat">${card.category}</div>
       <div class="snl-forfeit-tier">Tier ${card.tier} — Ladder punishment!</div>
@@ -930,6 +1043,7 @@ function renderClimber(root) {
 
   // Active player's snake started — I'm the driver, show the slider
   const onVibeStart = ev => {
+    if (ev.detail.target && ev.detail.target !== role) return; // someone else drives this one
     const secs = ev.detail.secs || 10;
     vibeSlider.value = 50; vibePctEl.textContent = '50%';
     startVibeBanner(secs, `🐍 ${name(activeRole())} hit a snake — you're driving!`);
@@ -954,9 +1068,11 @@ function renderClimber(root) {
     stopVibeBanner();
   };
 
-  // Fork — active player chose; I respond
+  // Fork — active player chose; I respond (only if I'm the actual fork partner — in a
+  // 3-player game the third, uninvolved player must never see or answer this).
   const onCoopChoice = ev => {
-    const { role: sr, choice: sc } = ev.detail;
+    const { role: sr, choice: sc, target } = ev.detail;
+    if (target !== role) return;
     showModal(`<div class="snl-forfeit-card">
       <div class="snl-forfeit-tier">Fork 🔱 — Respond!</div>
       <div class="snl-forfeit-text">${name(sr)} chose. Your pick:</div>
@@ -966,41 +1082,73 @@ function renderClimber(root) {
       </div></div>`);
     const respond = mine => {
       hideModal();
-      const hc = role === 'host' ? mine : sc;
-      const gc = role === 'guest' ? mine : sc;
-      socket.send({ type: MSG.SNL_COOP_REVEAL, hostChoice: hc, guestChoice: gc });
+      socket.send({ type: MSG.SNL_COOP_REVEAL, landerRole: sr, landerChoice: sc, partnerRole: role, partnerChoice: mine });
     };
     modalEl.querySelector('#snl-rcoop').addEventListener('click', () => respond('cooperate'));
     modalEl.querySelector('#snl-rbetr').addEventListener('click', () => respond('betray'));
   };
 
-  // Fork resolved — both know both choices
+  // Fork resolved — both participants know both choices. Named by role (lander/partner)
+  // rather than host/guest so this works for any pairing in a 3-player game, and a
+  // bystander who isn't part of this fork ignores the reveal entirely.
   const onCoopReveal = ev => {
-    const { hostChoice, guestChoice } = ev.detail;
-    const my = role === 'host' ? hostChoice : guestChoice;
-    const op = role === 'host' ? guestChoice : hostChoice;
+    const { landerRole, landerChoice, partnerRole, partnerChoice } = ev.detail;
+    if (role !== landerRole && role !== partnerRole) return;
+    clearTimeout(forkFallbackTimer);
+    const my = role === landerRole ? landerChoice : partnerChoice;
+    const op = role === landerRole ? partnerChoice : landerChoice;
+    const oppRole = role === landerRole ? partnerRole : landerRole;
     hideModal();
+    // Both participants' clients run this from the same synced choice pair, so each
+    // must apply BOTH players' position changes locally — leaving the opponent's side
+    // unset here is what let the two screens drift out of sync after a reveal.
     if (my === 'cooperate' && op === 'cooperate') {
       pos[role] = Math.min(n - 1, pos[role] + 5);
+      pos[oppRole] = Math.min(n - 1, pos[oppRole] + 5);
       setStatus('Both cooperated — small mutual climb!');
     } else if (my === 'betray' && op === 'cooperate') {
-      const opp = oppOf(role);
-      pos[opp] = Math.max(1, pos[opp] - 8);
+      pos[oppRole] = Math.max(1, pos[oppRole] - 8);
       pos[role] = Math.min(n - 1, pos[role] + 5);
       setStatus('You betrayed! You climb, they slide.');
     } else if (my === 'cooperate' && op === 'betray') {
       pos[role] = Math.max(1, pos[role] - 8);
-      setStatus('You were betrayed — you slide!');
+      pos[oppRole] = Math.min(n - 1, pos[oppRole] + 5);
+      const secs = calcVibeSeconds(8, pos[role], n, snlVibeScale);
+      setStatus(`You were betrayed — you slide and vibe for ${secs}s!`);
+      haptics.startForfeitVibe(secs);
+      startVibeBanner(secs, '🔱 Betrayed!');
     } else {
-      pos[role] = Math.max(1, pos[role] - 4);
-      setStatus('Both betrayed — both slide!');
+      // Mutual betrayal is the worst outcome — a bigger slide AND a much longer vibe
+      // than being the lone betrayed party, so blind mutual distrust never pays off.
+      pos[role] = Math.max(1, pos[role] - 10);
+      pos[oppRole] = Math.max(1, pos[oppRole] - 10);
+      setStatus(`Both betrayed — worst outcome! Vibe for ${FORK_MUTUAL_BETRAY_VIBE_SECS}s.`);
+      haptics.startForfeitVibe(FORK_MUTUAL_BETRAY_VIBE_SECS);
+      startVibeBanner(FORK_MUTUAL_BETRAY_VIBE_SECS, '🔱 Mutual betrayal!');
     }
     repaintBoard();
     if (_forkDone) { const fn = _forkDone; _forkDone = null; fn(); }
   };
 
   const onOppFinal = () => { if (!gameOver) triggerFinale(); };
-  const onPeerLeft = () => { if (!gameOver) setStatus('Opponent disconnected.'); };
+  const onEnduranceOut = ev => {
+    const r = ev.detail?.role;
+    if (r && roles.includes(r) && !outRoles.has(r)) { outRoles.add(r); checkEnduranceEnd(); }
+  };
+  // Watched mode's controller ('guest') isn't in `roles` (they never take a turn), but the
+  // climber still needs to know if their controller vanishes.
+  const disconnectableRoles = isWatched ? [...roles, 'guest'] : roles;
+  const onPeerLeft = ev => {
+    const r = ev.detail?.role;
+    if (r && disconnectableRoles.includes(r)) departedRoles.add(r);
+    if (!gameOver) setStatus(r ? `${name(r)} disconnected.` : 'A player disconnected.');
+    renderDisconnectBanner();
+  };
+  const onPeerReconnected = ev => {
+    const r = ev.detail?.role;
+    if (r) departedRoles.delete(r);
+    renderDisconnectBanner();
+  };
 
   socket.addEventListener(MSG.SNL_ROLL_GO,        onRollGo);
   socket.addEventListener(MSG.SNL_MOVE_DONE,       onMoveDone);
@@ -1012,13 +1160,17 @@ function renderClimber(root) {
   socket.addEventListener(MSG.SNL_VIBE_STOP,       onVibeStop);
   socket.addEventListener(MSG.SNL_COOP_CHOICE,     onCoopChoice);
   socket.addEventListener(MSG.SNL_COOP_REVEAL,     onCoopReveal);
+  socket.addEventListener(MSG.SNL_ENDURANCE_OUT,   onEnduranceOut);
   socket.addEventListener('opp_final',             onOppFinal);
   socket.addEventListener('peer_left',             onPeerLeft);
+  socket.addEventListener('peer_reconnected',      onPeerReconnected);
 
   root.querySelector('#snl-leave').addEventListener('click', () => { haptics.stopAll(); navigate('#/'); });
   window.addEventListener('hashchange', () => {
     clearInterval(vibeInt);
     clearInterval(bannerInt);
+    clearTimeout(forkFallbackTimer);
+    bw.__snlResizeObs?.disconnect();
     haptics.stopAll();
     socket.removeEventListener(MSG.SNL_ROLL_GO,       onRollGo);
     socket.removeEventListener(MSG.SNL_MOVE_DONE,     onMoveDone);
@@ -1030,14 +1182,24 @@ function renderClimber(root) {
     socket.removeEventListener(MSG.SNL_VIBE_STOP,     onVibeStop);
     socket.removeEventListener(MSG.SNL_COOP_CHOICE,   onCoopChoice);
     socket.removeEventListener(MSG.SNL_COOP_REVEAL,   onCoopReveal);
+    socket.removeEventListener(MSG.SNL_ENDURANCE_OUT, onEnduranceOut);
     socket.removeEventListener('opp_final',           onOppFinal);
     socket.removeEventListener('peer_left',           onPeerLeft);
+    socket.removeEventListener('peer_reconnected',    onPeerReconnected);
   }, { once: true });
 
   // ── initial paint ──
   repaintBoard(); paintHand(); paintTurnInd();
   if (isSolo) setStatus('Solo climb — roll!');
   else setStatus(isMyTurn() ? 'Your turn — roll!' : `Waiting for ${name(activeRole())}…`);
+}
+
+// Forfeit text can come from a host's free-typed custom forfeit lines and is broadcast to
+// every other player, so it must be escaped before landing in innerHTML anywhere.
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1072,10 +1234,10 @@ function renderBoard(wrap, board, positions) {
     const { col, row } = tileGridPos(tile, cols);
     const dr = rows - 1 - row;
     let icon = '', cls = 'snl-cell', dest = '', title = '', style = '';
-    if (snakes[tile] !== undefined)        { icon = '🐍'; cls += ' snl-snake'; dest = `↓${snakes[tile]}`; title = `Viper: ${tile} → ${snakes[tile]}`; style = `border-color:${color[tile]}`; }
-    else if (tailOfHead[tile] !== undefined) { icon = '🐍'; cls += ' snl-snake-tail'; dest = `·${tailOfHead[tile]}`; title = `Viper tail — no effect landing here (head is at ${tailOfHead[tile]})`; style = `border-color:${color[tile]}`; }
-    else if (ladders[tile] !== undefined)  { icon = '🪜'; cls += ' snl-ladder'; dest = `↑${ladders[tile]}`; title = `Vine: ${tile} → ${ladders[tile]}`; style = `border-color:${color[tile]}`; }
-    else if (topOfBottom[tile] !== undefined) { icon = '🪜'; cls += ' snl-ladder-top'; dest = `·${topOfBottom[tile]}`; title = `Vine top — no effect landing here (bottom is at ${topOfBottom[tile]})`; style = `border-color:${color[tile]}`; }
+    if (snakes[tile] !== undefined)        { icon = '🐍'; cls += ' snl-snake'; dest = `-${tile - snakes[tile]}`; title = `Viper: ${tile} → ${snakes[tile]} (drop ${tile - snakes[tile]})`; style = `border-color:${color[tile]}`; }
+    else if (tailOfHead[tile] !== undefined) { icon = '🐍'; cls += ' snl-snake-tail'; title = `Viper tail — no effect landing here (head is at ${tailOfHead[tile]})`; style = `border-color:${color[tile]}`; }
+    else if (ladders[tile] !== undefined)  { icon = '🪜'; cls += ' snl-ladder'; dest = `+${ladders[tile] - tile}`; title = `Vine: ${tile} → ${ladders[tile]} (climb ${ladders[tile] - tile})`; style = `border-color:${color[tile]}`; }
+    else if (topOfBottom[tile] !== undefined) { icon = '🪜'; cls += ' snl-ladder-top'; title = `Vine top — no effect landing here (bottom is at ${topOfBottom[tile]})`; style = `border-color:${color[tile]}`; }
     else if (forfeitTiles.has(tile))  { icon = '🎴'; cls += ' snl-forfeit-tile'; }
     else if (pickupTiles.has(tile))   { icon = '⭐'; cls += ' snl-pickup'; }
     else if (forkTiles.has(tile))     { icon = '🔱'; cls += ' snl-fork'; }
@@ -1089,6 +1251,32 @@ function renderBoard(wrap, board, positions) {
     cells.push(`<div class="${cls}" style="grid-column:${col+1};grid-row:${dr+1};${style}"${titleAttr}><span class="snl-tile-num">${tile}</span><span class="snl-tile-icon">${icon}</span>${destLabel}${tokens}</div>`);
   }
   wrap.innerHTML = `<div class="snl-board" style="--snl-cols:${cols};--snl-rows:${rows}">${cells.join('')}</div>`;
+  fitBoard(wrap);
+  // Attach once per wrap element: keeps the board's pixel size correct across window
+  // resizes without depending on CSS container-query support, which some browsers/
+  // profiles render inconsistently (seen as a board that collapses to its intrinsic
+  // min-content size instead of filling the panel).
+  if (!wrap.__snlResizeObs) {
+    wrap.__snlResizeObs = new ResizeObserver(() => fitBoard(wrap));
+    wrap.__snlResizeObs.observe(wrap);
+  }
+}
+
+// Sizes the board in px to the largest rectangle that (a) preserves the cols/rows
+// aspect ratio and (b) fits fully inside its wrapper — computed from measured pixel
+// dimensions rather than CSS aspect-ratio/container-query tricks for reliability.
+function fitBoard(wrap) {
+  const boardEl = wrap.querySelector('.snl-board');
+  if (!boardEl) return;
+  const cols = parseFloat(boardEl.style.getPropertyValue('--snl-cols')) || 1;
+  const rows = parseFloat(boardEl.style.getPropertyValue('--snl-rows')) || 1;
+  const availW = wrap.clientWidth;
+  const availH = wrap.clientHeight;
+  if (!availW || !availH) return;
+  let w = availW, h = (w * rows) / cols;
+  if (h > availH) { h = availH; w = (h * cols) / rows; }
+  boardEl.style.width = `${Math.floor(w)}px`;
+  boardEl.style.height = `${Math.floor(h)}px`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1100,15 +1288,15 @@ function injectStyles() {
   _stylesInjected = true;
   const s = document.createElement('style');
   s.textContent = `
-.snl-root{display:flex;flex-direction:column;height:100vh;background:var(--bg,#1a1a2e);color:#e0e0e0}
+.snl-root{position:fixed;inset:0;display:flex;flex-direction:column;overflow:hidden;background:var(--bg,#1a1a2e);color:#e0e0e0}
 .snl-header{display:flex;align-items:center;gap:12px;padding:8px 16px;background:#13131f;border-bottom:1px solid #2a2a4a;flex-shrink:0}
 .snl-title{font-weight:700;font-size:1.1em;color:#c084fc}
 .snl-turn-ind{font-size:.85em;color:#9ca3af}
 .snl-turn-ind.snl-my-turn{color:#86efac;font-weight:600}
 .snl-leave{margin-left:auto}
 .snl-body{display:flex;gap:10px;flex:1;min-height:0;padding:10px;overflow:hidden}
-#snl-board-wrap{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
-.snl-board{display:grid;grid-template-columns:repeat(var(--snl-cols),1fr);grid-template-rows:repeat(var(--snl-rows),1fr);gap:2px;height:min(calc(100vh - 60px),calc(100vw - 205px));width:auto;aspect-ratio:var(--snl-cols)/var(--snl-rows)}
+#snl-board-wrap{flex:1;min-width:0;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.snl-board{display:grid;grid-template-columns:repeat(var(--snl-cols),1fr);grid-template-rows:repeat(var(--snl-rows),1fr);gap:2px;flex-shrink:0}
 .snl-cell{position:relative;border:1px solid #2a2a4a;border-radius:3px;background:#1e1e35;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:clamp(8px,1.6vh,16px);min-width:0;overflow:hidden}
 .snl-tile-num{font-size:.55em;color:#4b5563;line-height:1;position:absolute;top:1px;left:2px}
 .snl-tile-icon{font-size:1em;line-height:1}
@@ -1141,8 +1329,9 @@ function injectStyles() {
 .snl-btn-primary:disabled{opacity:.4;cursor:default}
 .snl-btn-secondary{background:#374151;border:none;color:#e0e0e0;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:.84em;width:100%}
 .snl-btn-danger{background:#991b1b;border:none;color:#fff;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:.84em;width:100%}
-.snl-push-lbl{font-size:.72em;color:#f59e0b;text-align:center}
 .snl-status{font-size:.8em;color:#9ca3af;min-height:2.4em;line-height:1.35}
+.snl-disconnect-row{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#1f1320;border:1px solid #4c1d24;border-radius:8px;padding:8px 10px;font-size:.78em;color:#f59e0b;margin-top:4px}
+.snl-disconnect-row button{flex-shrink:0}
 .snl-vibe-row{background:#13131f;border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:4px}
 .snl-slider{width:100%;accent-color:#7c3aed}
 .snl-vibe-timer{font-size:.8em;color:#f59e0b;text-align:center}

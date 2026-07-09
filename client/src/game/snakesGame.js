@@ -10,6 +10,9 @@ export const DENSITY_PRESETS = {
 };
 
 export const POWERUP_IDS = ['loaded_die','antivenom','greased_rung','swap','double_move','hijack','deflect','mirror'];
+// Solo / Watched climbs have exactly one token on the board — no opponent to swap with,
+// hijack, deflect onto, or grease a ladder for — so only the self-only powerups are dealt.
+export const SELF_ONLY_POWERUP_IDS = ['loaded_die','antivenom','double_move'];
 export const POWERUP_INFO = {
   loaded_die:    { label: 'Loaded Die 🎲',  desc: 'Choose your next roll (1–6) instead of rolling.' },
   antivenom:     { label: 'Antivenom 🧪',   desc: 'Auto-negates the next snake you land on.' },
@@ -75,10 +78,11 @@ export function rollFor(seed, turnIndex) {
   return rngInt(rng, 1, 6);
 }
 
-export function buildPowerupDeck(seed) {
+export function buildPowerupDeck(seed, selfOnly) {
+  const ids = selfOnly ? SELF_ONLY_POWERUP_IDS : POWERUP_IDS;
   const rng = makeRng((seed ^ 0xdeadbeef) >>> 0);
   const deck = [];
-  for (let i = 0; i < 3; i++) deck.push(...POWERUP_IDS);
+  for (let i = 0; i < 3; i++) deck.push(...ids);
   for (let i = deck.length - 1; i > 0; i--) {
     const j = rngInt(rng, 0, i);
     [deck[i], deck[j]] = [deck[j], deck[i]];
@@ -89,16 +93,21 @@ export function buildPowerupDeck(seed) {
 export function buildForfeitDeck(seed, categories, customLines) {
   const rng = makeRng((seed ^ 0xcafebabe) >>> 0);
   const deck = [];
-  for (const cat of categories) {
-    if (!FORFEITS[cat]) continue;
-    for (const card of FORFEITS[cat]) {
-      deck.push({ ...card, category: cat });
-    }
-  }
   for (const line of (customLines || [])) {
     const m = line.match(/^\[([123])\]\s*(.*)/);
     if (m) deck.push({ tier: parseInt(m[1]), text: m[2].trim(), category: 'custom' });
     else if (line.trim()) deck.push({ tier: 1, text: line.trim(), category: 'custom' });
+  }
+  // Custom lines replace the built-in categories (matching Beat the Dealer's forfeit
+  // list) rather than being mixed in — otherwise a handful of typed lines get drowned
+  // out by the ~18-card built-in deck and effectively never get drawn.
+  if (deck.length === 0) {
+    for (const cat of categories) {
+      if (!FORFEITS[cat]) continue;
+      for (const card of FORFEITS[cat]) {
+        deck.push({ ...card, category: cat });
+      }
+    }
   }
   for (let i = deck.length - 1; i > 0; i--) {
     const j = rngInt(rng, 0, i);
@@ -123,17 +132,23 @@ export function generateBoard(seed, opts) {
   const rng = makeRng((seed ^ 0xb0a1d5ee) >>> 0);
 
   const { ladders: numLadders, snakes: numSnakes, forfeits: numForfeits, pickups: numPickups, forks: numForks } = preset;
+  // Minimum tile gap enforced between snake heads / ladder bottoms so hazards read as
+  // spread across the board rather than clustering in one stretch.
+  const minGap = Math.max(3, Math.floor(n / 18));
+  // A viper must always lurk within this many tiles of the finish — no risk-free coast home.
+  const GOAL_GUARD_RANGE = 3;
 
   for (let attempt = 0; attempt < 20; attempt++) {
     const used = new Set([1, n]);
+    const entryTiles = []; // snake heads + ladder bottoms, checked for minGap spacing
     const snakes = {};
     const ladders = {};
     const forfeitTiles = new Set();
     const pickupTiles = new Set();
     const forkTiles = new Set();
-    let ok = true;
 
     const rand = (lo, hi) => rngInt(rng, lo, hi);
+    const tooClose = tile => entryTiles.some(t => Math.abs(t - tile) < minGap);
     const pick = () => {
       for (let t = 0; t < 50; t++) {
         const tile = rand(2, n - 1);
@@ -143,28 +158,61 @@ export function generateBoard(seed, opts) {
     };
 
     for (let i = 0; i < numLadders; i++) {
-      const bottom = rand(2, Math.floor(n * 0.8));
+      let bottom = -1;
+      for (let t = 0; t < 30; t++) {
+        const cand = rand(2, Math.floor(n * 0.8));
+        if (!used.has(cand) && !tooClose(cand)) { bottom = cand; break; }
+      }
+      if (bottom === -1) continue;
       const minTop = bottom + Math.floor(n * 0.05) + 1;
       const maxTop = Math.min(n - 1, bottom + Math.floor(n * 0.4));
-      if (minTop > maxTop) { ok = false; break; }
+      if (minTop > maxTop) continue;
       const top = rand(minTop, maxTop);
-      if (used.has(bottom) || used.has(top)) continue;
+      if (used.has(top)) continue;
       ladders[bottom] = top;
       used.add(bottom);
       used.add(top);
+      entryTiles.push(bottom);
     }
-    if (!ok) continue;
 
     for (let i = 0; i < numSnakes; i++) {
-      const head = rand(Math.floor(n * 0.2), n - 1);
+      let head = -1;
+      for (let t = 0; t < 30; t++) {
+        const cand = rand(Math.floor(n * 0.2), n - 1);
+        if (!used.has(cand) && !tooClose(cand)) { head = cand; break; }
+      }
+      if (head === -1) continue;
       const maxFall = Math.min(head - 1, Math.floor(n * 0.35));
       if (maxFall < 1) continue;
       const tail = rand(Math.max(1, head - maxFall), head - 1);
-      if (tail < 1) continue;
-      if (used.has(head) || used.has(tail)) continue;
+      if (tail < 1 || used.has(tail)) continue;
       snakes[head] = tail;
       used.add(head);
+      entryTiles.push(head);
     }
+
+    // Guarantee at least one viper head within GOAL_GUARD_RANGE of the finish, ignoring
+    // the minGap spacing for this forced placement since the goal zone is narrow.
+    if (!Object.keys(snakes).some(h => +h >= n - GOAL_GUARD_RANGE)) {
+      for (let head = n - 1; head >= Math.max(2, n - GOAL_GUARD_RANGE); head--) {
+        if (used.has(head)) continue;
+        const maxFall = Math.min(head - 1, Math.floor(n * 0.35));
+        if (maxFall < 1) continue;
+        let placed = false;
+        for (let t = 0; t < 10; t++) {
+          const tail = rand(Math.max(1, head - maxFall), head - 1);
+          if (tail < 1 || used.has(tail)) continue;
+          snakes[head] = tail;
+          used.add(head);
+          used.add(tail);
+          entryTiles.push(head);
+          placed = true;
+          break;
+        }
+        if (placed) break;
+      }
+    }
+    if (!Object.keys(snakes).some(h => +h >= n - GOAL_GUARD_RANGE)) continue;
 
     for (let i = 0; i < numForfeits; i++) {
       const tile = pick();

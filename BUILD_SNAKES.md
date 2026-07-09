@@ -22,7 +22,7 @@ Each phase should leave the game runnable. Don't build all files then debug at t
 1. **Plumbing skeleton** — lobby tile + minimal config + state fields + route + `begin` wiring + server `validGameTypes`. Goal: select Snakes in the lobby, press Start, land on a blank `#/snakes` screen that logs the received `seed`/config. (No gameplay yet.)
 2. **Board + movement (Versus 2P)** — `generateBoard`, render the grid, roll handshake, token movement, snakes/ladders teleport. No stakes yet. Goal: two clients roll in turn and both see identical boards and positions.
 3. **Stakes** — tier calc, vibe (slider + haptics) and the forfeit deck/modal on snakes; climber's punish-choice on ladders; Forfeit tiles. Goal: a full 2P game to a winner with vibe **and** forfeits.
-4. **Powerups + Fork + push-your-luck** — pick-up tiles, the hand UI, each powerup, optional Fork tiles.
+4. **Powerups + Fork** — pick-up tiles, the hand UI, each powerup, optional Fork tiles.
 5. **3P** — turn rotation, targeting (who-drives-the-slider rule + climber target pick), podium finale.
 6. **Solo** and **Watched** modes — branch in `renderSnakes` on `snlMode`/`role`.
 
@@ -42,7 +42,7 @@ Add fields to `state` **and** reset them in `reset()` (the file keeps the two li
 ```
 snlMode: 'versus', snlBoardSize: 'standard', snlDensity: 'even', snlStakeMix: 'mixed',
 snlVibeScale: 'full', snlWinCondition: 'race', snlFinalRule: 'exact',
-snlPushLuck: true, snlPowerups: true, snlCoopBetray: false,
+snlPowerups: true, snlCoopBetray: false,
 snlForfeitCards: ['vibe','edge','strip','control','task','surrender'],
 snlForfeitLines: [], snlAmbient: false, snlTapOut: false,
 ```

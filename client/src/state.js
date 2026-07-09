@@ -47,7 +47,6 @@ export const state = {
   snlVibeScale: 'full',
   snlWinCondition: 'race',
   snlFinalRule: 'exact',
-  snlPushLuck: true,
   snlPowerups: true,
   snlCoopBetray: false,
   snlForfeitCards: ['vibe', 'edge', 'strip', 'control', 'task', 'surrender'],
@@ -109,7 +108,6 @@ export function reset() {
   state.snlVibeScale = 'full';
   state.snlWinCondition = 'race';
   state.snlFinalRule = 'exact';
-  state.snlPushLuck = true;
   state.snlPowerups = true;
   state.snlCoopBetray = false;
   state.snlForfeitCards = ['vibe', 'edge', 'strip', 'control', 'task', 'surrender'];

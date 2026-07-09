@@ -1464,6 +1464,21 @@ button.ghost {
   border-radius: 8px;
 }
 
+.hilo-disconnect-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: #2a1414;
+  border: 1px solid #5c2323;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #f59e0b;
+  margin: 8px 0;
+}
+.hilo-disconnect-row button { flex-shrink: 0; }
+
 .hilo-sb-cell {
   display: flex;
   flex-direction: column;
@@ -1823,6 +1838,21 @@ button.ghost {
   color: var(--accent);
   border-color: var(--accent);
 }
+
+.btd-disconnect-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: #2a1414;
+  border: 1px solid #5c2323;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: #f59e0b;
+  margin: 6px 0;
+}
+.btd-disconnect-row button { flex-shrink: 0; }
 
 /* Reveal mode banner */
 .btd-reveal-banner {
@@ -2914,6 +2944,7 @@ button.ghost {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  width: 100%;
   max-width: 1080px;
   margin: 0 auto;
   padding: 12px;
@@ -3174,6 +3205,13 @@ button.ghost {
   font-size: 20px;
   font-weight: 900;
   font-variant-numeric: tabular-nums;
+}
+
+.mem-trigger-timer {
+  font-size: 20px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  color: #7c3aed;
 }
 
 .mem-payout {

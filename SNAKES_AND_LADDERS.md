@@ -53,6 +53,7 @@ i.e. a long fall from near the summit → tier 3; a short early slide → tier 1
   - **Pick-up tiles** (⭐) — collect a powerup.
   - **Fork tiles** (🔱, optional) — trigger a cooperate/betray choice.
 - Placement is seeded but validated so the board is always finishable: no snake head on tile 1, no ladder top on the final tile, no two specials on one cell, snakes never drop below tile 1.
+- Snake heads and ladder bottoms are kept a minimum distance apart so hazards read as spread across the board rather than clustering in one stretch, and at least one snake head is always guaranteed within 6 tiles of the finish — no risk-free coast to the summit.
 - **Density** controls the snake:ladder mix and total count: **Tame** (ladder-heavy), **Even** (default), **Brutal** (snake-heavy, longer slides).
 
 ---
@@ -62,8 +63,7 @@ i.e. a long fall from near the summit → tier 3; a short early slide → tier 1
 Turn-based, alternating (3P: clockwise). The Wizard-Island roll handshake is reused so both screens animate the same number.
 
 1. **Active player taps ROLL** → sends `SNL_ROLL_READY`; server echoes `SNL_ROLL_GO` carrying the turn index. Both clients compute the die value locally from `seed` + turn index → identical result, no trust needed.
-2. **Press-your-luck (optional):** after seeing the roll you may **push** — roll again to keep moving, but a snake hit on a pushed turn resolves one tier harsher. Turns passive luck into a stop/go decision.
-3. **Token advances**, then resolve the landing tile:
+2. **Token advances**, then resolve the landing tile:
 
 ### 🪜 Ladder bottom — you climb
 You jump to the top, and **you choose how to punish** (climber's agency):
@@ -73,7 +73,7 @@ You jump to the top, and **you choose how to punish** (climber's agency):
 ### 🐍 Snake head — you slide
 You drop to the tail and **you pay**, per the stake mix and tier:
 - **Vibe** — your opponent (or auto-ramp, config) drives *your* slider for the scaled duration.
-- **Forfeit** — draw a tier-`n` card from the agreed deck and do it; both acknowledge (`SNL_FORFEIT_ACK`) before play resumes.
+- **Forfeit** — draw a tier-`n` card from the agreed deck and do it. Every player sees the card (`SNL_FORFEIT_DRAW`), but only you (the recipient) acknowledging advances your turn — a witness who doesn't click never blocks play.
 - **Antivenom** powerup, if held, negates the whole bite.
 
 ### 🎴 Forfeit tile — draw a card
@@ -87,8 +87,10 @@ If both players are within `forkRange` tiles, a Wizard-Island-style hidden choic
 
 | You \ Opp | Cooperate | Betray |
 |---|---|---|
-| **Cooperate** | Both ride a shared shortcut up (small mutual climb, no stake) | Opponent shoves you down a snake's worth + you take a tier-1 forfeit; they climb |
-| **Betray** | You shove them down; you climb | Both slide a short way **and** both take a tier-1 stake |
+| **Cooperate** | Both climb +5, no stake | You slide -8 and vibe briefly; they climb +5 free |
+| **Betray** | You climb +5 free; they slide -8 and vibe briefly | **Worst outcome** — both slide -10 **and** both vibe for 180s |
+
+Mutual betrayal is deliberately the harshest result (bigger slide than the lone-victim case, plus a much longer vibe) — blind mutual distrust should never be the safe choice.
 
 4. **End of turn** passes on. Powerups are played on your own turn before/instead of rolling.
 
@@ -110,8 +112,8 @@ Drawn in the flavour of the **Wizard Island dark-wizard deck** — edge orders, 
 Notes:
 - **Dice-scaled** like Wizard Island — seeded `d3`/`d6` rolls decide counts and durations, so even a repeated card varies.
 - **Deflect / Mirror** — held as powerups (below), lifted straight from the Wizard Island deck: bounce a forfeit to your opponent, or force them to repeat yours.
-- **Custom lines** — the lobby can expose a textarea (Beat the Dealer pattern); prefix `[1]`/`[2]`/`[3]` to set tier. Empty falls back to the built-ins.
-- **Acknowledgement** — forfeits show as a full-screen card both players confirm, so play can't skip past one.
+- **Custom lines** — the lobby exposes a textarea for custom forfeits; prefix a line with `[1]`/`[2]`/`[3]` to set tier (defaults to tier 1). If any custom lines are entered they **replace** the built-in category deck entirely (like Beat the Dealer's forfeit list), so typed lines aren't drowned out by the much larger built-in deck. Leave the textarea empty to use the built-in categories.
+- **Acknowledgement** — forfeits show as a full-screen card to everyone, but only the recipient's confirmation advances play, so a distracted witness can never stall the recipient's turn.
 - **No-toy play** — with Vibe disabled the game is fully playable with zero devices connected.
 
 ---
@@ -180,7 +182,7 @@ One token, one goal: reach the summit. **The board is the opponent**, so with no
 - 🪜 **Ladder** — relief. You climb, the vibe **eases or cuts out**, and you bank a small **Mercy** (spend to auto-skip one snake — a free Antivenom).
 - ⭐ / 🎴 tiles as normal; Antivenom and Loaded Die shine when you're surviving rather than attacking.
 - **Escalation:** `heightFactor` turns the top of the board into a gauntlet of stronger random bursts — it's a tease/endurance climb, not a race.
-- **Win / lose:** summit = you endured and win. Optional **Endurance/tap-out** toggle adds a "give in" button that ends the run; the goal becomes summiting *without* tapping. Push-your-luck still applies.
+- **Win / lose:** summit = you endured and win. Optional **Endurance/tap-out** toggle adds a "give in" button that ends the run; the goal becomes summiting *without* tapping.
 - Reuses the hub's **auto-ramp vibe** (Dice's auto option) and the single-client `#/hilo1p` solo pattern — no opponent messages at all.
 
 ### Watched — "One climbs, one controls" (1 player + 1 controller)
@@ -222,7 +224,6 @@ A new game tile under **Strategy** (dice-driven but decision-rich, like Wizard I
 | Vibe scaling | **Full** / Half (seconds-per-tile, like Last Call) | `snlVibeScale` |
 | Win condition | **Race** / Endurance | `snlWinCondition` |
 | Final-tile rule | **Exact** / Pass (Race only) | `snlFinalRule` |
-| Push-your-luck | **On** / Off | `snlPushLuck` |
 | Powerups | **On** / Off | `snlPowerups` |
 | Fork tiles | On / **Off** | `snlCoopBetray` |
 | Forfeit categories | toggle the 6: vibe / edge / strip / control / task / surrender | `snlForfeitCards` |
@@ -241,7 +242,7 @@ Pattern is identical to the existing games — **no new server state**, only rel
 
 **New files**
 - `client/src/game/snakesGame.js` — `generateBoard(seed, opts)` (places ladders/snakes/tiles, validated), `rollFor(seed, turnIndex)` (deterministic die), `buildForfeitDeck(seed, categories, customLines)`, powerup deck builder, tier/seconds helpers. All via `makeRng`/`rngInt`/`rngPick` from `seededRng.js`.
-- `client/src/screens/snakes.js` — `renderSnakes(root)`: board render, turn loop, roll handshake, push-your-luck, powerup hand, intensity slider, forfeit/fork modals, haptics wiring, cleanup on `hashchange`.
+- `client/src/screens/snakes.js` — `renderSnakes(root)`: board render, turn loop, roll handshake, powerup hand, intensity slider, forfeit/fork modals, haptics wiring, cleanup on `hashchange`.
 
 **Edits to existing files**
 - `client/src/shared/messages.js` — add `SNL_ROLL_READY`, `SNL_ROLL_GO`, `SNL_MOVE_DONE`, `SNL_POWERUP`, `SNL_FORFEIT_DRAW`, `SNL_FORFEIT_ACK`, `SNL_OPP_FORFEIT_ACK`, `SNL_FORFEIT_ASSIGN` (Watched), `SNL_COOP_CHOICE`, `SNL_COOP_REVEAL`, `SNL_VIBE_CTRL`, `SNL_VIBE_STOP`.
@@ -254,7 +255,7 @@ Pattern is identical to the existing games — **no new server state**, only rel
 
 ## Why it's good
 
-- **Familiar shell, real decisions.** Everyone knows the board, but Loaded Die, Swap, Hijack, push-your-luck and the climber's punish-choice turn a luck game into a bluff-and-resource game.
+- **Familiar shell, real decisions.** Everyone knows the board, but Loaded Die, Swap, Hijack and the climber's punish-choice turn a luck game into a bluff-and-resource game.
 - **Vibe *and* forfeits.** Two stake types on one tiered escalation curve means it plays great with toys, with forfeits only (no devices needed), or both — and the back half of the board is always the spicy half because stakes scale with height.
 - **Pure reuse.** Seeded sync, forfeit deck + tiers, intensity slider, hijack, cooperate/betray, results flow, haptics — all lifted from existing games. The only genuinely new code is board generation and the turn UI.
 </content>
