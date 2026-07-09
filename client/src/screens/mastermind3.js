@@ -51,7 +51,9 @@ export function renderMastermind3(root) {
   const roundWins = { host: 0, guest: 0, guest2: 0 };
 
   // Powerup / turn state
-  let myCharges = 0;
+  // Charges are mirrored for all three roles (not just myRole) so a received
+  // MM_POWERUP can be validated against the actual sender's balance/turn.
+  const charges = { host: 0, guest: 0, guest2: 0 };
   let hintedSlots = [];        // { index, color }[] (shared)
   const skipNext = new Set();  // roles whose next turn is skipped
 
@@ -140,7 +142,7 @@ export function renderMastermind3(root) {
 
   function renderHeader() {
     roundLabel.textContent = `Round ${roundIndex + 1} of ${totalRounds}`;
-    chargesEl.textContent = `⚡ ${myCharges}`;
+    chargesEl.textContent = `⚡ ${charges[myRole]}`;
     ROLES.forEach(r => {
       const el = root.querySelector(`#mm3-score-${r}`);
       if (el) el.textContent = `${nameForRole(r)}: ${roundWins[r]}`;
@@ -242,7 +244,7 @@ export function renderMastermind3(root) {
     powerupBar.innerHTML = '';
     for (const pu of POWERUPS) {
       const btn = document.createElement('button');
-      const canUse = myCharges >= pu.cost && isMyTurn();
+      const canUse = charges[myRole] >= pu.cost && isMyTurn();
       btn.className = 'mm-powerup-btn ghost' + (canUse ? '' : ' mm-powerup-disabled');
       btn.disabled = !canUse;
       btn.title = pu.id === 'skip' ? "Skip the next player's turn" : pu.desc;
@@ -314,9 +316,9 @@ export function renderMastermind3(root) {
   function applyGuess(role, guess) {
     const positions = evaluateGuessPositional(code, guess);
     guessHistory.push({ guess, feedback: positions, role });
+    charges[role] += chargesFromGuess(positions);
 
     if (role === myRole) {
-      myCharges += chargesFromGuess(positions);
       if (!positions.every(p => p === 'place')) {
         const myWrong = guessHistory
           .filter(g => g.role === myRole && !g.feedback.every(p => p === 'place'))
@@ -376,14 +378,14 @@ export function renderMastermind3(root) {
 
   function usePowerup(type) {
     const pu = POWERUPS.find(p => p.id === type);
-    if (!pu || myCharges < pu.cost || !isMyTurn()) return;
+    if (!pu || charges[myRole] < pu.cost || !isMyTurn()) return;
 
-    myCharges -= pu.cost;
+    charges[myRole] -= pu.cost;
     renderHeader();
 
     if (type === 'hint') {
       const unhinted = code.map((_, i) => i).filter(i => !hintedSlots.find(h => h.index === i));
-      if (unhinted.length === 0) { myCharges += pu.cost; renderHeader(); return; }
+      if (unhinted.length === 0) { charges[myRole] += pu.cost; renderHeader(); return; }
       const slotIndex = unhinted[Math.floor(Math.random() * unhinted.length)];
       const color = code[slotIndex];
       hintedSlots.push({ index: slotIndex, color });
@@ -405,7 +407,7 @@ export function renderMastermind3(root) {
       renderBoard();
       showTurnNotice('+1 guess added to the board!');
     } else if (type === 'remove_guess') {
-      if (roundConfig.guesses - guessHistory.length <= 1) { myCharges += pu.cost; renderHeader(); return; }
+      if (roundConfig.guesses - guessHistory.length <= 1) { charges[myRole] += pu.cost; renderHeader(); return; }
       roundConfig = { ...roundConfig, guesses: roundConfig.guesses - 1 };
       socket.send({ type: MSG.MM_POWERUP, powerup: 'remove_guess' });
       renderBoard();
@@ -653,34 +655,46 @@ export function renderMastermind3(root) {
     if (phase !== 'playing') return;
     const guess = ev.detail?.guess;
     const role = ev.detail?.role;
-    if (!Array.isArray(guess) || !role || role === myRole) return;
+    if (!Array.isArray(guess) || guess.length !== code.length || !role || role === myRole) return;
     applyGuess(role, guess);
   }
 
   function onMmPowerup(ev) {
     const { powerup, slotIndex, color, role } = ev.detail || {};
-    if (!role || role === myRole) return;
+    if (!role || role === myRole || !ROLES.includes(role)) return;
+    const pu = POWERUPS.find(p => p.id === powerup);
+    if (!pu || charges[role] < pu.cost || currentRole !== role || phase !== 'playing') return;
+
     if (powerup === 'hint') {
+      if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= code.length) return;
+      if (hintedSlots.some(h => h.index === slotIndex)) return;
+      charges[role] -= pu.cost;
       hintedSlots.push({ index: slotIndex, color });
       renderHints();
       renderCurrentRow();
       showTurnNotice(`${nameForRole(role)} used Hint — Slot ${slotIndex + 1} = ${color}`);
     } else if (powerup === 'zap') {
+      charges[role] -= pu.cost;
       haptics.testVibe(0.9);
       showTurnNotice(`⚡ Zapped by ${nameForRole(role)}!`);
     } else if (powerup === 'skip') {
+      charges[role] -= pu.cost;
       const target = nextRoleAfter(role);
       skipNext.add(target);
       showTurnNotice(`${nameForRole(role)} used Skip on ${target === myRole ? 'you' : nameForRole(target)}!`);
     } else if (powerup === 'add_guess') {
+      charges[role] -= pu.cost;
       roundConfig = { ...roundConfig, guesses: roundConfig.guesses + 1 };
       renderBoard();
       showTurnNotice(`${nameForRole(role)} added a guess to the board!`);
     } else if (powerup === 'remove_guess') {
+      if (roundConfig.guesses - guessHistory.length <= 1) return;
+      charges[role] -= pu.cost;
       roundConfig = { ...roundConfig, guesses: roundConfig.guesses - 1 };
       renderBoard();
       showTurnNotice(`${nameForRole(role)} removed a guess from the board!`);
     }
+    renderHeader();
   }
 
   function onMmRoundReady(ev) {

@@ -49,7 +49,7 @@ export function renderLobby(root) {
   let selectedSnlFinalRule = 'exact';
   let selectedSnlPowerups = true;
   let selectedSnlCoopBetray = false;
-  let selectedSnlForfeitCards = ['vibe', 'edge', 'strip', 'control', 'task', 'surrender'];
+  let selectedSnlForfeitCards = ['vibe', 'edge', 'task', 'surrender'];
   let selectedSnlForfeitLines = [];
   let selectedSnlAmbient = false;
   let selectedSnlTapOut = false;
@@ -535,8 +535,6 @@ export function renderLobby(root) {
           <span style="width:100%">Forfeit cards:</span>
           <button class="mm-rounds-btn mm-rounds-selected" data-snl-card="vibe">⚡ Vibe</button>
           <button class="mm-rounds-btn mm-rounds-selected" data-snl-card="edge">🌀 Edge</button>
-          <button class="mm-rounds-btn mm-rounds-selected" data-snl-card="strip">👕 Strip</button>
-          <button class="mm-rounds-btn mm-rounds-selected" data-snl-card="control">🎛 Control</button>
           <button class="mm-rounds-btn mm-rounds-selected" data-snl-card="task">🪢 Task</button>
           <button class="mm-rounds-btn mm-rounds-selected" data-snl-card="surrender">🏳 Surrender</button>
         </div>

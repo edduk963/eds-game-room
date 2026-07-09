@@ -639,7 +639,7 @@ export function renderLastCall(root) {
         showFeedback(`🔒 ${who} locked their bank`, 'accent');
         break;
       case 'drain':
-        if (target && !finished[target]) {
+        if (target && playerRoles.includes(target) && !finished[target]) {
           if (shielded[target]) {
             shielded[target] = false;
             leechArmed[fromRole] = false;
@@ -659,7 +659,7 @@ export function renderLastCall(root) {
         }
         break;
       case 'tax':
-        if (target && !finished[target]) {
+        if (target && playerRoles.includes(target) && !finished[target]) {
           taxed[target] = true;
           showFeedback(`💸 ${who} taxed ${escapeHtml(playerNames[target])}`, 'warn');
         }
@@ -807,7 +807,7 @@ export function renderLastCall(root) {
   }
 
   // ── Socket handlers ───────────────────────────────────────────────────────────
-  const onGuess   = (ev) => applyGuess(ev.detail.guess);
+  const onGuess   = (ev) => { if (ev.detail.role === currentGuesser) applyGuess(ev.detail.guess); };
   const onResolve = (ev) => applyResolveBank(ev.detail.choice, ev.detail.role);
   const onPowerUp = (ev) => applyPowerUp(ev.detail.puType, ev.detail.role, ev.detail.target);
   const onFinish  = (ev) => applyFinish(ev.detail.role);

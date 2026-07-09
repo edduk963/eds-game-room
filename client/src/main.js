@@ -222,7 +222,7 @@ socket.addEventListener('begin', (ev) => {
   state.snlFinalRule = ev.detail.snlFinalRule || 'exact';
   state.snlPowerups = ev.detail.snlPowerups !== false;
   state.snlCoopBetray = !!ev.detail.snlCoopBetray;
-  state.snlForfeitCards = ev.detail.snlForfeitCards || ['vibe', 'edge', 'strip', 'control', 'task', 'surrender'];
+  state.snlForfeitCards = ev.detail.snlForfeitCards || ['vibe', 'edge', 'task', 'surrender'];
   state.snlForfeitLines = ev.detail.snlForfeitLines || [];
   state.snlAmbient = !!ev.detail.snlAmbient;
   state.snlTapOut = !!ev.detail.snlTapOut;

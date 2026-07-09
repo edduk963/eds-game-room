@@ -50,7 +50,6 @@ function renderController(root) {
           <span id="snl-vibe-pct">50%</span>
           <div class="snl-ctrl-timer" id="snl-ctrl-timer">—</div>
           <div class="snl-ctrl-timer-bar"><div class="snl-ctrl-timer-fill" id="snl-ctrl-timer-fill"></div></div>
-          <button id="snl-ctrl-skip" class="snl-vibe-skip-btn" title="Testing only — cuts the vibe short">Skip (test)</button>
         </div>
         <div id="snl-ctrl-forfeit"></div>
         <div class="snl-status" id="snl-status">Watching the climb…</div>
@@ -162,13 +161,6 @@ function renderController(root) {
       socket.send({ type: MSG.SNL_VIBE_STOP });
     }, (secs + 1) * 1000);
   };
-
-  root.querySelector('#snl-ctrl-skip')?.addEventListener('click', () => {
-    clearTimeout(ctrlSkipTimeout);
-    clearInterval(timerInt);
-    vibeSec.style.display = 'none';
-    socket.send({ type: MSG.SNL_VIBE_STOP });
-  });
 
   const onVibeStop = () => { clearInterval(timerInt); vibeSec.style.display = 'none'; };
 
@@ -289,7 +281,6 @@ function renderClimber(root) {
       <div class="snl-vibe-banner-label" id="snl-vibe-banner-label"></div>
       <div class="snl-vibe-banner-time" id="snl-vibe-banner-time">0s</div>
       <div class="snl-vibe-banner-bar"><div class="snl-vibe-banner-fill" id="snl-vibe-banner-fill"></div></div>
-      <button id="snl-vibe-skip" class="snl-vibe-skip-btn" title="Testing only — cuts the vibe short">Skip (test)</button>
     </div>
     <div class="snl-body">
       <div id="snl-board-wrap"></div>
@@ -362,23 +353,6 @@ function renderClimber(root) {
     clearInterval(bannerInt);
     bannerEl.style.display = 'none';
   }
-
-  // ── testing aid: skip whatever vibe wait is currently blocking play ──
-  function skipVibe() {
-    if (vibeOnExpire) {
-      const cb = vibeOnExpire; vibeOnExpire = null;
-      clearInterval(vibeInt);
-      vibeRow.style.display = 'none';
-      cb();
-    }
-    if (vibeSkipHandler) {
-      const h = vibeSkipHandler; vibeSkipHandler = null;
-      h();
-    }
-    stopVibeBanner();
-    haptics.stopAll();
-  }
-  root.querySelector('#snl-vibe-skip')?.addEventListener('click', skipVibe);
 
   // ── persistent forfeit log, visible to every player at the table ──
   const forfeitLog = [];
@@ -544,7 +518,8 @@ function renderClimber(root) {
         if (byRole === role) { extraRoll = true; setStatus('Double Move — take another roll!'); paintTurnInd(); }
         break;
       case 'hijack':
-        if (byRole === role) { hijackFor[t] = byRole; setStatus(`Hijacked ${name(t)}'s next snake!`); }
+        hijackFor[t] = byRole;
+        if (byRole === role) setStatus(`Hijacked ${name(t)}'s next snake!`);
         break;
       case 'deflect':
         if (byRole === role) { deflect = true; setStatus('Deflect armed — bounces your next snake.'); }
@@ -590,8 +565,9 @@ function renderClimber(root) {
     // Check win
     if (pos[r] >= n) { triggerWin(); return; }
 
-    // Broadcast final position
-    socket.send({ type: MSG.SNL_MOVE_DONE, tile: pos[r], final: true });
+    // Broadcast final position — tag whether a Double Move is still pending so other
+    // clients don't advance the turn pointer while the mover keeps rolling.
+    socket.send({ type: MSG.SNL_MOVE_DONE, tile: pos[r], final: true, extra: extraRoll });
 
     // Extra roll (double move)?
     if (extraRoll) { extraRoll = false; rollBtn.disabled = false; setStatus('Double Move — roll again!'); return; }
@@ -990,11 +966,11 @@ function renderClimber(root) {
 
   // Position sync from active player's afterResolution
   const onMoveDone = ev => {
-    const { role: r, tile, final: isFinal } = ev.detail;
+    const { role: r, tile, final: isFinal, extra } = ev.detail;
     if (!r || !tile) return;
     pos[r] = tile;
     repaintBoard();
-    if (isFinal && r === activeRole() && r !== role) {
+    if (isFinal && !extra && r === activeRole() && r !== role) {
       advanceTurn();
     }
   };
@@ -1246,9 +1222,10 @@ function renderBoard(wrap, board, positions) {
       .filter(([, p]) => p === tile)
       .map(([r]) => `<span class="snl-token snl-token-${r}"></span>`)
       .join('');
+    const tokenWrap = tokens ? `<span class="snl-tokens">${tokens}</span>` : '';
     const destLabel = dest ? `<span class="snl-tile-dest">${dest}</span>` : '';
     const titleAttr = title ? ` title="${title}"` : '';
-    cells.push(`<div class="${cls}" style="grid-column:${col+1};grid-row:${dr+1};${style}"${titleAttr}><span class="snl-tile-num">${tile}</span><span class="snl-tile-icon">${icon}</span>${destLabel}${tokens}</div>`);
+    cells.push(`<div class="${cls}" style="grid-column:${col+1};grid-row:${dr+1};${style}"${titleAttr}><span class="snl-tile-num">${tile}</span><span class="snl-tile-icon">${icon}</span>${destLabel}${tokenWrap}</div>`);
   }
   wrap.innerHTML = `<div class="snl-board" style="--snl-cols:${cols};--snl-rows:${rows}">${cells.join('')}</div>`;
   fitBoard(wrap);
@@ -1314,10 +1291,11 @@ function injectStyles() {
 .snl-cell.snl-pickup{background:#191e35}
 .snl-cell.snl-fork{background:#25201a}
 .snl-cell.snl-finish{background:#2d2515;border:2px solid #fbbf24}
-.snl-token{width:clamp(10px,2.2vh,20px);height:clamp(10px,2.2vh,20px);border-radius:50%;display:inline-block;position:absolute;bottom:2px;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.8),0 1px 3px rgba(0,0,0,.9);z-index:5}
-.snl-token-host{background:#ef4444;right:1px}
-.snl-token-guest{background:#60a5fa;right:16px}
-.snl-token-guest2{background:#a3e635;right:31px}
+.snl-tokens{position:absolute;bottom:2px;left:1px;right:1px;display:flex;justify-content:center;align-items:flex-end;gap:2px;z-index:5}
+.snl-token{width:clamp(8px,2.2vh,20px);aspect-ratio:1;border-radius:50%;flex-shrink:1;min-width:0;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.8),0 1px 3px rgba(0,0,0,.9)}
+.snl-token-host{background:#ef4444}
+.snl-token-guest{background:#60a5fa}
+.snl-token-guest2{background:#a3e635}
 .snl-sidebar{width:168px;flex-shrink:0;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
 .snl-hand-wrap{display:flex;flex-direction:column;gap:3px;min-height:22px}
 .snl-hand-empty{color:#4b5563;font-size:.76em}
@@ -1353,8 +1331,6 @@ function injectStyles() {
 .snl-vibe-banner-time{font-size:2em;font-weight:800;color:#fff;line-height:1;font-variant-numeric:tabular-nums}
 .snl-vibe-banner-bar{width:100%;height:6px;border-radius:3px;background:#2a2a4a;overflow:hidden}
 .snl-vibe-banner-fill{height:100%;background:#f59e0b;width:100%;transition:width 1s linear}
-.snl-vibe-skip-btn{margin-top:2px;background:transparent;border:1px solid #4b5563;color:#9ca3af;padding:2px 8px;border-radius:6px;cursor:pointer;font-size:.68em}
-.snl-vibe-skip-btn:hover{color:#e0e0e0;border-color:#9ca3af}
 .snl-forfeit-log{background:#13131f;border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:6px;min-height:0;flex:1;overflow:hidden}
 .snl-forfeit-log-title{font-size:.76em;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.05em;flex-shrink:0}
 .snl-forfeit-log-list{display:flex;flex-direction:column;gap:5px;overflow-y:auto;min-height:0}

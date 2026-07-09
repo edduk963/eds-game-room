@@ -147,6 +147,9 @@ export function renderUno(root) {
   const scores = { host: 0, guest: 0, guest2: 0 };
   let gs = null;
   let vibeCtrlEndAt = 0;
+  // render() fully replaces root.innerHTML on every action, so the disconnect banner is
+  // rebuilt from this Set inside the template each time rather than mutated out-of-band.
+  const departedRoles = new Set();
 
   // ── Socket handlers ────────────────────────────────────────────────────────
 
@@ -154,7 +157,8 @@ export function renderUno(root) {
     if (!gs || gs.roundOver) return;
     const { cardId, chosenColor, from, swapTarget } = ev.detail;
     if (!from || !playerRoles.includes(from)) return;
-    const card = gs.deck.find(c => c.id === cardId);
+    if (gs.currentPlayer !== from) return;
+    const card = gs.hands[from]?.find(c => c.id === cardId);
     if (!card) return;
 
     gs.hands[from] = gs.hands[from].filter(c => c.id !== card.id);
@@ -214,11 +218,26 @@ export function renderUno(root) {
     haptics.pulse(intensity, 220);
   };
 
+  // Non-destructive: a brief network drop can reconnect within a few seconds, so don't
+  // tear down the round — just warn and offer a way out, clearing it if they come back.
+  const onPeerLeft = (ev) => {
+    const r = ev.detail?.role;
+    if (r && playerRoles.includes(r)) departedRoles.add(r);
+    if (gs) render();
+  };
+  const onPeerReconnected = (ev) => {
+    const r = ev.detail?.role;
+    if (r) departedRoles.delete(r);
+    if (gs) render();
+  };
+
   socket.addEventListener(MSG.UNO_PLAY, onUnoPlay);
   socket.addEventListener(MSG.UNO_DRAW, onUnoDraw);
   socket.addEventListener(MSG.UNO_CALL_UNO, onUnoCallUno);
   socket.addEventListener(MSG.UNO_CHALLENGE, onUnoChallenge);
   socket.addEventListener(MSG.UNO_VIBE_CTRL, onUnoVibeCtrl);
+  socket.addEventListener(MSG.PEER_LEFT, onPeerLeft);
+  socket.addEventListener(MSG.PEER_RECONNECTED, onPeerReconnected);
 
   window.addEventListener('hashchange', () => {
     socket.removeEventListener(MSG.UNO_PLAY, onUnoPlay);
@@ -226,6 +245,8 @@ export function renderUno(root) {
     socket.removeEventListener(MSG.UNO_CALL_UNO, onUnoCallUno);
     socket.removeEventListener(MSG.UNO_CHALLENGE, onUnoChallenge);
     socket.removeEventListener(MSG.UNO_VIBE_CTRL, onUnoVibeCtrl);
+    socket.removeEventListener(MSG.PEER_LEFT, onPeerLeft);
+    socket.removeEventListener(MSG.PEER_RECONNECTED, onPeerReconnected);
     vibeCtrlEndAt = 0;
     socket.send({ type: MSG.UNO_VIBE_CTRL, intensity: 0, from: myRole });
     document.getElementById('uno-vibe-ctrl-panel')?.remove();
@@ -318,6 +339,10 @@ export function renderUno(root) {
     else if (card.type === 'edge') gs.pendingDraw += 1;
     else if (card.type === 'doubledown') gs.pendingDraw = gs.pendingDraw > 0 ? gs.pendingDraw * 2 : 2;
     else gs.pendingDraw = 0;
+    // Server clamps the broadcast UNO_DRAW count to 16 (server/index.js), so stacking
+    // past that would let the drawer's own client pull more cards than everyone else's
+    // clients see it draw, permanently desyncing hand sizes. Clamp here to match.
+    if (gs.pendingDraw > 16) gs.pendingDraw = 16;
 
     if (card.type === 'swaphands' && swapTarget && playerRoles.includes(swapTarget)) {
       const tmp = gs.hands[fromRole];
@@ -419,6 +444,12 @@ export function renderUno(root) {
       ? `<div class="uno-active-color-badge" style="background:${COLOR_HEX[currentColor]}"></div>`
       : '';
 
+    const disconnectHtml = departedRoles.size > 0 ? `
+      <div class="hilo-disconnect-row">
+        <span>${[...departedRoles].map(r => names[r]).join(', ')} disconnected.</span>
+        <button id="uno-return-lobby-btn" class="ghost">Return to Lobby</button>
+      </div>` : '';
+
     root.innerHTML = `
       <div class="uno-game">
         <div class="uno-header">
@@ -426,6 +457,7 @@ export function renderUno(root) {
           <span class="uno-round-badge">Round ${roundNum}/${totalRounds}</span>
           ${oppRoles.map(r => `<span class="uno-scorer">${names[r]} <strong>${scores[r]}</strong></span>`).join('')}
         </div>
+        ${disconnectHtml}
 
         <div class="uno-opp-zones${playerCount >= 3 ? ' uno-3p' : ''}">
           ${oppRoles.map(oppZoneHtml).join('')}
@@ -465,6 +497,11 @@ export function renderUno(root) {
       </div>
     `;
 
+    root.querySelector('#uno-return-lobby-btn')?.addEventListener('click', () => {
+      haptics.stopAll();
+      state.seed = null;
+      navigate(`#/session/${state.sessionId}`);
+    });
     root.querySelector('#btn-draw')?.addEventListener('click', onDraw);
     root.querySelector('#btn-uno')?.addEventListener('click', onCallUno);
     root.querySelector('#my-hand')?.addEventListener('click', e => {

@@ -46,6 +46,7 @@ export function renderMastermind(root) {
 
   // Powerup state
   let myCharges = 0;
+  let oppCharges = 0;      // mirrors the opponent's charge count, used to validate their MM_POWERUP spends
   let myBanked = 0;        // seconds banked from previous wins
   let hintedSlots = [];    // { index, color }[]
 
@@ -901,10 +902,11 @@ export function renderMastermind(root) {
   function onMmGuess(ev) {
     if (phase !== 'playing') return;
     const guess = ev.detail?.guess;
-    if (!Array.isArray(guess)) return;
+    if (!Array.isArray(guess) || guess.length !== code.length) return;
 
     const positions = evaluateGuessPositional(code, guess);
     guessHistory.push({ guess, feedback: positions, by: 'theirs' });
+    oppCharges += chargesFromGuess(positions);
 
     if (!positions.every(p => p === 'place')) {
       const oppWrong = guessHistory.filter(g => g.by === 'theirs' && !g.feedback.every(p => p === 'place')).reduce((s, g) => s + g.feedback.filter(p => p !== 'place').length, 0);
@@ -928,26 +930,38 @@ export function renderMastermind(root) {
 
   function onMmPowerup(ev) {
     const { powerup, slotIndex, color } = ev.detail || {};
+    const pu = POWERUPS.find(p => p.id === powerup);
+    if (!pu || oppCharges < pu.cost || currentTurn !== 'theirs' || phase !== 'playing') return;
+
     if (powerup === 'hint') {
+      if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= code.length) return;
+      if (hintedSlots.some(h => h.index === slotIndex)) return;
+      oppCharges -= pu.cost;
       hintedSlots.push({ index: slotIndex, color });
       renderHints();
       renderCurrentRow();
       showTurnNotice(`Opponent used Hint — Slot ${slotIndex + 1} = ${color}`);
     } else if (powerup === 'zap') {
+      oppCharges -= pu.cost;
       haptics.testVibe(0.9);
       showTurnNotice('⚡ Zapped by opponent!');
     } else if (powerup === 'skip') {
+      oppCharges -= pu.cost;
       myNextTurnSkipped = true;
       showTurnNotice("Opponent used Skip — your next turn is skipped!");
     } else if (powerup === 'add_guess') {
+      oppCharges -= pu.cost;
       roundConfig = { ...roundConfig, guesses: roundConfig.guesses + 1 };
       renderBoard();
       showTurnNotice('Opponent added a guess to the board!');
     } else if (powerup === 'remove_guess') {
+      if (roundConfig.guesses - guessHistory.length <= 1) return;
+      oppCharges -= pu.cost;
       roundConfig = { ...roundConfig, guesses: roundConfig.guesses - 1 };
       renderBoard();
       showTurnNotice('Opponent removed a guess from the board!');
     }
+    renderHeader();
   }
 
   function onMmVibeChoice(ev) {

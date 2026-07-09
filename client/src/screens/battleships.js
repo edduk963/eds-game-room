@@ -135,7 +135,7 @@ export function renderBattleships(root) {
       for (let i = 0; i < 3; i++) {
         const nr = centerR + (ori === 'v' ? i : 0);
         const nc = centerC + (ori === 'h' ? i : 0);
-        if (nr < G && nc < G) cells.push({r: nr, c: nc});
+        if (nr >= 0 && nr < G && nc >= 0 && nc < G) cells.push({r: nr, c: nc});
       }
     } else if (puType === 'depth') {
       const cands = [{r:centerR,c:centerC},{r:centerR-1,c:centerC},{r:centerR+1,c:centerC},{r:centerR,c:centerC-1},{r:centerR,c:centerC+1}];
@@ -599,6 +599,8 @@ export function renderBattleships(root) {
 
   const onBsShot = (ev) => {
     const { r, c } = ev.detail;
+    if (!Number.isInteger(r) || !Number.isInteger(c) || r < 0 || r >= G || c < 0 || c >= G) return;
+    if (myDamage[r][c]) return; // already resolved — ignore a replayed/duplicate shot
     const sid = myGrid[r][c];
     const hit = sid !== null;
 

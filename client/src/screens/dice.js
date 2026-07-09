@@ -259,9 +259,10 @@ export function renderDice(root) {
   // --- Socket events ---
   const onOppRoll = (ev) => {
     const role = ev.detail.role;
-    if (!role || !(role in rolls)) return;
-    rolls[role] = ev.detail.value;
-    faceEls[role].textContent = DICE_FACES[ev.detail.value];
+    const value = ev.detail.value;
+    if (!role || !(role in rolls) || !Number.isInteger(value) || value < 1 || value > 6) return;
+    rolls[role] = value;
+    faceEls[role].textContent = DICE_FACES[value];
     if (allRolled()) revealAndResolve();
     else if (rolls[myRole] === null) rollStatus.textContent = `${nameFor(role)} rolled — your turn!`;
     else rollStatus.textContent = 'Waiting for other players…';

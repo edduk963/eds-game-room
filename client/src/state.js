@@ -49,7 +49,7 @@ export const state = {
   snlFinalRule: 'exact',
   snlPowerups: true,
   snlCoopBetray: false,
-  snlForfeitCards: ['vibe', 'edge', 'strip', 'control', 'task', 'surrender'],
+  snlForfeitCards: ['vibe', 'edge', 'task', 'surrender'],
   snlForfeitLines: [],
   snlAmbient: false,
   snlTapOut: false,
@@ -110,7 +110,7 @@ export function reset() {
   state.snlFinalRule = 'exact';
   state.snlPowerups = true;
   state.snlCoopBetray = false;
-  state.snlForfeitCards = ['vibe', 'edge', 'strip', 'control', 'task', 'surrender'];
+  state.snlForfeitCards = ['vibe', 'edge', 'task', 'surrender'];
   state.snlForfeitLines = [];
   state.snlAmbient = false;
   state.snlTapOut = false;

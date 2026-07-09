@@ -35,16 +35,6 @@ export const FORFEITS = {
     { tier:2, text: 'Edge {d3} times.' },
     { tier:3, text: 'Edge {d6} times.' },
   ],
-  strip: [
-    { tier:1, text: 'Remove one item, or transfer one worn item to your opponent.' },
-    { tier:2, text: 'Down to underwear.' },
-    { tier:3, text: 'Naked until your next ladder.' },
-  ],
-  control: [
-    { tier:1, text: 'Opponent sets your slider level for the next snake.' },
-    { tier:2, text: 'Follow your opponent\'s orders on how to play your next turn.' },
-    { tier:3, text: 'Opponent controls how you play for 3 turns.' },
-  ],
   task: [
     { tier:1, text: '2 minutes of naked exercise.' },
     { tier:2, text: 'Put on {d3} pegs.' },

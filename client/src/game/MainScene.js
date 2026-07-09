@@ -299,6 +299,7 @@ export class MainScene extends Phaser.Scene {
     if (this.score < 100) return;
     this._addScore(-100);
     this._addVTime(10);
+    this.onVibeOpponent(5);
     this._flashBanner('-100 → +10s forfeit', '#cc44ff');
   }
 

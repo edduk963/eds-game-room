@@ -303,22 +303,26 @@ export function renderHilo(root) {
     });
   }
 
-  function isPowerUpUsable(type) {
+  // Parameterized so the same turn/phase rules can validate a *remote* powerup
+  // use (applyPowerUpUse) as well as gating the local player's own buttons.
+  function isPowerUpUsableBy(type, r) {
     if (phase !== 'playing') return false;
+    const myTurn = r === currentRole;
     if (type === 'freeLife')      return true;
-    if (type === 'doubleTime')    return isMyTurn() && !doubleTimeQueued;
-    if (type === 'allOrNothing')  return isMyTurn() && !allOrNothingActive;
-    if (type === 'peek')          return isMyTurn() && !peekVisible && cardIndex + 1 < deck.length;
-    if (type === 'skip')          return isMyTurn() && cardIndex + 1 < deck.length;
-    if (type === 'freeze')        return isMyTurn() && !freezeActive && vibeTargets.length > 0;
-    if (type === 'surge')         return isMyTurn();
-    if (type === 'chain')         return isMyTurn() && playerCount === 3 && !chainActive;
-    if (type === 'maxIntensity')  return isMyTurn() && vibeCountdown > 0 && vibeTargets.length > 0;
-    if (type === 'shield')        return !shielded[myRole];
-    if (type === 'mirror')        return !isMyTurn() && vibeCountdown > 0 && !mirrorActive;
-    if (type === 'deflect')       return !isMyTurn() && vibeCountdown > 0 && vibeTargets.includes(myRole);
+    if (type === 'doubleTime')    return myTurn && !doubleTimeQueued;
+    if (type === 'allOrNothing')  return myTurn && !allOrNothingActive;
+    if (type === 'peek')          return myTurn && !peekVisible && cardIndex + 1 < deck.length;
+    if (type === 'skip')          return myTurn && cardIndex + 1 < deck.length;
+    if (type === 'freeze')        return myTurn && !freezeActive && vibeTargets.length > 0;
+    if (type === 'surge')         return myTurn;
+    if (type === 'chain')         return myTurn && playerCount === 3 && !chainActive;
+    if (type === 'maxIntensity')  return myTurn && vibeCountdown > 0 && vibeTargets.length > 0;
+    if (type === 'shield')        return !shielded[r];
+    if (type === 'mirror')        return !myTurn && vibeCountdown > 0 && !mirrorActive;
+    if (type === 'deflect')       return !myTurn && vibeCountdown > 0 && vibeTargets.includes(r);
     return false;
   }
+  function isPowerUpUsable(type) { return isPowerUpUsableBy(type, myRole); }
 
   function puTooltip(type) {
     return {
@@ -554,6 +558,7 @@ export function renderHilo(root) {
     if (!inv) return;
     const idx = inv.findIndex(p => p.type === type);
     if (idx === -1) return;
+    if (!isPowerUpUsableBy(type, fromRole)) return;
     inv.splice(idx, 1);
 
     const actorLabel = fromRole === myRole ? 'You' : escapeHtml(playerNames[fromRole]);

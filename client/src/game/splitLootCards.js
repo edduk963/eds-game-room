@@ -31,11 +31,11 @@ export function resolveCard(card, pickerKey, gs, rng) {
   const CLAIM   = Object.keys(CLAIM_CARDS);
 
   if (INSTANT.includes(card.id)) {
-    return resolveInstant(card, pickerKey, gs);
+    return resolveInstant(card, pickerKey, gs, rng);
   }
   if (DOUBLE.includes(card.id)) {
     const good = rng() >= 0.5;
-    return resolveDouble(card, pickerKey, gs, good);
+    return resolveDouble(card, pickerKey, gs, good, rng);
   }
   if (CLAIM.includes(card.id)) {
     gs.players[pickerKey].cards.push({ ...CLAIM_CARDS[card.id] });
@@ -50,7 +50,7 @@ function playerName(key, gs) {
 
 function other(key) { return key === 'A' ? 'B' : 'A'; }
 
-function resolveInstant(card, key, gs) {
+function resolveInstant(card, key, gs, rng) {
   const opp = key === 'A' ? 'B' : 'A';
   const name = playerName(key, gs);
   switch (card.id) {
@@ -91,7 +91,7 @@ function resolveInstant(card, key, gs) {
         }
       }
       if (candidates.length) {
-        const idx = Math.floor(Math.random() * candidates.length);
+        const idx = Math.floor(rng() * candidates.length);
         const p = candidates[idx];
         const room = gs.rooms[gs.players[opp].position.room];
         room.pads.push({ x: p.x, y: p.y, type: 'distraction' });
@@ -104,7 +104,7 @@ function resolveInstant(card, key, gs) {
   }
 }
 
-function resolveDouble(card, key, gs, good) {
+function resolveDouble(card, key, gs, good, rng) {
   const name = playerName(key, gs);
   switch (card.id) {
     case 'gamble':
@@ -147,7 +147,7 @@ function resolveDouble(card, key, gs, good) {
         }
         return { log: `${name} found a shortcut — advanced a room` };
       } else {
-        const randRoom = Math.floor(Math.random() * 3);
+        const randRoom = Math.floor(rng() * 3);
         gs.players[key].position = { room: randRoom, x: gs.rooms[randRoom].entry.x, y: gs.rooms[randRoom].entry.y };
         return { log: `${name} used a shortcut — ended up somewhere unexpected` };
       }

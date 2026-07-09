@@ -248,7 +248,7 @@ wss.on('connection', (ws) => {
       const snlFinalRule = ['exact', 'pass'].includes(msg.snlFinalRule) ? msg.snlFinalRule : 'exact';
       const snlPowerups = msg.snlPowerups !== false;
       const snlCoopBetray = !!msg.snlCoopBetray;
-      const VALID_SNL_FORFEITS = ['vibe', 'edge', 'strip', 'control', 'task', 'surrender'];
+      const VALID_SNL_FORFEITS = ['vibe', 'edge', 'task', 'surrender'];
       const snlForfeitCards = Array.isArray(msg.snlForfeitCards) ? msg.snlForfeitCards.filter(c => VALID_SNL_FORFEITS.includes(c)) : VALID_SNL_FORFEITS;
       const snlForfeitLines = Array.isArray(msg.snlForfeitLines) ? msg.snlForfeitLines.filter(c => typeof c === 'string').map(c => c.slice(0, 200)).slice(0, 100) : [];
       const snlAmbient = !!msg.snlAmbient;
@@ -338,7 +338,7 @@ wss.on('connection', (ws) => {
         snlFinalRule: ['exact', 'pass'].includes(msg.snlFinalRule) ? msg.snlFinalRule : 'exact',
         snlPowerups: msg.snlPowerups !== false,
         snlCoopBetray: !!msg.snlCoopBetray,
-        snlForfeitCards: Array.isArray(msg.snlForfeitCards) ? msg.snlForfeitCards.filter(c => ['vibe','edge','strip','control','task','surrender'].includes(c)) : ['vibe','edge','strip','control','task','surrender'],
+        snlForfeitCards: Array.isArray(msg.snlForfeitCards) ? msg.snlForfeitCards.filter(c => ['vibe','edge','task','surrender'].includes(c)) : ['vibe','edge','task','surrender'],
         snlForfeitLines: Array.isArray(msg.snlForfeitLines) ? msg.snlForfeitLines.filter(c => typeof c === 'string').map(c => c.slice(0, 200)).slice(0, 100) : [],
         snlAmbient: !!msg.snlAmbient,
         snlTapOut: !!msg.snlTapOut,
@@ -808,8 +808,23 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.type === 'so_commit' && msg.fields && typeof msg.fields === 'object') {
-      if (role === 'host') s.soHostCommit = msg;
-      else s.soGuestCommit = msg;
+      // The server doesn't track Standoff's round/pool state, so it can't verify the
+      // committed total matches the allowed token pool — but it can at least reject
+      // absurd per-field values so a modified client can't auto-win every field.
+      const VALID_SO_POWER_IDS = ['surge', 'intel', 'reinforce', 'sabotage', 'forfeit', 'ghost'];
+      const safeFields = {};
+      for (const [fieldId, count] of Object.entries(msg.fields).slice(0, 8)) {
+        if (typeof fieldId === 'string' && fieldId.length <= 32 && Number.isInteger(count)) {
+          safeFields[fieldId] = Math.max(0, Math.min(14, count));
+        }
+      }
+      const safeCommit = {
+        fields: safeFields,
+        powersUsed: Array.isArray(msg.powersUsed) ? msg.powersUsed.filter(p => VALID_SO_POWER_IDS.includes(p)) : [],
+        intelField: typeof msg.intelField === 'string' ? msg.intelField.slice(0, 32) : null,
+      };
+      if (role === 'host') s.soHostCommit = safeCommit;
+      else s.soGuestCommit = safeCommit;
       if (!s.soAutoCommitTimer) {
         s.soAutoCommitTimer = setTimeout(() => {
           if (!s.soHostCommit) s.soHostCommit = { fields: {}, powersUsed: [] };
@@ -1007,7 +1022,9 @@ wss.on('connection', (ws) => {
       const final = !!msg.final;
       // targetRole lets sender move a different player's token (e.g. Deflect powerup)
       const targetRole = ['host', 'guest', 'guest2'].includes(msg.targetRole) ? msg.targetRole : role;
-      broadcast(s, { type: 'snl_move_done', role: targetRole, tile, final }, ws);
+      // extra: true means a Double Move is pending, so recipients shouldn't advance the turn yet
+      const extra = !!msg.extra;
+      broadcast(s, { type: 'snl_move_done', role: targetRole, tile, final, extra }, ws);
       return;
     }
 
@@ -1131,6 +1148,10 @@ wss.on('connection', (ws) => {
     if (msg.type === 'mem_skip_turn') {
       const skippedRole = ['host', 'guest', 'guest2'].includes(msg.role) ? msg.role : null;
       if (!skippedRole) return;
+      // This is meant to skip a *disconnected* player's turn — verify the target's
+      // socket is actually absent so a connected player's turn can't be force-skipped.
+      const isDisconnected = skippedRole === 'host' ? !s.host?.socket : !s[skippedRole];
+      if (!isDisconnected) return;
       broadcast(s, { type: 'mem_skip_turn', role: skippedRole }, ws);
       return;
     }
