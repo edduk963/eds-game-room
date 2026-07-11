@@ -88,15 +88,13 @@ export function buildForfeitDeck(seed, categories, customLines) {
     if (m) deck.push({ tier: parseInt(m[1]), text: m[2].trim(), category: 'custom' });
     else if (line.trim()) deck.push({ tier: 1, text: line.trim(), category: 'custom' });
   }
-  // Custom lines replace the built-in categories (matching Beat the Dealer's forfeit
-  // list) rather than being mixed in — otherwise a handful of typed lines get drowned
-  // out by the ~18-card built-in deck and effectively never get drawn.
-  if (deck.length === 0) {
-    for (const cat of categories) {
-      if (!FORFEITS[cat]) continue;
-      for (const card of FORFEITS[cat]) {
-        deck.push({ ...card, category: cat });
-      }
+  // Custom lines are mixed into the full built-in deck rather than replacing it, so a
+  // host's typed-in forfeits show up alongside the standard categories instead of
+  // being the only cards that ever get drawn.
+  for (const cat of categories) {
+    if (!FORFEITS[cat]) continue;
+    for (const card of FORFEITS[cat]) {
+      deck.push({ ...card, category: cat });
     }
   }
   for (let i = deck.length - 1; i > 0; i--) {
