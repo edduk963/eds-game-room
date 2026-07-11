@@ -127,6 +127,8 @@ export function generateBoard(seed, opts) {
   const minGap = Math.max(3, Math.floor(n / 18));
   // A viper must always lurk within this many tiles of the finish — no risk-free coast home.
   const GOAL_GUARD_RANGE = 3;
+  // That guaranteed final viper has to actually hurt — never just a 1-tile nip.
+  const GOAL_GUARD_MIN_FALL = 18;
 
   for (let attempt = 0; attempt < 20; attempt++) {
     const used = new Set([1, n]);
@@ -172,7 +174,9 @@ export function generateBoard(seed, opts) {
         if (!used.has(cand) && !tooClose(cand)) { head = cand; break; }
       }
       if (head === -1) continue;
-      const maxFall = Math.min(head - 1, Math.floor(n * 0.35));
+      // No cap on how far a viper can drop you — the only ceiling on its size is
+      // landing back on square one.
+      const maxFall = head - 1;
       if (maxFall < 1) continue;
       const tail = rand(Math.max(1, head - maxFall), head - 1);
       if (tail < 1 || used.has(tail)) continue;
@@ -186,11 +190,11 @@ export function generateBoard(seed, opts) {
     if (!Object.keys(snakes).some(h => +h >= n - GOAL_GUARD_RANGE)) {
       for (let head = n - 1; head >= Math.max(2, n - GOAL_GUARD_RANGE); head--) {
         if (used.has(head)) continue;
-        const maxFall = Math.min(head - 1, Math.floor(n * 0.35));
-        if (maxFall < 1) continue;
+        const minFall = Math.min(GOAL_GUARD_MIN_FALL, head - 1);
+        if (minFall < 1) continue;
         let placed = false;
         for (let t = 0; t < 10; t++) {
-          const tail = rand(Math.max(1, head - maxFall), head - 1);
+          const tail = rand(1, head - minFall);
           if (tail < 1 || used.has(tail)) continue;
           snakes[head] = tail;
           used.add(head);

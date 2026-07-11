@@ -254,6 +254,9 @@ function renderClimber(root) {
   // counts its OWN forfeits and broadcasts once it crosses the cap, so this never depends
   // on inferring other players' state from network events.
   const ENDURANCE_FORFEIT_CAP = 5;
+  // The Finale vibe (loser gets buzzed when the winner reaches the summit) has no
+  // displayed countdown — players stop it themselves. This is just a runaway guard.
+  const FINALE_VIBE_SAFETY_CAP_SECS = 3600;
   const isEndurance = snlWinCondition === 'endurance' && !isSolo && !isWatched;
   let myForfeitsTaken = 0;
   const outRoles = new Set();
@@ -385,6 +388,19 @@ function renderClimber(root) {
           <div class="snl-log-text">${f.text}</div>
         </div>`).join('')
       : '<div class="snl-log-empty">No forfeits yet</div>';
+  }
+
+  // ── win-screen recap of what everyone ELSE had to take during the match ──
+  function buildForfeitRecap() {
+    const others = forfeitLog.filter(f => f.r !== role);
+    if (!others.length) return '';
+    return `<div class="snl-finale-recap">
+      <div class="snl-finale-recap-title">Forfeits they racked up (${others.length})</div>
+      <div class="snl-finale-recap-list">${others.map(f => `<div class="snl-log-entry">
+        <div class="snl-log-head"><span class="snl-log-name">${name(f.r)}</span><span class="snl-log-tier">T${f.tier}</span></div>
+        <div class="snl-log-text">${f.text}</div>
+      </div>`).join('')}</div>
+    </div>`;
   }
 
   // ── solo ambient ──
@@ -602,6 +618,7 @@ function renderClimber(root) {
     showModal(`<div class="snl-forfeit-card">
       <div class="snl-forfeit-tier">🏆 Summit reached!</div>
       <div class="snl-forfeit-text">You win!</div>
+      ${buildForfeitRecap()}
       <button id="snl-results" class="snl-btn-primary">Results →</button>
     </div>`);
     modalEl.querySelector('#snl-results')?.addEventListener('click', () => { haptics.stopAll(); navigate('#/results'); });
@@ -633,6 +650,7 @@ function renderClimber(root) {
     showModal(`<div class="snl-forfeit-card">
       <div class="snl-forfeit-tier">🏆 Last one standing!</div>
       <div class="snl-forfeit-text">Everyone else tapped out — you win!</div>
+      ${buildForfeitRecap()}
       <button id="snl-results" class="snl-btn-primary">Results →</button>
     </div>`);
     modalEl.querySelector('#snl-results')?.addEventListener('click', () => { haptics.stopAll(); navigate('#/results'); });
@@ -660,16 +678,24 @@ function renderClimber(root) {
     rollBtn.disabled = true;
     haptics.losePattern();
     const { card, idx } = drawForfeit();
-    const secs = forfeitDuration || 30;
-    haptics.startForfeitVibe(secs);
+    // No countdown here on purpose — the Finale vibe runs until the players decide
+    // it's done, not on a clock. FINALE_VIBE_SAFETY_CAP just guards against a
+    // forgotten tab leaving a device buzzing indefinitely.
+    haptics.startForfeitVibe(FINALE_VIBE_SAFETY_CAP_SECS);
     const text = card ? escapeHtml(resolveForfeitText(card, seed, idx)) : 'Finale forfeit!';
-    socket.send({ type: 'final', value: pos[role], vibeSeconds: secs });
+    socket.send({ type: 'final', value: pos[role], vibeSeconds: 0 });
     showModal(`<div class="snl-forfeit-card">
       <div class="snl-forfeit-tier">🏆 Winner reached the summit — Finale!</div>
       <div class="snl-forfeit-text">${text}</div>
-      <div style="color:#f59e0b;margin-top:6px">Vibe for ${secs}s…</div>
-      <button id="snl-results" class="snl-btn-primary" style="margin-top:14px">Results →</button>
+      <div style="color:#f59e0b;margin-top:6px">Vibing — you two decide when it's done.</div>
+      <button id="snl-finale-stop" class="snl-btn-secondary" style="margin-top:10px">Stop Vibe</button>
+      <button id="snl-results" class="snl-btn-primary" style="margin-top:8px">Results →</button>
     </div>`);
+    modalEl.querySelector('#snl-finale-stop')?.addEventListener('click', ev => {
+      haptics.stopAll();
+      ev.currentTarget.disabled = true;
+      ev.currentTarget.textContent = 'Stopped ✓';
+    });
     modalEl.querySelector('#snl-results')?.addEventListener('click', () => { haptics.stopAll(); navigate('#/results'); });
   }
 
@@ -1412,6 +1438,9 @@ function injectStyles() {
 .snl-log-name{color:#e0e0e0;font-weight:600}
 .snl-log-tier{color:#a78bfa;font-weight:700}
 .snl-log-text{font-size:.68em;color:#9ca3af;line-height:1.3;margin-top:2px}
+.snl-finale-recap{width:100%;text-align:left;margin-top:2px}
+.snl-finale-recap-title{font-size:.76em;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.snl-finale-recap-list{display:flex;flex-direction:column;gap:5px;max-height:220px;overflow-y:auto}
 `;
   document.head.appendChild(s);
 }
