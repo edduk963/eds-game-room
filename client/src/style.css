@@ -396,6 +396,24 @@ button.ghost {
 
 .mm-back-btn { flex: 1; min-width: 52px; font-size: 20px; }
 
+/* Lobby: random game picker */
+.random-picker {
+  border: 1px solid #2a3556;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  background: #0d1326;
+}
+.random-picker h2 { margin-top: 0; }
+.random-picker-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 14px;
+}
+.random-picker-btn { min-width: 0; }
+.random-picker-btn:disabled { opacity: 0.5; cursor: default; }
+
 /* Lobby: selectable game tiles */
 .game-tile-selectable { cursor: pointer; transition: border-color 120ms, background 120ms; }
 .game-tile-selectable.selected {

@@ -25,6 +25,7 @@ export function renderLobby(root) {
   let selectedHiloLives = 3;
   let selectedHiloVibeTarget = 'both';
   let selectedStlDifficulty = 'normal';
+  let selectedSoDifficulty = 'beginner';
   let selectedStlForfeitCards = ['truth', 'dare', 'control', 'strip', 'drink', 'surrender'];
   let selectedBtdForfeits = [...DEFAULT_FORFEIT_LINES];
   let selectedBtdMode = 'draw';
@@ -58,6 +59,20 @@ export function renderLobby(root) {
   let selectedMemVibeDurations = [];
   let selectedMemGridSize = '6x6';
   let selectedMemFits = true;
+  let randomDrawGame = null;
+
+  const RANDOM_GAME_POOL = [
+    { key: 'hilo', name: 'Hi-Lo' },
+    { key: 'beatdealer', name: 'Beat the Dealer' },
+    { key: 'mastermind', name: 'Mastermind' },
+    { key: 'dice', name: 'Dice' },
+    { key: 'lastcall', name: 'Last Call' },
+    { key: 'uno', name: 'UNO' },
+    { key: 'memory', name: 'Memory Match' },
+    { key: 'battleships', name: 'Battleships' },
+    { key: 'standoff', name: 'Standoff' },
+    { key: 'snakes', name: 'Vipers & Vines' },
+  ];
 
   root.innerHTML = `
     <div class="card">
@@ -78,6 +93,16 @@ export function renderLobby(root) {
           <div class="role">Guest 2</div>
         </div>
       </div>
+      ${state.devMode ? '' : `
+      <div class="random-picker" id="random-picker">
+        <h2>🎲 Random Game</h2>
+        <p class="subtitle">Tap a game to exclude it from the draw, then randomize — its rules come pre-set.</p>
+        <div class="random-picker-grid" id="random-picker-grid">
+          ${RANDOM_GAME_POOL.map(g => `<button type="button" class="mm-rounds-btn mm-rounds-selected random-picker-btn" data-random-game="${g.key}">${g.name}</button>`).join('')}
+        </div>
+        <button id="randomize-btn">🎲 Randomize</button>
+      </div>
+      `}
       <h2>Choose a game</h2>
       <div class="game-list" id="game-list">
         ${state.devMode ? `
@@ -278,6 +303,19 @@ export function renderLobby(root) {
           <button class="mm-rounds-btn mm-rounds-selected" data-stl-card="surrender">Surrender</button>
         </div>
       </div>
+      <div id="so-config" style="display:none">
+        <div class="mm-rounds-row">
+          <span>Difficulty:</span>
+          <div class="mm-rounds-btns" id="so-diff-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-so-diff="beginner" title="Round 1 has only the 4 plain battlefields — special-rule fields are introduced a couple at a time in later rounds">Beginner</button>
+            <button class="mm-rounds-btn ghost" data-so-diff="experienced" title="All 5 battlefields (including special-rule fields) are set from round 1, as usual">Experienced</button>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.55;margin-top:8px;">
+          <strong>Beginner</strong> — battlefields start simple and gain special rules gradually across rounds, clearly marked NEW.
+          <strong>Experienced</strong> — all battlefields and their special rules are in play from round 1.
+        </div>
+      </div>
       <div id="uno-config" style="display:none">
         <div class="mm-rounds-row">
           <span>Rounds:</span>
@@ -318,25 +356,25 @@ export function renderLobby(root) {
         </div>
       </div>
       <div id="btd-config" style="display:none">
-        <div class="mm-rounds-row">
+        <div class="mm-rounds-row" id="btd-gamemode-row">
           <span>Game mode:</span>
           <div class="mm-rounds-btns" id="btd-gamemode-btns">
             <button class="mm-rounds-btn mm-rounds-selected" data-btd-gamemode="dealer" title="Players race a dealer card — anyone who doesn't beat the dealer suffers">Vs Dealer</button>
             <button class="mm-rounds-btn ghost" data-btd-gamemode="h2h" title="No dealer — players lay a card, highest wins, everyone below the top suffers">Head to Head</button>
           </div>
         </div>
-        <div style="font-size:12px;color:var(--muted);line-height:1.55;margin:-2px 0 8px;">
+        <div id="btd-gamemode-desc" style="font-size:12px;color:var(--muted);line-height:1.55;margin:-2px 0 8px;">
           <strong>Vs Dealer</strong> — every player lays a card against one dealer card; anyone who doesn't beat it takes the forfeit.
           <strong>Head to Head</strong> — no dealer; highest card laid is safe (ties at the top are all safe), everyone below takes the forfeit. Works for 2 or 3 players.
         </div>
-        <div class="mm-rounds-row">
+        <div class="mm-rounds-row" id="btd-forfeitmode-row">
           <span>Forfeit mode:</span>
           <div class="mm-rounds-btns" id="btd-mode-btns">
             <button class="mm-rounds-btn mm-rounds-selected" data-btd-mode="draw" title="The forfeit stays hidden until someone loses, then it's drawn">Draw</button>
             <button class="mm-rounds-btn ghost" data-btd-mode="reveal" title="The round's forfeit is shown before you play your card">Reveal</button>
           </div>
         </div>
-        <div style="font-size:12px;color:var(--muted);line-height:1.55;margin:-2px 0 8px;">
+        <div id="btd-forfeitmode-desc" style="font-size:12px;color:var(--muted);line-height:1.55;margin:-2px 0 8px;">
           <strong>Draw</strong> — the forfeit is hidden until someone loses the round, then drawn from the deck.
           <strong>Reveal</strong> — the round's forfeit is shown up front, so you know the stakes before playing.
         </div>
@@ -430,7 +468,7 @@ export function renderLobby(root) {
         <div class="mm-rounds-row" style="margin-top:4px;">
           <span>Miss vibe:</span>
           <div class="mm-rounds-btns" id="bs-vibe-mult-btns">
-            <button class="mm-rounds-btn ghost" data-bs-mult="1">Off</button>
+            <button class="mm-rounds-btn ghost" data-bs-mult="0">Off</button>
             <button class="mm-rounds-btn mm-rounds-selected" data-bs-mult="1.5">Low</button>
             <button class="mm-rounds-btn ghost" data-bs-mult="2">Medium</button>
             <button class="mm-rounds-btn ghost" data-bs-mult="3">High</button>
@@ -438,7 +476,7 @@ export function renderLobby(root) {
         </div>
       </div>
       <div id="memory-config" style="display:none">
-        <div class="mm-rounds-row">
+        <div class="mm-rounds-row" id="mem-mode-row">
           <span>Mode:</span>
           <div class="mm-rounds-btns" id="mem-mode-btns">
             <button class="mm-rounds-btn mm-rounds-selected" data-mem-mode="versus" title="2-3 players take turns flipping cards, competing to find the win pair">Versus</button>
@@ -447,7 +485,7 @@ export function renderLobby(root) {
           </div>
         </div>
         <div style="font-size:12px;color:var(--muted);line-height:1.55;margin:-2px 0 8px;" id="mem-mode-desc"></div>
-        <div class="mm-rounds-row" style="margin-top:4px;">
+        <div class="mm-rounds-row" id="mem-grid-row" style="margin-top:4px;">
           <span>Grid size:</span>
           <div class="mm-rounds-btns" id="mem-grid-btns">
             <button class="mm-rounds-btn ghost" data-mem-grid="4x4">4×4</button>
@@ -471,7 +509,7 @@ export function renderLobby(root) {
         <div id="mem-budget-msg" style="font-size:12px;margin-top:6px;"></div>
       </div>
       <div id="snl-config" style="display:none">
-        <div class="mm-rounds-row">
+        <div class="mm-rounds-row" id="snl-mode-row">
           <span>Players:</span>
           <div class="mm-rounds-btns" id="snl-mode-btns">
             <button class="mm-rounds-btn mm-rounds-selected" data-snl-mode="versus">Versus (2–3P)</button>
@@ -479,7 +517,7 @@ export function renderLobby(root) {
             <button class="mm-rounds-btn ghost" data-snl-mode="watched">Watched</button>
           </div>
         </div>
-        <div class="mm-rounds-row" style="margin-top:4px;">
+        <div class="mm-rounds-row" id="snl-board-row" style="margin-top:4px;">
           <span>Board size:</span>
           <div class="mm-rounds-btns" id="snl-board-btns">
             <button class="mm-rounds-btn ghost" data-snl-board="short">Short (60)</button>
@@ -487,7 +525,7 @@ export function renderLobby(root) {
             <button class="mm-rounds-btn ghost" data-snl-board="long">Long (150)</button>
           </div>
         </div>
-        <div class="mm-rounds-row" style="margin-top:4px;">
+        <div class="mm-rounds-row" id="snl-density-row" style="margin-top:4px;">
           <span>Density:</span>
           <div class="mm-rounds-btns" id="snl-density-btns">
             <button class="mm-rounds-btn ghost" data-snl-density="tame">Tame</button>
@@ -495,7 +533,7 @@ export function renderLobby(root) {
             <button class="mm-rounds-btn ghost" data-snl-density="brutal">Brutal</button>
           </div>
         </div>
-        <div class="mm-rounds-row" style="margin-top:4px;">
+        <div class="mm-rounds-row" id="snl-stake-row" style="margin-top:4px;">
           <span>Stakes:</span>
           <div class="mm-rounds-btns" id="snl-stake-btns">
             <button class="mm-rounds-btn ghost" data-snl-stake="vibe">Vibe only</button>
@@ -503,7 +541,7 @@ export function renderLobby(root) {
             <button class="mm-rounds-btn mm-rounds-selected" data-snl-stake="mixed">Mixed</button>
           </div>
         </div>
-        <div class="mm-rounds-row" style="margin-top:4px;">
+        <div class="mm-rounds-row" id="snl-win-row" style="margin-top:4px;">
           <span>Win condition:</span>
           <div class="mm-rounds-btns" id="snl-win-btns">
             <button class="mm-rounds-btn mm-rounds-selected" data-snl-win="race">Race</button>
@@ -517,7 +555,7 @@ export function renderLobby(root) {
             <button class="mm-rounds-btn ghost" data-snl-final="pass">Pass</button>
           </div>
         </div>
-        <div class="mm-rounds-row" style="margin-top:4px;">
+        <div class="mm-rounds-row" id="snl-powerups-row" style="margin-top:4px;">
           <span>Powerups:</span>
           <div class="mm-rounds-btns" id="snl-powerups-btns">
             <button class="mm-rounds-btn mm-rounds-selected" data-snl-powerups="on">On</button>
@@ -607,12 +645,16 @@ export function renderLobby(root) {
   const startBtn = root.querySelector('#start');
   const errEl = root.querySelector('#err');
   const gameList = root.querySelector('#game-list');
+  const randomPickerGrid = root.querySelector('#random-picker-grid');
+  const randomizeBtn = root.querySelector('#randomize-btn');
   const unoConfig = root.querySelector('#uno-config');
   const unoRoundsBtns = root.querySelector('#uno-rounds-btns');
   const unoPacksGrid = root.querySelector('#uno-packs-grid');
   const mmConfig = root.querySelector('#mm-config');
   const hiloConfig = root.querySelector('#hilo-config');
   const stlConfig = root.querySelector('#stl-config');
+  const soConfig = root.querySelector('#so-config');
+  const soDiffBtns = root.querySelector('#so-diff-btns');
   const roundsBtns = root.querySelector('#rounds-btns');
   const modeBtns = root.querySelector('#mode-btns');
   const forfeitRow = root.querySelector('#forfeit-row');
@@ -634,6 +676,10 @@ export function renderLobby(root) {
   const btdConfig = root.querySelector('#btd-config');
   const btdModeBtns = root.querySelector('#btd-mode-btns');
   const btdGamemodeBtns = root.querySelector('#btd-gamemode-btns');
+  const btdGamemodeRow = root.querySelector('#btd-gamemode-row');
+  const btdGamemodeDesc = root.querySelector('#btd-gamemode-desc');
+  const btdForfeitmodeRow = root.querySelector('#btd-forfeitmode-row');
+  const btdForfeitmodeDesc = root.querySelector('#btd-forfeitmode-desc');
   const btdForfeitsInput = root.querySelector('#btd-forfeits-input');
   const btdForfeitsCount = root.querySelector('#btd-forfeits-count');
   const lcConfig = root.querySelector('#lc-config');
@@ -648,13 +694,19 @@ export function renderLobby(root) {
   const bsGridBtns = root.querySelector('#bs-grid-btns');
   const bsVibeBtns = root.querySelector('#bs-vibe-mult-btns');
   const snlConfig = root.querySelector('#snl-config');
+  const snlModeRow = root.querySelector('#snl-mode-row');
   const snlModeBtns = root.querySelector('#snl-mode-btns');
+  const snlBoardRow = root.querySelector('#snl-board-row');
   const snlBoardBtns = root.querySelector('#snl-board-btns');
+  const snlDensityRow = root.querySelector('#snl-density-row');
   const snlDensityBtns = root.querySelector('#snl-density-btns');
+  const snlStakeRow = root.querySelector('#snl-stake-row');
   const snlStakeBtns = root.querySelector('#snl-stake-btns');
+  const snlWinRow = root.querySelector('#snl-win-row');
   const snlWinBtns = root.querySelector('#snl-win-btns');
   const snlFinalRuleRow = root.querySelector('#snl-finalrule-row');
   const snlFinalRuleBtns = root.querySelector('#snl-finalrule-btns');
+  const snlPowerupsRow = root.querySelector('#snl-powerups-row');
   const snlPowerupsBtns = root.querySelector('#snl-powerups-btns');
   const snlForkRow = root.querySelector('#snl-fork-row');
   const snlForkBtns = root.querySelector('#snl-fork-btns');
@@ -665,8 +717,10 @@ export function renderLobby(root) {
   const snlTapOutRow = root.querySelector('#snl-tapout-row');
   const snlTapOutBtns = root.querySelector('#snl-tapout-btns');
   const memConfig = root.querySelector('#memory-config');
+  const memModeRow = root.querySelector('#mem-mode-row');
   const memModeBtns = root.querySelector('#mem-mode-btns');
   const memModeDesc = root.querySelector('#mem-mode-desc');
+  const memGridRow = root.querySelector('#mem-grid-row');
   const memGridBtns = root.querySelector('#mem-grid-btns');
   const memForfeitsInput = root.querySelector('#mem-forfeits-input');
   const memVibeDurationsRow = root.querySelector('#mem-vibe-durations-row');
@@ -691,6 +745,13 @@ export function renderLobby(root) {
   }
 
   function paintOptions() {
+    if (randomizeBtn) randomizeBtn.disabled = state.role !== 'host';
+    if (randomPickerGrid) {
+      randomPickerGrid.querySelectorAll('[data-random-game]').forEach(b => {
+        b.disabled = state.role !== 'host';
+      });
+    }
+    const isRandomLocked = randomDrawGame !== null && randomDrawGame === selectedGame;
     btdConfig.style.display = selectedGame === 'beatdealer' ? 'block' : 'none';
     btdModeBtns.querySelectorAll('[data-btd-mode]').forEach(b => {
       const sel = b.dataset.btdMode === selectedBtdMode;
@@ -712,12 +773,17 @@ export function renderLobby(root) {
     btdForfeitsCount.textContent = selectedBtdForfeits.length
       ? `${selectedBtdForfeits.length} forfeit${selectedBtdForfeits.length === 1 ? '' : 's'} in the deck`
       : 'Empty — using built-in forfeits';
+    const btdLocked = selectedGame === 'beatdealer' && isRandomLocked;
+    btdGamemodeRow.style.display = btdLocked ? 'none' : '';
+    btdGamemodeDesc.style.display = btdLocked ? 'none' : '';
+    btdForfeitmodeRow.style.display = btdLocked ? 'none' : '';
+    btdForfeitmodeDesc.style.display = btdLocked ? 'none' : '';
     root.querySelectorAll('.game-tile-selectable').forEach(t =>
       t.classList.toggle('selected', t.dataset.game === selectedGame)
     );
-    mmConfig.style.display = selectedGame === 'mastermind' ? 'block' : 'none';
-    diceConfig.style.display = selectedGame === 'dice' ? 'block' : 'none';
-    bsConfig.style.display = selectedGame === 'battleships' ? 'block' : 'none';
+    mmConfig.style.display = (selectedGame === 'mastermind' && !isRandomLocked) ? 'block' : 'none';
+    diceConfig.style.display = (selectedGame === 'dice' && !isRandomLocked) ? 'block' : 'none';
+    bsConfig.style.display = (selectedGame === 'battleships' && !isRandomLocked) ? 'block' : 'none';
     bsGridBtns.querySelectorAll('[data-bs-grid]').forEach(b => {
       const sel = b.dataset.bsGrid === selectedBsGridSize;
       b.classList.toggle('mm-rounds-selected', sel);
@@ -735,7 +801,7 @@ export function renderLobby(root) {
       b.classList.toggle('mm-rounds-selected', sel);
       b.classList.toggle('ghost', !sel);
     });
-    lcConfig.style.display = selectedGame === 'lastcall' ? 'block' : 'none';
+    lcConfig.style.display = (selectedGame === 'lastcall' && !isRandomLocked) ? 'block' : 'none';
     lcMinutesRow.style.display = selectedLcTimer ? 'flex' : 'none';
     lcTimerBtns.querySelectorAll('[data-lc-timer]').forEach(b => {
       const sel = (b.dataset.lcTimer === 'on') === selectedLcTimer;
@@ -757,8 +823,15 @@ export function renderLobby(root) {
       b.classList.toggle('mm-rounds-selected', sel);
       b.classList.toggle('ghost', !sel);
     });
-    hiloConfig.style.display = selectedGame === 'hilo' ? 'block' : 'none';
+    hiloConfig.style.display = (selectedGame === 'hilo' && !isRandomLocked) ? 'block' : 'none';
     stlConfig.style.display = selectedGame === 'splitloot' ? 'block' : 'none';
+    soConfig.style.display = (selectedGame === 'standoff' && !isRandomLocked) ? 'block' : 'none';
+    soDiffBtns.querySelectorAll('[data-so-diff]').forEach(b => {
+      const sel = b.dataset.soDiff === selectedSoDifficulty;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+      b.disabled = state.role !== 'host';
+    });
     wiConfig.style.display = selectedGame === 'wizardisland' ? 'block' : 'none';
     wiWinBtns.querySelectorAll('[data-wi-win]').forEach(b => {
       const sel = b.dataset.wiWin === selectedWiWinCondition;
@@ -834,6 +907,14 @@ export function renderLobby(root) {
     const isSnl = selectedGame === 'snakes';
     snlConfig.style.display = isSnl ? 'block' : 'none';
     if (isSnl) {
+      const snlLocked = isRandomLocked;
+      snlModeRow.style.display = snlLocked ? 'none' : '';
+      snlBoardRow.style.display = snlLocked ? 'none' : '';
+      snlDensityRow.style.display = snlLocked ? 'none' : '';
+      snlStakeRow.style.display = snlLocked ? 'none' : '';
+      snlWinRow.style.display = snlLocked ? 'none' : '';
+      snlPowerupsRow.style.display = snlLocked ? 'none' : '';
+      snlCardsRow.style.display = snlLocked ? 'none' : '';
       snlModeBtns.querySelectorAll('[data-snl-mode]').forEach(b => {
         const sel = b.dataset.snlMode === selectedSnlMode;
         b.classList.toggle('mm-rounds-selected', sel);
@@ -864,7 +945,7 @@ export function renderLobby(root) {
         b.classList.toggle('ghost', !sel);
         b.disabled = state.role !== 'host';
       });
-      snlFinalRuleRow.style.display = selectedSnlWinCondition === 'race' ? 'flex' : 'none';
+      snlFinalRuleRow.style.display = (selectedSnlWinCondition === 'race' && !snlLocked) ? 'flex' : 'none';
       snlFinalRuleBtns.querySelectorAll('[data-snl-final]').forEach(b => {
         const sel = b.dataset.snlFinal === selectedSnlFinalRule;
         b.classList.toggle('mm-rounds-selected', sel);
@@ -878,7 +959,7 @@ export function renderLobby(root) {
         b.disabled = state.role !== 'host';
       });
       const vsMode = selectedSnlMode === 'versus';
-      snlForkRow.style.display = vsMode ? 'flex' : 'none';
+      snlForkRow.style.display = (vsMode && !snlLocked) ? 'flex' : 'none';
       snlForkBtns.querySelectorAll('[data-snl-fork]').forEach(b => {
         const sel = (b.dataset.snlFork === 'on') === selectedSnlCoopBetray;
         b.classList.toggle('mm-rounds-selected', sel);
@@ -896,14 +977,14 @@ export function renderLobby(root) {
         snlForfeitsInput.value = selectedSnlForfeitLines.join('\n');
       }
       const soloWatched = selectedSnlMode === 'solo' || selectedSnlMode === 'watched';
-      snlAmbientRow.style.display = soloWatched ? 'flex' : 'none';
+      snlAmbientRow.style.display = (soloWatched && !snlLocked) ? 'flex' : 'none';
       snlAmbientBtns.querySelectorAll('[data-snl-ambient]').forEach(b => {
         const sel = (b.dataset.snlAmbient === 'on') === selectedSnlAmbient;
         b.classList.toggle('mm-rounds-selected', sel);
         b.classList.toggle('ghost', !sel);
         b.disabled = state.role !== 'host';
       });
-      snlTapOutRow.style.display = soloWatched ? 'flex' : 'none';
+      snlTapOutRow.style.display = (soloWatched && !snlLocked) ? 'flex' : 'none';
       snlTapOutBtns.querySelectorAll('[data-snl-tapout]').forEach(b => {
         const sel = (b.dataset.snlTapout === 'on') === selectedSnlTapOut;
         b.classList.toggle('mm-rounds-selected', sel);
@@ -925,6 +1006,10 @@ export function renderLobby(root) {
       b.classList.toggle('ghost', !sel);
       b.disabled = state.role !== 'host';
     });
+    const memLocked = selectedGame === 'memory' && isRandomLocked;
+    memModeRow.style.display = memLocked ? 'none' : '';
+    memModeDesc.style.display = memLocked ? 'none' : '';
+    memGridRow.style.display = memLocked ? 'none' : '';
     memForfeitsInput.disabled = state.role !== 'host';
     if (document.activeElement !== memForfeitsInput) {
       memForfeitsInput.value = selectedMemForfeitLines.join('\n');
@@ -934,7 +1019,7 @@ export function renderLobby(root) {
       memVibeDurationsInput.value = selectedMemVibeDurations.join('\n');
     }
     updateMemBudget();
-    unoConfig.style.display = isUno ? 'block' : 'none';
+    unoConfig.style.display = (isUno && !isRandomLocked) ? 'block' : 'none';
     unoRoundsBtns.querySelectorAll('[data-uno-rounds]').forEach(b => {
       const sel = parseInt(b.dataset.unoRounds, 10) === selectedUnoRounds;
       b.classList.toggle('mm-rounds-selected', sel);
@@ -947,8 +1032,8 @@ export function renderLobby(root) {
       b.classList.toggle('ghost', !sel);
       b.disabled = state.role !== 'host';
     });
-    const hideForfeit = isHilo || isStl || isWi || isBtd || isSo || isBs || isUno || isSnl || isMemory || (isLc && !selectedLcTimer);
-    const noEdge = isHilo || isStl || isWi || isBtd || isSo || isLc || isBs || isUno || isSnl || isMemory;
+    const hideForfeit = isHilo || isStl || isWi || isBtd || isSo || isBs || isUno || isSnl || isMemory || (isLc && !selectedLcTimer) || isRandomLocked;
+    const noEdge = isHilo || isStl || isWi || isBtd || isSo || isLc || isBs || isUno || isSnl || isMemory || isRandomLocked;
     forfeitRow.style.display   = hideForfeit ? 'none' : '';
     edgeModeRow.style.display  = noEdge ? 'none' : '';
     if (noEdge) edgeLivesRow.style.display = 'none';
@@ -998,6 +1083,7 @@ export function renderLobby(root) {
     hiloVibeTarget: selectedHiloVibeTarget,
     stlDifficulty: selectedStlDifficulty,
     stlForfeitCards: selectedStlForfeitCards,
+    soDifficulty: selectedSoDifficulty,
     btdForfeits: selectedBtdForfeits,
     btdMode: selectedBtdMode,
     btdGameMode: selectedBtdGameMode,
@@ -1078,6 +1164,7 @@ export function renderLobby(root) {
     if (ev.detail.hiloVibeTarget)              selectedHiloVibeTarget = ev.detail.hiloVibeTarget;
     if (ev.detail.stlDifficulty)               selectedStlDifficulty = ev.detail.stlDifficulty;
     if (ev.detail.stlForfeitCards)             selectedStlForfeitCards = ev.detail.stlForfeitCards;
+    if (ev.detail.soDifficulty)                 selectedSoDifficulty = ev.detail.soDifficulty;
     if (ev.detail.btdForfeits)                 selectedBtdForfeits = ev.detail.btdForfeits;
     if (ev.detail.btdMode)                     selectedBtdMode = ev.detail.btdMode;
     if (ev.detail.btdGameMode)                 selectedBtdGameMode = ev.detail.btdGameMode;
@@ -1133,9 +1220,106 @@ export function renderLobby(root) {
     const tile = e.target.closest('[data-game]');
     if (!tile) return;
     selectedGame = tile.dataset.game;
+    randomDrawGame = null;
     paintOptions();
     sendConfig();
   });
+
+  if (randomPickerGrid) {
+    randomPickerGrid.addEventListener('click', (e) => {
+      if (state.role !== 'host') return;
+      const btn = e.target.closest('[data-random-game]');
+      if (!btn) return;
+      const included = !btn.classList.contains('mm-rounds-selected');
+      btn.classList.toggle('mm-rounds-selected', included);
+      btn.classList.toggle('ghost', !included);
+    });
+  }
+
+  function applyRandomPreset(key) {
+    selectedGame = key;
+    randomDrawGame = key;
+    switch (key) {
+      case 'hilo':
+        selectedHiloMode = 'submission';
+        selectedHiloDeckSize = 0;
+        selectedHiloVibeRamp = 15;
+        selectedHiloLives = 3;
+        selectedHiloVibeTarget = 'both';
+        break;
+      case 'beatdealer':
+        selectedBtdGameMode = 'dealer';
+        selectedBtdMode = 'reveal';
+        selectedBtdForfeits = [];
+        break;
+      case 'mastermind':
+        selectedRounds = 5;
+        selectedMode = 'hard';
+        selectedForfeit = 30;
+        break;
+      case 'dice':
+        selectedDiceVibeRule = 'all_but_winner';
+        selectedForfeit = 30;
+        selectedEdgeMode = true;
+        break;
+      case 'lastcall':
+        selectedLcTimer = false;
+        selectedLcDeckSize = 3;
+        selectedLcReward = 'full';
+        break;
+      case 'uno':
+        selectedUnoRounds = 5;
+        selectedUnoSpecialPacks = ['plus10', 'edge', 'skipall', 'swaphands', 'doubledown', 'ctrl2'];
+        break;
+      case 'memory':
+        selectedMemMode = 'versus';
+        selectedMemGridSize = '6x6';
+        selectedMemForfeitLines = [];
+        selectedMemVibeDurations = [];
+        break;
+      case 'battleships':
+        selectedBsGridSize = 'large';
+        selectedBsVibeMultiplier = 2;
+        break;
+      case 'standoff':
+        selectedSoDifficulty = 'experienced';
+        break;
+      case 'snakes':
+        selectedSnlMode = 'versus';
+        selectedSnlBoardSize = 'standard';
+        selectedSnlDensity = 'even';
+        selectedSnlStakeMix = 'mixed';
+        selectedSnlWinCondition = 'race';
+        selectedSnlFinalRule = 'exact';
+        selectedSnlPowerups = true;
+        selectedSnlCoopBetray = true;
+        selectedSnlForfeitCards = ['vibe', 'edge', 'task', 'surrender'];
+        selectedSnlForfeitLines = [];
+        break;
+    }
+    paintOptions();
+    sendConfig();
+    const tile = gameList.querySelector(`[data-game="${key}"]`);
+    if (tile) tile.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  if (randomizeBtn) {
+    randomizeBtn.addEventListener('click', () => {
+      if (state.role !== 'host') return;
+      const included = new Set(
+        Array.from(randomPickerGrid.querySelectorAll('[data-random-game]'))
+          .filter(b => b.classList.contains('mm-rounds-selected'))
+          .map(b => b.dataset.randomGame)
+      );
+      const pool = RANDOM_GAME_POOL.filter(g => included.has(g.key));
+      if (!pool.length) {
+        showError(errEl, 'Every game is excluded — include at least one.');
+        return;
+      }
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      applyRandomPreset(pick.key);
+    });
+  }
 
   roundsBtns.addEventListener('click', (e) => {
     if (state.role !== 'host') return;
@@ -1420,6 +1604,12 @@ export function renderLobby(root) {
       paintOptions();
       sendConfig();
     }
+  });
+
+  soConfig.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const diffBtn = e.target.closest('[data-so-diff]');
+    if (diffBtn) { selectedSoDifficulty = diffBtn.dataset.soDiff; paintOptions(); sendConfig(); }
   });
 
   hiloModeBtns.addEventListener('click', (e) => {
