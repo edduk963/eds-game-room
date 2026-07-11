@@ -223,6 +223,7 @@ wss.on('connection', (ws) => {
       const playerCount = !s.guest ? 1 : s.guest2 ? 3 : 2;
       const validStlDifficulties = ['easy', 'normal', 'hard'];
       const stlDifficulty = validStlDifficulties.includes(msg.stlDifficulty) ? msg.stlDifficulty : 'normal';
+      const soDifficulty = ['beginner', 'experienced'].includes(msg.soDifficulty) ? msg.soDifficulty : 'beginner';
       const stlForfeitCards = Array.isArray(msg.stlForfeitCards) ? msg.stlForfeitCards.filter(c => typeof c === 'string').map(c => c.slice(0, 32)).slice(0, 10) : [];
       const btdForfeits = Array.isArray(msg.btdForfeits) ? msg.btdForfeits.filter(c => typeof c === 'string').map(c => c.slice(0, 200)).slice(0, 100) : [];
       const btdMode = msg.btdMode === 'reveal' ? 'reveal' : 'draw';
@@ -261,7 +262,7 @@ wss.on('connection', (ws) => {
       const memGridSize = validMemGridSizes.includes(msg.memGridSize) ? msg.memGridSize : '6x6';
       s.edgeMode = edgeMode;
       const guest2Name = s.guest2?.name ?? null;
-      broadcast(s, { type: 'begin', seed: s.seed, startAt: null, gameType, rounds, mode, forfeitDuration, edgeMode, edgeLives, hiloMode, hiloCycles, hiloDeckSize, hiloVibeRamp, hiloLives, hiloVibeTarget, playerCount, guest2Name, stlDifficulty, stlForfeitCards, btdForfeits, btdMode, btdGameMode, wiWinCondition, wiSpellLimit, diceVibeRule, lcTimer, lcMinutes, lcDeckSize, lcReward, bsGridSize, bsVibeMultiplier, unoSpecialPacks, snlMode, snlBoardSize, snlDensity, snlStakeMix, snlVibeScale, snlWinCondition, snlFinalRule, snlPowerups, snlCoopBetray, snlForfeitCards, snlForfeitLines, snlAmbient, snlTapOut, memMode, memForfeitLines, memVibeDurations, memGridSize });
+      broadcast(s, { type: 'begin', seed: s.seed, startAt: null, gameType, rounds, mode, forfeitDuration, edgeMode, edgeLives, hiloMode, hiloCycles, hiloDeckSize, hiloVibeRamp, hiloLives, hiloVibeTarget, playerCount, guest2Name, stlDifficulty, stlForfeitCards, soDifficulty, btdForfeits, btdMode, btdGameMode, wiWinCondition, wiSpellLimit, diceVibeRule, lcTimer, lcMinutes, lcDeckSize, lcReward, bsGridSize, bsVibeMultiplier, unoSpecialPacks, snlMode, snlBoardSize, snlDensity, snlStakeMix, snlVibeScale, snlWinCondition, snlFinalRule, snlPowerups, snlCoopBetray, snlForfeitCards, snlForfeitLines, snlAmbient, snlTapOut, memMode, memForfeitLines, memVibeDurations, memGridSize });
       return;
     }
 
@@ -315,6 +316,7 @@ wss.on('connection', (ws) => {
         hiloVibeTarget: ['both', 'highest_lives', 'random'].includes(msg.hiloVibeTarget) ? msg.hiloVibeTarget : 'both',
         stlDifficulty: ['easy', 'normal', 'hard'].includes(msg.stlDifficulty) ? msg.stlDifficulty : 'normal',
         stlForfeitCards: Array.isArray(msg.stlForfeitCards) ? msg.stlForfeitCards.filter(c => typeof c === 'string').map(c => c.slice(0, 32)).slice(0, 10) : [],
+        soDifficulty: ['beginner', 'experienced'].includes(msg.soDifficulty) ? msg.soDifficulty : 'beginner',
         btdForfeits: Array.isArray(msg.btdForfeits) ? msg.btdForfeits.filter(c => typeof c === 'string').map(c => c.slice(0, 200)).slice(0, 100) : [],
         btdMode: msg.btdMode === 'reveal' ? 'reveal' : 'draw',
         btdGameMode: msg.btdGameMode === 'h2h' ? 'h2h' : 'dealer',
@@ -1094,7 +1096,7 @@ wss.on('connection', (ws) => {
     if (msg.type === 'snl_vibe_start') {
       const secs = Number.isFinite(msg.secs) ? Math.max(1, msg.secs) : 10;
       const target = ['host', 'guest', 'guest2'].includes(msg.target) ? msg.target : null;
-      broadcast(s, { type: 'snl_vibe_start', role, secs, target }, ws);
+      broadcast(s, { type: 'snl_vibe_start', role, secs, target, mirror: !!msg.mirror }, ws);
       return;
     }
 

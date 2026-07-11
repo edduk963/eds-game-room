@@ -240,6 +240,7 @@ function renderClimber(root) {
   let powerupIdx   = 0;
   let deflect      = false;
   let mirrorNext   = false;
+  let mirrorVibeActive = false; // driver-side: true while I'm also feeling the vibe I'm driving
   let loadedDie    = null;
   let extraRoll    = false;  // double move
   let skipNext     = false;
@@ -281,6 +282,7 @@ function renderClimber(root) {
       <div class="snl-vibe-banner-label" id="snl-vibe-banner-label"></div>
       <div class="snl-vibe-banner-time" id="snl-vibe-banner-time">0s</div>
       <div class="snl-vibe-banner-bar"><div class="snl-vibe-banner-fill" id="snl-vibe-banner-fill"></div></div>
+      <button id="snl-vibe-skip" class="snl-vibe-skip-btn">Skip ⏭</button>
     </div>
     <div class="snl-body">
       <div id="snl-board-wrap"></div>
@@ -324,6 +326,7 @@ function renderClimber(root) {
   const bannerLbl   = root.querySelector('#snl-vibe-banner-label');
   const bannerTime  = root.querySelector('#snl-vibe-banner-time');
   const bannerFill  = root.querySelector('#snl-vibe-banner-fill');
+  const bannerSkip  = root.querySelector('#snl-vibe-skip');
   const logListEl   = root.querySelector('#snl-forfeit-log-list');
 
   let vibeInt = null;
@@ -353,6 +356,20 @@ function renderClimber(root) {
     clearInterval(bannerInt);
     bannerEl.style.display = 'none';
   }
+
+  // ── skip button on the vibe banner — fast-forwards whichever wait is currently
+  // active, covering both the recipient's wait (vibeSkipHandler) and the driver's
+  // slider countdown (vibeOnExpire), so testing doesn't require riding out real timers.
+  function skipCurrentVibe() {
+    if (vibeSkipHandler) { const fn = vibeSkipHandler; vibeSkipHandler = null; fn(); return; }
+    if (vibeOnExpire) {
+      clearInterval(vibeInt);
+      vibeRow.style.display = 'none';
+      const fn = vibeOnExpire; vibeOnExpire = null;
+      fn();
+    }
+  }
+  bannerSkip.addEventListener('click', skipCurrentVibe);
 
   // ── persistent forfeit log, visible to every player at the table ──
   const forfeitLog = [];
@@ -429,7 +446,9 @@ function renderClimber(root) {
   // activeRole() (rather than oppOf) keeps this correct in 3-player games too.
   vibeSlider.addEventListener('input', () => {
     vibePctEl.textContent = `${vibeSlider.value}%`;
-    socket.send({ type: MSG.SNL_VIBE_CTRL, intensity: vibeSlider.value / 100, target: activeRole() });
+    const intensity = vibeSlider.value / 100;
+    socket.send({ type: MSG.SNL_VIBE_CTRL, intensity, target: activeRole() });
+    if (mirrorVibeActive) haptics.setForfeitIntensity(intensity);
   });
 
   function startSliderCountdown(secs, onExpire) {
@@ -704,7 +723,7 @@ function renderClimber(root) {
         repaintBoard();
         socket.send({ type: MSG.SNL_MOVE_DONE, tile: pos[opp], final: false, targetRole: opp });
         setStatus(`Deflect! ${name(opp)} takes the snake instead.`);
-        afterResolution();
+        doDeflectedSnake(opp, tile, tail);
         return;
       }
       if (hands[role].includes('antivenom')) {
@@ -763,12 +782,18 @@ function renderClimber(root) {
         }
       } else {
         const driver = hijacker || autoTarget(role);
+        const mirrored = mirrorNext;
+        if (mirrored) mirrorNext = false;
         haptics.startForfeitVibe(secs);
-        startVibeBanner(secs, `🐍 ${name(driver)} is driving your vibe`);
-        setStatus(`Snake vibe — ${secs}s. ${name(driver)} drives.`);
+        startVibeBanner(secs, mirrored
+          ? `🐍 ${name(driver)} is driving your vibe — Mirror! They'll feel it too`
+          : `🐍 ${name(driver)} is driving your vibe`);
+        setStatus(`Snake vibe — ${secs}s. ${name(driver)} drives.${mirrored ? ' (Mirrored)' : ''}`);
         // Tell the driver to show their slider via SNL_VIBE_START — targeted so that in a
-        // 3-player game only the intended driver reacts, not every other player.
-        socket.send({ type: MSG.SNL_VIBE_START, secs, target: driver });
+        // 3-player game only the intended driver reacts, not every other player. `mirror`
+        // tells the driver's client to also run its own local vibe at whatever intensity
+        // it's dishing out, instead of just controlling mine.
+        socket.send({ type: MSG.SNL_VIBE_START, secs, target: driver, mirror: mirrored });
         // Send immediate position update so opponent board reflects snake fall
         socket.send({ type: MSG.SNL_MOVE_DONE, tile: pos[role], final: false });
         // Advance turn when we receive SNL_VIBE_STOP
@@ -810,6 +835,44 @@ function renderClimber(root) {
       if (gameOver) return;
       showForfeitModal(card, idx, role, afterResolution);
     }
+  }
+
+  // ── deflected snake ── Deflect bounces the fall AND its forfeit/vibe onto `target`;
+  // the deflecting player stays safe and instead drives/assigns the punishment, same
+  // pattern as a ladder punishment (showLadderChoice) but auto-decided by the stake mix.
+  function doDeflectedSnake(target, head, tail) {
+    const useVibe = snlStakeMix === 'vibe' || (snlStakeMix === 'mixed' && head % 2 === 0);
+    const useForfeit = snlStakeMix === 'forfeits' || (snlStakeMix === 'mixed' && head % 2 !== 0);
+    const secs = calcVibeSeconds(head - tail, head, n, snlVibeScale);
+
+    if (useVibe) {
+      vibeSlider.value = 50; vibePctEl.textContent = '50%';
+      socket.send({ type: MSG.SNL_VIBE_CTRL, intensity: 0.5, target });
+      startVibeBanner(secs, `🐍 Deflected! You're driving ${name(target)}'s vibe`);
+      startSliderCountdown(secs, () => {
+        socket.send({ type: MSG.SNL_VIBE_STOP, target });
+        stopVibeBanner();
+        afterResolution();
+      });
+      return;
+    }
+
+    if (useForfeit) {
+      const { card, idx } = drawForfeit();
+      if (!card) { afterResolution(); return; }
+      socket.send({ type: MSG.SNL_FORFEIT_ASSIGN, cardIndex: idx, target });
+      const text = escapeHtml(resolveForfeitText(card, seed, idx));
+      logForfeit(target, card.tier, card.category, text);
+      showModal(`<div class="snl-forfeit-card">
+        <div class="snl-forfeit-tier">Deflected onto ${name(target)}!</div>
+        <div class="snl-forfeit-text">${text}</div>
+        <button id="snl-df-ok" class="snl-btn-primary">Continue →</button>
+      </div>`);
+      modalEl.querySelector('#snl-df-ok').addEventListener('click', () => { hideModal(); afterResolution(); });
+      return;
+    }
+
+    afterResolution();
   }
 
   // ── forfeit tile resolution (🎴 — always a card, never vibe) ──
@@ -1021,13 +1084,18 @@ function renderClimber(root) {
   const onVibeStart = ev => {
     if (ev.detail.target && ev.detail.target !== role) return; // someone else drives this one
     const secs = ev.detail.secs || 10;
+    mirrorVibeActive = !!ev.detail.mirror;
     vibeSlider.value = 50; vibePctEl.textContent = '50%';
-    startVibeBanner(secs, `🐍 ${name(activeRole())} hit a snake — you're driving!`);
+    if (mirrorVibeActive) haptics.startForfeitVibe(secs); // Mirror: I feel what I dish out
+    startVibeBanner(secs, mirrorVibeActive
+      ? `🐍 ${name(activeRole())} hit a snake — Mirror! You're driving AND feeling it`
+      : `🐍 ${name(activeRole())} hit a snake — you're driving!`);
     startSliderCountdown(secs, () => {
       socket.send({ type: MSG.SNL_VIBE_STOP });
+      if (mirrorVibeActive) { haptics.stopAll(); mirrorVibeActive = false; }
       stopVibeBanner();
     });
-    setStatus(`${name(activeRole())} hit a snake — drive the vibe!`);
+    setStatus(`${name(activeRole())} hit a snake — drive the vibe!${mirrorVibeActive ? ' (Mirrored — you feel it too)' : ''}`);
   };
 
   // Driver is controlling my vibe intensity (I'm the victim being vibed)
@@ -1039,6 +1107,7 @@ function renderClimber(root) {
   // Vibe ended — stop haptics (I'm victim) and hide slider (I'm driver)
   const onVibeStop = ev => {
     haptics.stopAll();
+    mirrorVibeActive = false;
     clearInterval(vibeInt);
     vibeRow.style.display = 'none';
     stopVibeBanner();
@@ -1291,8 +1360,9 @@ function injectStyles() {
 .snl-cell.snl-pickup{background:#191e35}
 .snl-cell.snl-fork{background:#25201a}
 .snl-cell.snl-finish{background:#2d2515;border:2px solid #fbbf24}
-.snl-tokens{position:absolute;bottom:2px;left:1px;right:1px;display:flex;justify-content:center;align-items:flex-end;gap:2px;z-index:5}
-.snl-token{width:clamp(8px,2.2vh,20px);aspect-ratio:1;border-radius:50%;flex-shrink:1;min-width:0;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.8),0 1px 3px rgba(0,0,0,.9)}
+.snl-tokens{--tok:clamp(13px,3.4vh,30px);position:absolute;bottom:1px;left:1px;right:1px;display:flex;justify-content:center;align-items:flex-end;z-index:5}
+.snl-token{width:var(--tok);height:var(--tok);border-radius:50%;flex-shrink:0;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.8),0 1px 3px rgba(0,0,0,.9)}
+.snl-token+.snl-token{margin-left:calc(var(--tok) * -0.45)}
 .snl-token-host{background:#ef4444}
 .snl-token-guest{background:#60a5fa}
 .snl-token-guest2{background:#a3e635}
@@ -1331,6 +1401,8 @@ function injectStyles() {
 .snl-vibe-banner-time{font-size:2em;font-weight:800;color:#fff;line-height:1;font-variant-numeric:tabular-nums}
 .snl-vibe-banner-bar{width:100%;height:6px;border-radius:3px;background:#2a2a4a;overflow:hidden}
 .snl-vibe-banner-fill{height:100%;background:#f59e0b;width:100%;transition:width 1s linear}
+.snl-vibe-skip-btn{margin-top:4px;padding:3px 12px;font-size:.75em;font-weight:600;color:#9ca3af;background:transparent;border:1px solid #3a3a5a;border-radius:6px;cursor:pointer}
+.snl-vibe-skip-btn:hover{color:#e0e0e0;border-color:#f59e0b}
 .snl-forfeit-log{background:#13131f;border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:6px;min-height:0;flex:1;overflow:hidden}
 .snl-forfeit-log-title{font-size:.76em;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.05em;flex-shrink:0}
 .snl-forfeit-log-list{display:flex;flex-direction:column;gap:5px;overflow-y:auto;min-height:0}
