@@ -1078,11 +1078,13 @@ wss.on('connection', (ws) => {
     if (msg.type === 'snl_vibe_ctrl' && Number.isFinite(msg.intensity)) {
       const target = ['host', 'guest', 'guest2'].includes(msg.target) ? msg.target : null;
       const intensity = Math.max(0, Math.min(1, msg.intensity));
+      const pattern = ['steady', 'pulse', 'wave'].includes(msg.pattern) ? msg.pattern : undefined;
+      const payload = { type: 'snl_vibe_ctrl', intensity, from: role, pattern };
       const targetWs = target ? s[target]?.socket : null;
       if (targetWs?.readyState === 1) {
-        targetWs.send(JSON.stringify({ type: 'snl_vibe_ctrl', intensity, from: role }));
+        targetWs.send(JSON.stringify(payload));
       } else {
-        broadcast(s, { type: 'snl_vibe_ctrl', intensity, from: role }, ws);
+        broadcast(s, payload, ws);
       }
       return;
     }
@@ -1097,6 +1099,11 @@ wss.on('connection', (ws) => {
       const secs = Number.isFinite(msg.secs) ? Math.max(1, msg.secs) : 10;
       const target = ['host', 'guest', 'guest2'].includes(msg.target) ? msg.target : null;
       broadcast(s, { type: 'snl_vibe_start', role, secs, target, mirror: !!msg.mirror }, ws);
+      return;
+    }
+
+    if (msg.type === 'snl_finale_done') {
+      broadcast(s, { type: 'snl_finale_done', role }, ws);
       return;
     }
 
@@ -1165,7 +1172,7 @@ wss.on('connection', (ws) => {
       if (role === 'host') s.host.finalScore = v;
       if (role === 'guest' && s.guest) s.guest.finalScore = v;
       if (role === 'guest2' && s.guest2) s.guest2.finalScore = v;
-      broadcast(s, { type: 'opp_final', value: v, vibeSeconds }, ws);
+      broadcast(s, { type: 'opp_final', value: v, vibeSeconds, role }, ws);
       const allDone = s.host.finalScore != null && s.guest?.finalScore != null && (s.guest2 == null || s.guest2.finalScore != null);
       if (allDone) s.status = 'finished';
       return;

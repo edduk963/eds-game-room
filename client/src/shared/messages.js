@@ -133,6 +133,7 @@ export const MSG = {
   SNL_VIBE_STOP:       'snl_vibe_stop',
   SNL_VIBE_START:      'snl_vibe_start',
   SNL_ENDURANCE_OUT:   'snl_endurance_out',
+  SNL_FINALE_DONE:     'snl_finale_done',
   MEM_FLIP:            'mem_flip',
   MEM_VIBE_TRIGGER:    'mem_vibe_trigger',
   MEM_VIBE_ADJUST:     'mem_vibe_adjust',

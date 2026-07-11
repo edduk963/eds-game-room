@@ -615,13 +615,62 @@ function renderClimber(root) {
     rollBtn.disabled = true;
     haptics.winPattern();
     socket.send({ type: 'final', value: pos[role], vibeSeconds: 0 });
+    showFinaleDriver();
+  }
+
+  // ── winner's Finale driver ── shows what the loser(s) racked up, then hands the
+  // winner manual, timer-free control of their vibe (intensity + pattern, start/stop)
+  // until the winner decides to end it for everyone via Finish.
+  function showFinaleDriver() {
+    let finIntensity = 0.5;
+    let finPattern = 'steady';
+    let finActive = false;
+    const targets = roles.filter(r => r !== role);
+    const sendCtrl = () => targets.forEach(t => socket.send({ type: MSG.SNL_VIBE_CTRL, intensity: finIntensity, pattern: finPattern, target: t }));
+    const sendStop = () => targets.forEach(t => socket.send({ type: MSG.SNL_VIBE_STOP, target: t }));
+
     showModal(`<div class="snl-forfeit-card">
-      <div class="snl-forfeit-tier">🏆 Summit reached!</div>
-      <div class="snl-forfeit-text">You win!</div>
+      <div class="snl-forfeit-tier">🏆 Summit reached — you win!</div>
       ${buildForfeitRecap()}
-      <button id="snl-results" class="snl-btn-primary">Results →</button>
+      <div class="snl-finale-driver">
+        <label>Intensity <span id="snl-fin-pct">50%</span></label>
+        <input type="range" id="snl-fin-slider" min="0" max="100" value="50" class="snl-slider">
+        <div class="snl-finale-pattern-row">
+          <button type="button" class="snl-fin-pattern selected" data-p="steady">Steady</button>
+          <button type="button" class="snl-fin-pattern" data-p="pulse">Pulse</button>
+          <button type="button" class="snl-fin-pattern" data-p="wave">Wave</button>
+        </div>
+        <div class="snl-finale-driver-btns">
+          <button id="snl-fin-start" class="snl-btn-primary">Start</button>
+          <button id="snl-fin-stop" class="snl-btn-secondary">Stop</button>
+        </div>
+      </div>
+      <button id="snl-fin-finish" class="snl-btn-primary" style="margin-top:14px">Finish → Results</button>
     </div>`);
-    modalEl.querySelector('#snl-results')?.addEventListener('click', () => { haptics.stopAll(); navigate('#/results'); });
+
+    const slider = modalEl.querySelector('#snl-fin-slider');
+    const pctEl  = modalEl.querySelector('#snl-fin-pct');
+    slider.addEventListener('input', () => {
+      finIntensity = slider.value / 100;
+      pctEl.textContent = `${slider.value}%`;
+      if (finActive) sendCtrl();
+    });
+    modalEl.querySelectorAll('.snl-fin-pattern').forEach(btn => {
+      btn.addEventListener('click', () => {
+        finPattern = btn.dataset.p;
+        modalEl.querySelectorAll('.snl-fin-pattern').forEach(b => b.classList.toggle('selected', b === btn));
+        if (finActive) sendCtrl();
+      });
+    });
+    modalEl.querySelector('#snl-fin-start').addEventListener('click', () => { finActive = true; sendCtrl(); });
+    modalEl.querySelector('#snl-fin-stop').addEventListener('click', () => { finActive = false; sendStop(); });
+    modalEl.querySelector('#snl-fin-finish').addEventListener('click', () => {
+      finActive = false;
+      sendStop();
+      haptics.stopAll();
+      socket.send({ type: MSG.SNL_FINALE_DONE });
+      navigate('#/results');
+    });
   }
 
   // Call whenever I personally take a forfeit card; no-op unless Endurance mode is active.
@@ -672,31 +721,29 @@ function renderClimber(root) {
     modalEl.querySelector('#snl-results')?.addEventListener('click', () => { haptics.stopAll(); navigate('#/results'); });
   }
 
-  function triggerFinale() {
-    // called on opponents when they receive final from winner
+  function triggerFinale(winnerRole) {
+    // called on opponents when they receive final from winner — the winner now drives
+    // this vibe directly (intensity/pattern/start/stop, no fixed duration) via their
+    // own Finale panel; this side just receives it and can only kill it locally as a
+    // safety fallback. Navigation to results is triggered by the winner's Finish action.
     gameOver = true;
     rollBtn.disabled = true;
     haptics.losePattern();
-    const { card, idx } = drawForfeit();
-    // No countdown here on purpose — the Finale vibe runs until the players decide
-    // it's done, not on a clock. FINALE_VIBE_SAFETY_CAP just guards against a
-    // forgotten tab leaving a device buzzing indefinitely.
-    haptics.startForfeitVibe(FINALE_VIBE_SAFETY_CAP_SECS);
-    const text = card ? escapeHtml(resolveForfeitText(card, seed, idx)) : 'Finale forfeit!';
     socket.send({ type: 'final', value: pos[role], vibeSeconds: 0 });
+    // oppOf(role) is only a fallback for a stale peer that hasn't sent its role yet —
+    // with 2 non-winners in a 3P game it can name the wrong one, so prefer the real
+    // sender role the server now attaches to opp_final.
+    const winnerName = name(winnerRole || oppOf(role));
     showModal(`<div class="snl-forfeit-card">
-      <div class="snl-forfeit-tier">🏆 Winner reached the summit — Finale!</div>
-      <div class="snl-forfeit-text">${text}</div>
-      <div style="color:#f59e0b;margin-top:6px">Vibing — you two decide when it's done.</div>
-      <button id="snl-finale-stop" class="snl-btn-secondary" style="margin-top:10px">Stop Vibe</button>
-      <button id="snl-results" class="snl-btn-primary" style="margin-top:8px">Results →</button>
+      <div class="snl-forfeit-tier">🏆 ${winnerName} reached the summit!</div>
+      <div class="snl-forfeit-text">They're driving your vibe now — no timer, they'll end it when you're both done.</div>
+      <button id="snl-finale-selfstop" class="snl-btn-secondary" style="margin-top:10px">Stop My Vibe</button>
     </div>`);
-    modalEl.querySelector('#snl-finale-stop')?.addEventListener('click', ev => {
+    modalEl.querySelector('#snl-finale-selfstop')?.addEventListener('click', ev => {
       haptics.stopAll();
       ev.currentTarget.disabled = true;
       ev.currentTarget.textContent = 'Stopped ✓';
     });
-    modalEl.querySelector('#snl-results')?.addEventListener('click', () => { haptics.stopAll(); navigate('#/results'); });
   }
 
   // ── resolve landing ── only active player calls this ──
@@ -1124,10 +1171,14 @@ function renderClimber(root) {
     setStatus(`${name(activeRole())} hit a snake — drive the vibe!${mirrorVibeActive ? ' (Mirrored — you feel it too)' : ''}`);
   };
 
-  // Driver is controlling my vibe intensity (I'm the victim being vibed)
+  // Driver is controlling my vibe intensity (I'm the victim being vibed). The generous
+  // safety-cap start (rather than a short default) is what lets the Finale driver run
+  // open-ended — every other flow here always sends its own SNL_VIBE_STOP well before
+  // that cap would matter, so this only changes behavior for the untimed Finale case.
   const onVibeCtrl = ev => {
-    if (!haptics.isForfeitActive()) haptics.addForfeitSeconds(300); // start if not running
+    if (!haptics.isForfeitActive()) haptics.addForfeitSeconds(FINALE_VIBE_SAFETY_CAP_SECS);
     haptics.setForfeitIntensity(ev.detail.intensity || 0);
+    if (ev.detail.pattern) haptics.setWaveVibeMode(ev.detail.pattern === 'wave');
   };
 
   // Vibe ended — stop haptics (I'm victim) and hide slider (I'm driver)
@@ -1201,7 +1252,10 @@ function renderClimber(root) {
     if (_forkDone) { const fn = _forkDone; _forkDone = null; fn(); }
   };
 
-  const onOppFinal = () => { if (!gameOver) triggerFinale(); };
+  const onOppFinal = ev => { if (!gameOver) triggerFinale(ev.detail?.role); };
+  // Winner clicked Finish on their Finale panel — everyone else stops vibing and
+  // follows them to results, rather than leaving when they individually feel like it.
+  const onFinaleDone = () => { haptics.stopAll(); hideModal(); navigate('#/results'); };
   const onEnduranceOut = ev => {
     const r = ev.detail?.role;
     if (r && roles.includes(r) && !outRoles.has(r)) { outRoles.add(r); checkEnduranceEnd(); }
@@ -1233,6 +1287,7 @@ function renderClimber(root) {
   socket.addEventListener(MSG.SNL_COOP_REVEAL,     onCoopReveal);
   socket.addEventListener(MSG.SNL_ENDURANCE_OUT,   onEnduranceOut);
   socket.addEventListener('opp_final',             onOppFinal);
+  socket.addEventListener(MSG.SNL_FINALE_DONE,     onFinaleDone);
   socket.addEventListener('peer_left',             onPeerLeft);
   socket.addEventListener('peer_reconnected',      onPeerReconnected);
 
@@ -1255,6 +1310,7 @@ function renderClimber(root) {
     socket.removeEventListener(MSG.SNL_COOP_REVEAL,   onCoopReveal);
     socket.removeEventListener(MSG.SNL_ENDURANCE_OUT, onEnduranceOut);
     socket.removeEventListener('opp_final',           onOppFinal);
+    socket.removeEventListener(MSG.SNL_FINALE_DONE,   onFinaleDone);
     socket.removeEventListener('peer_left',           onPeerLeft);
     socket.removeEventListener('peer_reconnected',    onPeerReconnected);
   }, { once: true });
@@ -1441,6 +1497,13 @@ function injectStyles() {
 .snl-finale-recap{width:100%;text-align:left;margin-top:2px}
 .snl-finale-recap-title{font-size:.76em;font-weight:700;color:#a78bfa;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
 .snl-finale-recap-list{display:flex;flex-direction:column;gap:5px;max-height:220px;overflow-y:auto}
+.snl-finale-driver{width:100%;background:#13131f;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px;margin-top:4px}
+.snl-finale-driver label{font-size:.78em;color:#9ca3af;display:flex;justify-content:space-between}
+.snl-finale-pattern-row{display:flex;gap:6px}
+.snl-fin-pattern{flex:1;padding:6px 4px;font-size:.76em;font-weight:600;color:#9ca3af;background:#1e1e35;border:1px solid #3a3a5a;border-radius:6px;cursor:pointer}
+.snl-fin-pattern.selected{color:#fff;background:#7c3aed;border-color:#7c3aed}
+.snl-finale-driver-btns{display:flex;gap:10px;margin-top:2px}
+.snl-finale-driver-btns button{flex:1}
 `;
   document.head.appendChild(s);
 }
