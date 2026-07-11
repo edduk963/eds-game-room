@@ -114,6 +114,7 @@ export const MSG = {
   BS_POWERUP_RESULT: 'bs_powerup_result',
   UNO_PLAY:      'uno_play',
   UNO_DRAW:      'uno_draw',
+  UNO_TAKE_CTRL: 'uno_take_ctrl',
   UNO_CALL_UNO:  'uno_call_uno',
   UNO_CHALLENGE: 'uno_challenge',
   UNO_VIBE_CTRL:       'uno_vibe_ctrl',

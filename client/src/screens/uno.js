@@ -6,8 +6,9 @@ import { makeRng } from '../game/seededRng.js';
 import * as haptics from '../haptics.js';
 
 const COLORS = ['red', 'yellow', 'green', 'blue'];
-const COLOR_HEX = { red: '#c62828', yellow: '#f9a825', green: '#2e7d32', blue: '#1565c0', wild: '#111' };
-const VALID_PACKS = ['plus10', 'edge', 'skipall', 'swaphands', 'doubledown', 'ctrl2'];
+const COLOR_HEX = { red: '#c62828', yellow: '#f9a825', green: '#2e7d32', blue: '#1565c0', wild: '#111', black: '#111' };
+const VALID_PACKS = ['plus10', 'edge', 'skipall', 'swaphands', 'doubledown', 'ctrl2', 'mirror', 'deflect'];
+const CTRL_SECONDS = 30; // seconds of vibe control each Control card adds to the stack
 
 function buildDeck(specialPacks = []) {
   const deck = [];
@@ -50,9 +51,13 @@ function buildDeck(specialPacks = []) {
     deck.push({ color: 'wild', type: 'doubledown' });
   }
   if (specialPacks.includes('ctrl2')) {
-    deck.push({ color: 'wild', type: 'ctrl2' });
-    deck.push({ color: 'wild', type: 'ctrl2' });
+    // Control is now a coloured card (one per colour), so it matches on colour
+    // like Edge and can start/continue a control stack.
+    for (const c of COLORS) deck.push({ color: c, type: 'ctrl2' });
   }
+  // Counter cards: black (not wild) so they keep the current colour, one of each.
+  if (specialPacks.includes('mirror')) deck.push({ color: 'black', type: 'mirror' });
+  if (specialPacks.includes('deflect')) deck.push({ color: 'black', type: 'deflect' });
   return deck;
 }
 
@@ -67,23 +72,41 @@ function shuffleDeck(deck, rng) {
 
 function cardScore(card) {
   if (card.color === 'wild') return 50;
-  if (['skip', 'reverse', 'draw2', 'edge'].includes(card.type)) return 20;
-  return parseInt(card.type, 10);
+  if (['mirror', 'deflect'].includes(card.type)) return 40;
+  if (['skip', 'reverse', 'draw2', 'edge', 'ctrl2'].includes(card.type)) return 20;
+  return parseInt(card.type, 10) || 0;
 }
 
-function canPlay(card, discardTop, currentColor, pendingDraw) {
-  // Wild-color cards are always playable
-  if (card.color === 'wild') return true;
-  // Edge stacks on any pending draw
-  if (card.type === 'edge' && pendingDraw > 0) return true;
-  // During a draw stack, restrict to matching draw type (edge handled above)
-  if (pendingDraw > 0) {
-    if (discardTop.type === 'draw2') return card.type === 'draw2';
-    if (discardTop.type === 'wild4') return card.type === 'wild4';
-    if (discardTop.type === 'plus10') return false; // only wilds (handled above)
-    if (discardTop.type === 'edge') return card.type === 'draw2' || card.type === 'edge';
-    return false;
+// Cards that advance a draw (+N) stack. Non-draw wilds (plain wild, skipall,
+// swaphands) can't continue a stack, so the only way out of a draw stack is to
+// draw it or add to it.
+const DRAW_STACK_TYPES = new Set(['draw2', 'wild4', 'plus10', 'doubledown']);
+// Counters are always legal to place (they're black), but they only *do*
+// something on an edge or ctrl stack.
+const COUNTER_TYPES = new Set(['mirror', 'deflect']);
+
+// gs holds stackKind: null | 'draw' | 'edge' | 'ctrl'. Stacks are mutually
+// exclusive, so a single field tells us which rules apply.
+function canPlay(card, gs) {
+  const { stackKind, discardTop, currentColor } = gs;
+  if (stackKind === 'draw') {
+    // +2/+4 stack interchangeably; plus10/doubledown keep adding. Counters can't
+    // be used to escape a draw stack.
+    return DRAW_STACK_TYPES.has(card.type);
   }
+  if (stackKind === 'edge') {
+    // Edge is its own stack: continue with edge, double it with Double Down, or
+    // answer with a counter.
+    return card.type === 'edge' || card.type === 'doubledown' || COUNTER_TYPES.has(card.type);
+  }
+  if (stackKind === 'ctrl') {
+    // Add more control, or answer with a counter.
+    return card.type === 'ctrl2' || COUNTER_TYPES.has(card.type);
+  }
+  // Off-stack: counters are always playable (black, colour-neutral); wilds always;
+  // otherwise match colour or symbol.
+  if (COUNTER_TYPES.has(card.type)) return true;
+  if (card.color === 'wild') return true;
   if (card.color === currentColor) return true;
   if (card.type === discardTop.type) return true;
   return false;
@@ -100,7 +123,9 @@ function cardLabel(card) {
   if (card.type === 'skipall') return '⊘all';
   if (card.type === 'swaphands') return '⇄';
   if (card.type === 'doubledown') return '×2';
-  if (card.type === 'ctrl2') return '2mCtrl';
+  if (card.type === 'ctrl2') return '30sCtrl';
+  if (card.type === 'mirror') return '⧎Mirror';
+  if (card.type === 'deflect') return '⤺Deflect';
   return card.type;
 }
 
@@ -112,7 +137,9 @@ function cardImgSrc(card) {
   if (card.type === 'swaphands') return '/cards/swaphands.svg';
   if (card.type === 'doubledown') return '/cards/doubledown.svg';
   if (card.type === 'edge') return `/cards/${card.color}_edge.svg`;
-  if (card.type === 'ctrl2') return '/cards/ctrl2.svg';
+  if (card.type === 'ctrl2') return `/cards/${card.color}_ctrl.svg`;
+  if (card.type === 'mirror') return '/cards/mirror.svg';
+  if (card.type === 'deflect') return '/cards/deflect.svg';
   if (card.color === 'red' && card.type === '0') return '/cards/red_0.svg';
   if (card.color === 'yellow' && card.type === '0') return '/cards/yellow_0.svg';
   if (card.color === 'yellow' && card.type === '1') return '/cards/yellow_1.svg';
@@ -147,6 +174,7 @@ export function renderUno(root) {
   const scores = { host: 0, guest: 0, guest2: 0 };
   let gs = null;
   let vibeCtrlEndAt = 0;
+  let vibeCtrlTarget = null; // role currently being controlled by my vibe panel
   // render() fully replaces root.innerHTML on every action, so the disconnect banner is
   // rebuilt from this Set inside the template each time rather than mutated out-of-band.
   const departedRoles = new Set();
@@ -179,12 +207,20 @@ export function renderUno(root) {
     if (!gs || gs.roundOver) return;
     const { count, from } = ev.detail;
     if (!from || !playerRoles.includes(from)) return;
-    for (let i = 0; i < count; i++) {
-      if (gs.drawIndex < gs.deck.length) gs.hands[from].push(gs.deck[gs.drawIndex++]);
-    }
+    drawCards(from, count);
     gs.pendingDraw = 0;
+    gs.stackKind = null;
     gs.unoCatchable[from] = false;
     advanceTurnNormal();
+    render();
+  };
+
+  const onUnoTakeCtrl = (ev) => {
+    if (!gs || gs.roundOver) return;
+    const { from } = ev.detail;
+    if (!from || !playerRoles.includes(from)) return;
+    if (gs.currentPlayer !== from || gs.stackKind !== 'ctrl') return;
+    applyTakeCtrl(from);
     render();
   };
 
@@ -213,8 +249,9 @@ export function renderUno(root) {
   };
 
   const onUnoVibeCtrl = (ev) => {
-    const { intensity, from } = ev.detail;
+    const { intensity, from, target } = ev.detail;
     if (from === myRole || !intensity) return;
+    if (target && target !== myRole) return; // control is aimed at a specific player
     haptics.pulse(intensity, 220);
   };
 
@@ -233,6 +270,7 @@ export function renderUno(root) {
 
   socket.addEventListener(MSG.UNO_PLAY, onUnoPlay);
   socket.addEventListener(MSG.UNO_DRAW, onUnoDraw);
+  socket.addEventListener(MSG.UNO_TAKE_CTRL, onUnoTakeCtrl);
   socket.addEventListener(MSG.UNO_CALL_UNO, onUnoCallUno);
   socket.addEventListener(MSG.UNO_CHALLENGE, onUnoChallenge);
   socket.addEventListener(MSG.UNO_VIBE_CTRL, onUnoVibeCtrl);
@@ -242,6 +280,7 @@ export function renderUno(root) {
   window.addEventListener('hashchange', () => {
     socket.removeEventListener(MSG.UNO_PLAY, onUnoPlay);
     socket.removeEventListener(MSG.UNO_DRAW, onUnoDraw);
+    socket.removeEventListener(MSG.UNO_TAKE_CTRL, onUnoTakeCtrl);
     socket.removeEventListener(MSG.UNO_CALL_UNO, onUnoCallUno);
     socket.removeEventListener(MSG.UNO_CHALLENGE, onUnoChallenge);
     socket.removeEventListener(MSG.UNO_VIBE_CTRL, onUnoVibeCtrl);
@@ -266,8 +305,9 @@ export function renderUno(root) {
     const panel = document.createElement('div');
     panel.id = 'uno-vibe-ctrl-panel';
     panel.className = 'uno-vibe-ctrl-panel';
+    const targetName = vibeCtrlTarget ? names[vibeCtrlTarget] : '';
     panel.innerHTML = `
-      <div class="uno-vibe-ctrl-title">⚡ Vibe Control</div>
+      <div class="uno-vibe-ctrl-title">⚡ Vibe Control${targetName ? ` · ${targetName}` : ''}</div>
       <input type="range" min="0" max="100" value="0" class="uno-vibe-ctrl-slider" id="vibe-ctrl-range">
       <div class="uno-vibe-ctrl-timer" id="vibe-ctrl-timer">${fmtCountdown(vibeCtrlEndAt - Date.now())}</div>
       <button class="ghost" id="vibe-ctrl-stop" style="width:100%;margin-top:6px;font-size:12px">Stop</button>
@@ -280,13 +320,13 @@ export function renderUno(root) {
       const now = Date.now();
       if (now - lastSend > 150) {
         lastSend = now;
-        socket.send({ type: MSG.UNO_VIBE_CTRL, intensity: parseInt(slider.value, 10) / 100, from: myRole });
+        socket.send({ type: MSG.UNO_VIBE_CTRL, intensity: parseInt(slider.value, 10) / 100, from: myRole, target: vibeCtrlTarget });
       }
     });
 
     panel.querySelector('#vibe-ctrl-stop').addEventListener('click', () => {
       vibeCtrlEndAt = 0;
-      socket.send({ type: MSG.UNO_VIBE_CTRL, intensity: 0, from: myRole });
+      socket.send({ type: MSG.UNO_VIBE_CTRL, intensity: 0, from: myRole, target: vibeCtrlTarget });
       panel.remove();
       render();
     });
@@ -301,7 +341,8 @@ export function renderUno(root) {
       if (btnEl) btnEl.textContent = `⚡ ${fmtCountdown(rem)}`;
       if (rem <= 0) {
         vibeCtrlEndAt = 0;
-        socket.send({ type: MSG.UNO_VIBE_CTRL, intensity: 0, from: myRole });
+        socket.send({ type: MSG.UNO_VIBE_CTRL, intensity: 0, from: myRole, target: vibeCtrlTarget });
+        vibeCtrlTarget = null;
         panelEl.remove();
         render();
       } else {
@@ -311,7 +352,8 @@ export function renderUno(root) {
     setTimeout(tick, 500);
   }
 
-  function showVibeControl(durationMs) {
+  function showVibeControl(durationMs, target) {
+    if (target) vibeCtrlTarget = target;
     if (vibeCtrlEndAt > Date.now()) {
       vibeCtrlEndAt += durationMs;
     } else {
@@ -319,6 +361,18 @@ export function renderUno(root) {
     }
     openVibePanel();
     render();
+  }
+
+  // Auto vibration for a fixed duration with no live driver — used when Mirror
+  // makes both players' devices buzz at once.
+  function autoBuzz(durationMs) {
+    const end = Date.now() + durationMs;
+    const step = () => {
+      if (Date.now() >= end) return;
+      haptics.pulse(0.6, 300);
+      setTimeout(step, 380);
+    };
+    step();
   }
 
   function tickVibeBtn() {
@@ -330,25 +384,95 @@ export function renderUno(root) {
     setTimeout(tickVibeBtn, 500);
   }
 
-  // ── Card effect helper ─────────────────────────────────────────────────────
+  // ── Shared state mutation ──────────────────────────────────────────────────
+  // Every card's effect on shared state runs here, identically on both the
+  // player's own client (via playCard) and every peer (via onUnoPlay), so hand
+  // sizes and stacks stay in sync. Purely local side effects (haptics, control
+  // panels) are keyed on myRole inside the helpers below.
+
+  function drawCards(role, count) {
+    for (let i = 0; i < count; i++) {
+      if (gs.drawIndex < gs.deck.length) gs.hands[role].push(gs.deck[gs.drawIndex++]);
+    }
+    if (gs.hands[role].length !== 1) gs.unoCatchable[role] = false;
+  }
 
   function applyCardEffect(card, fromRole, swapTarget) {
-    if (card.type === 'draw2') gs.pendingDraw += 2;
-    else if (card.type === 'wild4') gs.pendingDraw += 4;
-    else if (card.type === 'plus10') gs.pendingDraw += 10;
-    else if (card.type === 'edge') gs.pendingDraw += 1;
-    else if (card.type === 'doubledown') gs.pendingDraw = gs.pendingDraw > 0 ? gs.pendingDraw * 2 : 2;
-    else gs.pendingDraw = 0;
+    switch (card.type) {
+      case 'draw2':  gs.stackKind = 'draw'; gs.pendingDraw += 2;  gs.stackOwner = fromRole; break;
+      case 'wild4':  gs.stackKind = 'draw'; gs.pendingDraw += 4;  gs.stackOwner = fromRole; break;
+      case 'plus10': gs.stackKind = 'draw'; gs.pendingDraw += 10; gs.stackOwner = fromRole; break;
+      case 'edge':   gs.stackKind = 'edge'; gs.pendingDraw += 1;  gs.stackOwner = fromRole; break;
+      case 'doubledown':
+        // Doubles whichever draw/edge stack is live; if none, acts as a +2 draw.
+        if (gs.stackKind === 'edge') gs.pendingDraw *= 2;
+        else { gs.stackKind = 'draw'; gs.pendingDraw = gs.pendingDraw > 0 ? gs.pendingDraw * 2 : 2; }
+        gs.stackOwner = fromRole;
+        break;
+      case 'ctrl2':  gs.stackKind = 'ctrl'; gs.pendingCtrl += CTRL_SECONDS; gs.stackOwner = fromRole; break;
+      case 'mirror':  resolveCounter(card, fromRole); break;
+      case 'deflect': resolveCounter(card, fromRole); break;
+      case 'swaphands':
+        if (swapTarget && playerRoles.includes(swapTarget)) {
+          const tmp = gs.hands[fromRole];
+          gs.hands[fromRole] = gs.hands[swapTarget];
+          gs.hands[swapTarget] = tmp;
+        }
+        gs.stackKind = null; gs.pendingDraw = 0;
+        break;
+      default: // number, skip, reverse, plain wild, skipall
+        gs.stackKind = null; gs.pendingDraw = 0;
+        break;
+    }
     // Server clamps the broadcast UNO_DRAW count to 16 (server/index.js), so stacking
     // past that would let the drawer's own client pull more cards than everyone else's
     // clients see it draw, permanently desyncing hand sizes. Clamp here to match.
     if (gs.pendingDraw > 16) gs.pendingDraw = 16;
+  }
 
-    if (card.type === 'swaphands' && swapTarget && playerRoles.includes(swapTarget)) {
-      const tmp = gs.hands[fromRole];
-      gs.hands[fromRole] = gs.hands[swapTarget];
-      gs.hands[swapTarget] = tmp;
+  // Mirror / Deflect only act on an edge or ctrl stack; anywhere else they're
+  // just a colour-neutral discard. sender = whoever last built the stack.
+  function resolveCounter(card, byRole) {
+    const kind = gs.stackKind;
+    const sender = gs.stackOwner;
+    if ((kind !== 'edge' && kind !== 'ctrl') || !sender) {
+      gs.stackKind = null; gs.pendingDraw = 0; gs.pendingCtrl = 0;
+      return;
     }
+    if (kind === 'edge') {
+      const n = gs.pendingDraw;
+      if (card.type === 'deflect') {
+        drawCards(sender, n);                       // bounce the whole draw to the sender
+      } else {                                       // mirror: both take it
+        drawCards(sender, n);
+        drawCards(byRole, n);
+      }
+    } else { // ctrl
+      const secs = gs.pendingCtrl;
+      if (card.type === 'deflect') {
+        startControl(byRole, sender, secs);          // bounce: deflector controls the sender
+      } else {                                        // mirror: both buzz, no driver
+        if (myRole === byRole || myRole === sender) autoBuzz(secs * 1000);
+      }
+    }
+    gs.stackKind = null; gs.pendingDraw = 0; gs.pendingCtrl = 0;
+  }
+
+  // Begin a live vibe-control session: the controller drives the target's device
+  // via the slider panel. Only the controller opens a panel; the target just buzzes.
+  function startControl(controller, target, seconds) {
+    if (seconds <= 0 || controller === target) return;
+    if (myRole === controller) showVibeControl(seconds * 1000, target);
+  }
+
+  // A ctrl stack aimed at the current player is accepted: the stack owner controls
+  // the taker for the accumulated seconds.
+  function applyTakeCtrl(taker) {
+    if (gs.stackKind !== 'ctrl') return;
+    startControl(gs.stackOwner, taker, gs.pendingCtrl);
+    gs.stackKind = null; gs.pendingCtrl = 0;
+    gs.unoCatchable[taker] = gs.hands[taker].length === 1;
+    advanceTurnNormal();
   }
 
   // ── Turn helpers ───────────────────────────────────────────────────────────
@@ -390,6 +514,9 @@ export function renderUno(root) {
       currentPlayer: 'host',
       direction: 1,
       pendingDraw: 0,
+      pendingCtrl: 0,
+      stackKind: null,   // null | 'draw' | 'edge' | 'ctrl'
+      stackOwner: null,  // role who last added to the live stack
       unoStatus: {},
       unoCatchable: {},
       roundOver: false,
@@ -402,7 +529,7 @@ export function renderUno(root) {
     }
 
     let di = gs.drawIndex;
-    while (di < deck.length && ['wild', 'wild4', 'skip', 'reverse', 'draw2', 'plus10', 'skipall', 'swaphands', 'doubledown', 'ctrl2', 'edge'].includes(deck[di].type)) di++;
+    while (di < deck.length && ['wild', 'wild4', 'skip', 'reverse', 'draw2', 'plus10', 'skipall', 'swaphands', 'doubledown', 'ctrl2', 'edge', 'mirror', 'deflect'].includes(deck[di].type)) di++;
     gs.discardTop = deck[di++];
     gs.drawIndex = di;
     gs.currentColor = gs.discardTop.color;
@@ -414,11 +541,14 @@ export function renderUno(root) {
 
   function render() {
     const myHand = gs.hands[myRole] || [];
-    const { discardTop, currentColor, currentPlayer, pendingDraw, unoCatchable, unoStatus } = gs;
+    const { discardTop, currentColor, currentPlayer, pendingDraw, pendingCtrl, stackKind, unoCatchable, unoStatus } = gs;
     const myTurn = currentPlayer === myRole;
+    const ctrlStack = stackKind === 'ctrl';
 
     const statusText = myTurn
-      ? (pendingDraw > 0 ? `Draw +${pendingDraw} or stack` : 'Your turn')
+      ? (ctrlStack ? `Ctrl ${pendingCtrl}s aimed at you — take it or stack`
+        : pendingDraw > 0 ? `${stackKind === 'edge' ? 'Edge ' : ''}+${pendingDraw}: draw or stack`
+        : 'Your turn')
       : `${names[currentPlayer]}'s turn…`;
 
     function oppZoneHtml(role) {
@@ -440,7 +570,9 @@ export function renderUno(root) {
     }
 
     const discardSrc = cardImgSrc(discardTop);
-    const activeColorDot = (discardTop.color === 'wild') && currentColor !== 'wild'
+    // Wild and black (counter) tops don't carry a colour, so surface the active
+    // colour with a badge.
+    const activeColorDot = (discardTop.color === 'wild' || discardTop.color === 'black') && COLORS.includes(currentColor)
       ? `<div class="uno-active-color-badge" style="background:${COLOR_HEX[currentColor]}"></div>`
       : '';
 
@@ -464,9 +596,9 @@ export function renderUno(root) {
         </div>
 
         <div class="uno-center-row">
-          <div class="uno-pile-wrap" id="btn-draw" title="Draw a card">
+          <div class="uno-pile-wrap${ctrlStack ? ' uno-pile-ctrl' : ''}" id="btn-draw" title="${ctrlStack ? 'Take the control' : 'Draw a card'}">
             <img src="/cards/back.svg" class="uno-pile-img" draggable="false" alt="draw pile">
-            <div class="uno-pile-label">Draw${pendingDraw > 0 ? ` (+${pendingDraw})` : ''}</div>
+            <div class="uno-pile-label">${ctrlStack ? `Take ${pendingCtrl}s` : `Draw${pendingDraw > 0 ? ` (+${pendingDraw})` : ''}`}</div>
           </div>
           <div class="uno-discard-wrap">
             <img src="${discardSrc}" class="uno-discard-img" draggable="false" alt="${discardTop.color} ${discardTop.type}">
@@ -480,7 +612,7 @@ export function renderUno(root) {
         <div class="uno-my-hand-wrap">
           <div class="uno-my-hand" id="my-hand">
             ${myHand.map(c => {
-              const playable = myTurn && !gs.roundOver && canPlay(c, discardTop, currentColor, pendingDraw);
+              const playable = myTurn && !gs.roundOver && canPlay(c, gs);
               return handCardHtml(c, playable);
             }).join('')}
           </div>
@@ -502,7 +634,9 @@ export function renderUno(root) {
       state.seed = null;
       navigate(`#/session/${state.sessionId}`);
     });
-    root.querySelector('#btn-draw')?.addEventListener('click', onDraw);
+    root.querySelector('#btn-draw')?.addEventListener('click', () => {
+      if (gs.stackKind === 'ctrl') onTakeCtrl(); else onDraw();
+    });
     root.querySelector('#btn-uno')?.addEventListener('click', onCallUno);
     root.querySelector('#my-hand')?.addEventListener('click', e => {
       const el = e.target.closest('[data-id]');
@@ -523,8 +657,11 @@ export function renderUno(root) {
   function onCardClick(cardId) {
     if (gs.currentPlayer !== myRole || gs.roundOver) return;
     const card = gs.hands[myRole].find(c => c.id === cardId);
-    if (!card || !canPlay(card, gs.discardTop, gs.currentColor, gs.pendingDraw)) return;
-    if (card.color === 'wild') {
+    if (!card || !canPlay(card, gs)) return;
+    if (card.type === 'mirror' || card.type === 'deflect') {
+      // Black, not wild: keep whatever colour is currently in play.
+      playCard(card, gs.currentColor, null);
+    } else if (card.color === 'wild') {
       if (card.type === 'swaphands' && playerRoles.length > 2) {
         showPlayerPicker(card);
       } else {
@@ -581,16 +718,17 @@ export function renderUno(root) {
     gs.hands[myRole] = gs.hands[myRole].filter(c => c.id !== card.id);
     gs.discardTop = card;
     gs.currentColor = chosenColor;
-    gs.unoCatchable[myRole] = gs.hands[myRole].length === 1;
 
+    // applyCardEffect may resolve a counter (drawing cards to hands / starting a
+    // control session), so compute UNO-catchable AFTER it runs.
     applyCardEffect(card, myRole, swapTarget);
+    gs.unoCatchable[myRole] = gs.hands[myRole].length === 1;
 
     socket.send({ type: MSG.UNO_PLAY, cardId: card.id, chosenColor, from: myRole, swapTarget: swapTarget || undefined });
 
     if (card.type === 'draw2') haptics.pulse(0.35, 180);
     if (card.type === 'wild4') haptics.pulse(0.5, 250);
     if (card.type === 'plus10') haptics.pulse(0.6, 300);
-    if (card.type === 'ctrl2') showVibeControl(120000);
 
     if (gs.hands[myRole].length === 0) { endRound(myRole); return; }
     if (gs.hands[myRole].length === 1) gs.unoStatus[myRole] = false;
@@ -601,15 +739,22 @@ export function renderUno(root) {
   function onDraw() {
     if (gs.currentPlayer !== myRole || gs.roundOver) return;
     const count = gs.pendingDraw > 0 ? gs.pendingDraw : 1;
-    for (let i = 0; i < count; i++) {
-      if (gs.drawIndex < gs.deck.length) gs.hands[myRole].push(gs.deck[gs.drawIndex++]);
-    }
+    drawCards(myRole, count);
     gs.pendingDraw = 0;
+    gs.stackKind = null;
     gs.unoStatus[myRole] = false;
     gs.unoCatchable[myRole] = false;
     haptics.pulse(0.65, count * 2000);
     socket.send({ type: MSG.UNO_DRAW, count, from: myRole });
     advanceTurnNormal();
+    render();
+  }
+
+  function onTakeCtrl() {
+    if (gs.currentPlayer !== myRole || gs.roundOver || gs.stackKind !== 'ctrl') return;
+    gs.unoStatus[myRole] = false;
+    socket.send({ type: MSG.UNO_TAKE_CTRL, from: myRole });
+    applyTakeCtrl(myRole);
     render();
   }
 

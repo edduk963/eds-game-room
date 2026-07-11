@@ -1,8 +1,22 @@
+import { execSync } from 'node:child_process';
 import { defineConfig } from 'vite';
+import pkg from './package.json' with { type: 'json' };
+
+function getCommitHash() {
+  try {
+    return execSync('git rev-parse --short HEAD').toString().trim();
+  } catch {
+    return 'unknown';
+  }
+}
 
 export default defineConfig({
   root: 'client',
   publicDir: 'public',
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+    __COMMIT_HASH__: JSON.stringify(getCommitHash()),
+  },
   server: {
     port: 5173,
     allowedHosts: true,

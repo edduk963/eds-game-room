@@ -28,6 +28,7 @@ export const state = {
   hiloVibeTarget: 'both',
   stlDifficulty: 'normal',
   stlForfeitCards: ['truth', 'dare', 'control', 'strip', 'drink', 'surrender'],
+  soDifficulty: 'beginner',
   btdForfeits: [],
   btdMode: 'draw',
   btdGameMode: 'dealer',
@@ -89,6 +90,7 @@ export function reset() {
   state.hiloVibeTarget = 'both';
   state.stlDifficulty = 'normal';
   state.stlForfeitCards = ['truth', 'dare', 'control', 'strip', 'drink', 'surrender'];
+  state.soDifficulty = 'beginner';
   state.btdForfeits = [];
   state.btdMode = 'draw';
   state.btdGameMode = 'dealer';

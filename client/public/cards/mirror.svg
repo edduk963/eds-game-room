@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 175 250">
+  <rect width="175" height="250" rx="18" fill="#111"/>
+  <ellipse cx="87.5" cy="125" rx="57" ry="95" transform="rotate(-20 87.5 125)" fill="none" stroke="white" stroke-width="2.5"/>
+  <g fill="none" stroke="white" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M60 92 L44 110 L60 128"/>
+    <path d="M115 92 L131 110 L115 128"/>
+    <line x1="87.5" y1="78" x2="87.5" y2="142"/>
+  </g>
+  <text x="87.5" y="172" text-anchor="middle" dominant-baseline="middle"
+        font-family="'Arial Black', Impact, Arial, sans-serif" font-size="20" font-weight="900"
+        fill="white" letter-spacing="2">MIRROR</text>
+  <circle cx="15" cy="15" r="5" fill="#c62828"/><circle cx="21" cy="22" r="4" fill="#f9a825"/>
+  <circle cx="160" cy="235" r="5" fill="#2e7d32"/><circle cx="154" cy="228" r="4" fill="#1565c0"/>
+</svg>

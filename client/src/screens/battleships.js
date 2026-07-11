@@ -687,9 +687,12 @@ export function renderBattleships(root) {
 
   function applyMissVibe() {
     if (MULT <= 0) return;
-    const streak = Math.min(myMissStreak, 5);
-    const intensity = Math.min(0.25 * MULT * streak, 1.0);
-    const durationMs = 120 * streak;
+    // Ramp both intensity and duration with every consecutive miss, uncapped — it
+    // keeps getting worse until a hit resets myMissStreak to 0. Intensity naturally
+    // ceilings at 1.0 (device max), but duration has no ceiling and keeps growing.
+    const t = myMissStreak / 6; // 6-miss span sets the ramp rate; streak itself is uncapped
+    const intensity   = Math.min(1.0, 0.35 + 0.65 * t * (MULT / 1.5));
+    const durationMs  = Math.round(250 + 900 * t);
     haptics.pulse(intensity, durationMs);
   }
 

@@ -199,6 +199,7 @@ socket.addEventListener('begin', (ev) => {
   if (ev.detail.guest2Name) state.guest2Name = ev.detail.guest2Name;
   state.stlDifficulty = ev.detail.stlDifficulty || 'normal';
   state.stlForfeitCards = ev.detail.stlForfeitCards || ['truth', 'dare', 'control', 'strip', 'drink', 'surrender'];
+  state.soDifficulty = ev.detail.soDifficulty === 'experienced' ? 'experienced' : 'beginner';
   state.btdForfeits = ev.detail.btdForfeits || [];
   state.btdMode = ev.detail.btdMode || 'draw';
   state.btdGameMode = ev.detail.btdGameMode || 'dealer';

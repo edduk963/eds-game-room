@@ -23,27 +23,50 @@ export const POWER_POOL = [
   { id: 'ghost',     name: 'Ghost',     desc: "Opponent's live token counter shows 0/10 all round" },
 ];
 
+// Fisher-Yates shuffle (does not mutate input).
+function shuffle(arr, rng) {
+  const out = [...arr];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = rngInt(rng, 0, i);
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 // Draw the 5 battlefields for a match from seed. Always [SPY, ...4 from pool].
 export function drawBattlefields(seed) {
   const rng = makeRng(seed ^ 0x5f3a9c1b);
-  const pool = [...BATTLEFIELD_POOL];
-  // Fisher-Yates shuffle
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = rngInt(rng, 0, i);
-    [pool[i], pool[j]] = [pool[j], pool[i]];
-  }
+  const pool = shuffle(BATTLEFIELD_POOL, rng);
   return [SPY_FIELD, ...pool.slice(0, 4)];
 }
 
 // Draw 6 face-up power cards for the draft from seed (all 6, shuffled for display order).
 export function drawPowerDraft(seed) {
   const rng = makeRng(seed ^ 0xc0ffee42);
-  const pool = [...POWER_POOL];
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = rngInt(rng, 0, i);
-    [pool[i], pool[j]] = [pool[j], pool[i]];
+  return shuffle(POWER_POOL, rng);
+}
+
+const PLAIN_FIELD_IDS = ['vault', 'armory', 'gate', 'keep'];
+const SPECIAL_FIELD_IDS = ['gambit', 'curse', 'bounty', 'mirror', 'shadow'];
+
+// Returns the 5 rounds' battlefield sets for a match.
+// 'experienced': today's behavior — one fixed draw of [SPY, 4 random fields], same all 5 rounds.
+// 'beginner': progressive reveal — round 1 is the 4 plain fields (no special rules) + Spy,
+// round 2 swaps in 2 special fields, round 3 swaps in the last 2 (maxing out at 4 specials),
+// rounds 4-5 keep round 3's set. Fields already introduced are never removed.
+export function drawBattlefieldSchedule(seed, difficulty) {
+  if (difficulty !== 'beginner') {
+    const fixed = drawBattlefields(seed);
+    return [fixed, fixed, fixed, fixed, fixed];
   }
-  return pool;
+  const rng = makeRng(seed ^ 0x5f3a9c1b);
+  const byId = id => BATTLEFIELD_POOL.find(f => f.id === id);
+  const plains = shuffle(PLAIN_FIELD_IDS.map(byId), rng);
+  const specials = shuffle(SPECIAL_FIELD_IDS.map(byId), rng);
+  const round1 = [SPY_FIELD, ...plains];
+  const round2 = [SPY_FIELD, plains[2], plains[3], specials[0], specials[1]];
+  const round3 = [SPY_FIELD, specials[0], specials[1], specials[2], specials[3]];
+  return [round1, round2, round3, round3, round3];
 }
 
 // Host picks slots 0, 2, 4; guest picks 1, 3, 5.

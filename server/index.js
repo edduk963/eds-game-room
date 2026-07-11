@@ -238,7 +238,7 @@ wss.on('connection', (ws) => {
       const lcReward = msg.lcReward === 'half' ? 'half' : 'full';
       const bsGridSize = ['standard', 'large'].includes(msg.bsGridSize) ? msg.bsGridSize : 'standard';
       const bsVibeMultiplier = [1, 1.5, 2, 3].includes(Number(msg.bsVibeMultiplier)) ? Number(msg.bsVibeMultiplier) : 1.5;
-      const VALID_UNO_PACKS = ['plus10', 'edge', 'skipall', 'swaphands', 'doubledown', 'ctrl2'];
+      const VALID_UNO_PACKS = ['plus10', 'edge', 'skipall', 'swaphands', 'doubledown', 'ctrl2', 'mirror', 'deflect'];
       const unoSpecialPacks = Array.isArray(msg.unoSpecialPacks) ? msg.unoSpecialPacks.filter(p => VALID_UNO_PACKS.includes(p)) : [];
       const snlMode = ['versus', 'solo', 'watched'].includes(msg.snlMode) ? msg.snlMode : 'versus';
       const snlBoardSize = ['short', 'standard', 'long'].includes(msg.snlBoardSize) ? msg.snlBoardSize : 'standard';
@@ -329,7 +329,7 @@ wss.on('connection', (ws) => {
         lcReward: msg.lcReward === 'half' ? 'half' : 'full',
         bsGridSize: ['standard', 'large'].includes(msg.bsGridSize) ? msg.bsGridSize : 'standard',
         bsVibeMultiplier: [1, 1.5, 2, 3].includes(Number(msg.bsVibeMultiplier)) ? Number(msg.bsVibeMultiplier) : 1.5,
-        unoSpecialPacks: Array.isArray(msg.unoSpecialPacks) ? msg.unoSpecialPacks.filter(p => ['plus10','edge','skipall','swaphands','doubledown','ctrl2'].includes(p)) : [],
+        unoSpecialPacks: Array.isArray(msg.unoSpecialPacks) ? msg.unoSpecialPacks.filter(p => ['plus10','edge','skipall','swaphands','doubledown','ctrl2','mirror','deflect'].includes(p)) : [],
         unoRounds: Number.isInteger(msg.unoRounds) && msg.unoRounds >= 1 && msg.unoRounds <= 10 ? msg.unoRounds : 5,
         snlMode: ['versus', 'solo', 'watched'].includes(msg.snlMode) ? msg.snlMode : 'versus',
         snlBoardSize: ['short', 'standard', 'long'].includes(msg.snlBoardSize) ? msg.snlBoardSize : 'standard',
@@ -966,6 +966,12 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    if (msg.type === 'uno_take_ctrl') {
+      const from = ['host', 'guest', 'guest2'].includes(msg.from) ? msg.from : null;
+      broadcast(s, { type: 'uno_take_ctrl', from }, ws);
+      return;
+    }
+
     if (msg.type === 'uno_call_uno') {
       const from = ['host', 'guest', 'guest2'].includes(msg.from) ? msg.from : null;
       broadcast(s, { type: 'uno_call_uno', from }, ws);
@@ -981,8 +987,9 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'uno_vibe_ctrl') {
       const from = ['host', 'guest', 'guest2'].includes(msg.from) ? msg.from : null;
+      const target = ['host', 'guest', 'guest2'].includes(msg.target) ? msg.target : null;
       const intensity = Math.max(0, Math.min(1, Number(msg.intensity) || 0));
-      broadcast(s, { type: 'uno_vibe_ctrl', intensity, from }, ws);
+      broadcast(s, { type: 'uno_vibe_ctrl', intensity, from, target }, ws);
       return;
     }
 

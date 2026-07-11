@@ -4,7 +4,7 @@ import { navigate } from '../main.js';
 import { MSG } from '../shared/messages.js';
 import * as haptics from '../haptics.js';
 import {
-  drawBattlefields, drawPowerDraft, tokenPoolSize,
+  drawBattlefieldSchedule, drawPowerDraft, tokenPoolSize,
   resolveRound, resolveRoundTie, applyPostRevealPowers,
   roundVibeSeconds, matchEndVibeSeconds, checkMatchWinner,
   POWER_POOL,
@@ -14,7 +14,9 @@ export function renderStandoff(root) {
   root.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#4aaeff;font-size:2rem;font-family:monospace;">Standoff…</div>`;
 
   const myRole = state.role;
-  const fields = drawBattlefields(state.seed);
+  const difficulty = state.soDifficulty === 'beginner' ? 'beginner' : 'experienced';
+  const fieldSchedule = drawBattlefieldSchedule(state.seed, difficulty);
+  let fields = fieldSchedule[0];
 
   // One random power per player, assigned from seed
   const allPowers = drawPowerDraft(state.seed);
@@ -79,9 +81,9 @@ export function renderStandoff(root) {
   function showPreview() {
     phase = 'preview';
     root.innerHTML = `
-      <div style="min-height:100vh;background:#08080f;color:#ccc;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;font-family:monospace;">
+      <div style="min-height:100vh;width:100%;background:#08080f;color:#ccc;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;font-family:monospace;">
         <div style="color:#4aaeff;font-size:1.4rem;margin-bottom:4px;letter-spacing:2px;">STANDOFF</div>
-        <div style="color:#666;font-size:0.8rem;margin-bottom:32px;">Battlefields this match</div>
+        <div style="color:#666;font-size:0.8rem;margin-bottom:32px;">${difficulty === 'beginner' ? 'Round 1 battlefields — more are added as the match goes on' : 'Battlefields this match'}</div>
         <div id="so-field-list" style="display:flex;flex-direction:column;gap:12px;width:100%;max-width:380px;"></div>
         <div id="so-preview-status" style="margin-top:24px;color:#444;font-size:0.75rem;">Revealing battlefields…</div>
       </div>`;
@@ -123,7 +125,7 @@ export function renderStandoff(root) {
     const ctx = powerCtx[myPowerId] || {};
 
     root.innerHTML = `
-      <div style="min-height:100vh;background:#08080f;color:#ccc;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;font-family:monospace;max-width:480px;margin:0 auto;">
+      <div style="min-height:100vh;width:100%;background:#08080f;color:#ccc;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;font-family:monospace;max-width:480px;margin:0 auto;">
         <div style="color:#4aaeff;font-size:1.1rem;margin-bottom:20px;letter-spacing:2px;">HOW TO PLAY</div>
         <div style="width:100%;background:#0a1a2a;border:1px solid #2a4a6a;border-radius:8px;padding:14px 16px;margin-bottom:16px;box-sizing:border-box;">
           <div style="color:#888;font-size:0.68rem;letter-spacing:1px;margin-bottom:6px;">YOUR POWER THIS MATCH</div>
@@ -139,7 +141,7 @@ export function renderStandoff(root) {
         <div style="background:#12121e;border:1px solid #2a2a4a;border-radius:8px;padding:20px;width:100%;box-sizing:border-box;font-size:0.8rem;line-height:1.7;">
           <b style="color:#ddd;">ALLOCATE</b><br>Split your tokens across 5 battlefields in secret. Tap a card to place a token.<br><br>
           <b style="color:#ddd;">REVEAL</b><br>Both reveal simultaneously. Higher tokens wins the field. Win = small vibe. Lose = full penalty. Tie = 1.5× — worse than losing. Both 0 = 10s each.<br><br>
-          <b style="color:#ddd;">ROUNDS</b><br>Most battlefields wins the round. First to 3 rounds wins the match. Round 5: all field values double. Down 0–2: +3 tokens.<br><br>
+          <b style="color:#ddd;">ROUNDS</b><br>Most battlefields wins the round. First to 3 rounds wins the match. Round 5: all field values double. Down 0–2: +3 tokens.${difficulty === 'beginner' ? ' Battlefields start simple — new ones with special rules are introduced a couple at a time in later rounds, clearly marked NEW.' : ''}<br><br>
           <b style="color:#ddd;">TIED ROUND</b><br>Shared slider controls vibe for both. First to STOP gives opponent +3 tokens next round.
         </div>
         <button id="so-confirm" style="margin-top:20px;background:#4aaeff;color:#000;border:none;border-radius:8px;padding:14px 32px;font-size:1rem;cursor:pointer;font-family:monospace;font-weight:bold;">CONFIRM — I'M READY</button>
@@ -162,6 +164,7 @@ export function renderStandoff(root) {
   // ── Round flow ──
 
   function startRound() {
+    fields = fieldSchedule[roundIndex];
     if (roundIndex > 0) {
       const last = roundResults[roundResults.length - 1];
       if (last?.spyWonBy === myKey) { showSpyPick(); return; }
@@ -174,7 +177,7 @@ export function renderStandoff(root) {
     socket.send({ type: MSG.SO_SPY_WON });
     const nonSpy = fields.filter(f => f.id !== 'spy');
     root.innerHTML = `
-      <div style="min-height:100vh;background:#08080f;color:#ccc;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;font-family:monospace;">
+      <div style="min-height:100vh;width:100%;background:#08080f;color:#ccc;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;font-family:monospace;">
         <div style="color:#4aaeff;margin-bottom:8px;letter-spacing:2px;">THE SPY 👁</div>
         <div style="color:#888;font-size:0.8rem;margin-bottom:24px;">Pick a field — you'll see opponent's live count there during allocation:</div>
         <div style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:300px;">
@@ -219,6 +222,9 @@ export function renderStandoff(root) {
 
     const showPower = !myPowerUsed && ['surge', 'ghost', 'forfeit', 'intel'].includes(myPowerId);
 
+    const prevFields = roundIndex > 0 ? fieldSchedule[roundIndex - 1] : null;
+    const isNewField = (f) => difficulty === 'beginner' && !!prevFields && !prevFields.some(pf => pf.id === f.id);
+
     const spyBanner = pendingSpyField ? (() => {
       const sf = fields.find(f => f.id === pendingSpyField);
       return `<div id="so-spy-banner" style="background:#0a1a0a;border:1px solid #2a4a2a;border-radius:8px;padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;gap:8px;">
@@ -242,7 +248,7 @@ export function renderStandoff(root) {
     })() : '';
 
     root.innerHTML = `
-      <div id="so-alloc" style="min-height:100vh;background:#08080f;display:flex;flex-direction:column;font-family:monospace;padding:12px 14px;box-sizing:border-box;">
+      <div id="so-alloc" style="min-height:100vh;width:100%;max-width:820px;margin:0 auto;background:#08080f;display:flex;flex-direction:column;font-family:monospace;padding:12px 14px;box-sizing:border-box;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
           <div style="color:#4aaeff;font-size:0.85rem;">Round ${roundIndex + 1}/5</div>
           <div style="color:#888;font-size:0.8rem;">You ${myRoundWins}—${oppRoundWins} Opp</div>
@@ -262,7 +268,7 @@ export function renderStandoff(root) {
             <span style="color:#444;font-size:0.7rem;">of ${pool} remaining</span>
           </div>
         </div>
-        <div id="so-field-cards" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;"></div>
+        <div id="so-field-cards" style="display:grid;grid-template-columns:1fr;gap:8px;"></div>
         ${showPower ? `<div style="margin-top:10px;"><button id="so-power-btn" style="width:100%;padding:10px 14px;background:#1a1a2a;border:1px solid #2a3a4a;border-radius:8px;color:#aaa;font-family:monospace;font-size:0.82rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;"><span>${powerIcon(myPowerId)}</span><span class="pname">Use ${myPowerCard.name} — ${myPowerCard.desc}</span></button></div>` : (myPowerUsed ? `<div style="margin-top:8px;color:#333;font-size:0.72rem;text-align:center;">${powerIcon(myPowerId)} ${myPowerCard.name} already used</div>` : '')}
         <button id="so-commit-btn" disabled style="width:100%;padding:14px;background:#1a1a2a;border:1px solid #2a2a4a;border-radius:8px;color:#444;font-family:monospace;font-size:1rem;cursor:not-allowed;margin-top:10px;">Place all tokens to commit</button>
       </div>`;
@@ -277,31 +283,39 @@ export function renderStandoff(root) {
 
     fields.forEach(f => {
       const isMirror = f.special === 'mirror';
+      const isNew = isNewField(f);
+      const wl = fieldWinLose(f);
       const card = document.createElement('div');
       card.dataset.fieldId = f.id;
-      card.style.cssText = `background:#12121e;border:1px solid #2a2a4a;border-radius:8px;padding:10px;cursor:pointer;transition:border-color 0.15s;user-select:none;display:flex;flex-direction:column;`;
+      card.style.cssText = `background:#12121e;border:${isNew ? '2px solid #ffb84a' : '1px solid #2a2a4a'};border-radius:10px;padding:14px;cursor:pointer;transition:border-color 0.15s;user-select:none;display:flex;flex-direction:column;`;
       card.innerHTML = `
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
-          <canvas width="28" height="28" style="border-radius:3px;flex-shrink:0;"></canvas>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+          <canvas width="48" height="48" style="border-radius:6px;flex-shrink:0;"></canvas>
           <div style="flex:1;min-width:0;">
-            <div style="color:#ddd;font-size:0.78rem;font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${f.name}</div>
-            <div style="display:flex;gap:4px;align-items:baseline;margin-top:1px;">
-              ${f.pts ? `<span style="color:#4aaeff;font-size:0.62rem;background:#0a1a2a;padding:1px 4px;border-radius:3px;">${f.pts}pt</span>` : ''}
-              <span style="color:#444;font-size:0.6rem;">${f.rate}s/t</span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <div style="color:#ddd;font-size:1rem;font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${f.name}</div>
+              ${isNew ? `<span style="color:#ffb84a;font-size:0.6rem;font-weight:bold;letter-spacing:1px;background:#2a1e0a;padding:2px 6px;border-radius:4px;flex-shrink:0;">NEW</span>` : ''}
+            </div>
+            <div style="display:flex;gap:5px;align-items:baseline;margin-top:2px;">
+              ${f.pts ? `<span style="color:#4aaeff;font-size:0.68rem;background:#0a1a2a;padding:1px 5px;border-radius:3px;">${f.pts}pt</span>` : ''}
+              <span style="color:#555;font-size:0.66rem;">${f.rate}s/token</span>
             </div>
           </div>
         </div>
-        <div style="color:#444;font-size:0.62rem;line-height:1.3;margin-bottom:6px;">${fieldDescShort(f)}</div>
-        ${isMirror ? `<div id="so-mirror-${f.id}" style="color:#4aaeff;font-size:0.62rem;margin-bottom:4px;">Opp: ?</div>` : ''}
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:auto;">
-          <button class="so-dec" style="width:28px;height:28px;border-radius:50%;background:#1a1a2a;border:1px solid #2a2a4a;color:#888;font-size:1.1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;">−</button>
-          <span class="so-count" style="color:#4aaeff;font-size:1.2rem;font-weight:bold;min-width:28px;text-align:center;cursor:pointer;">0</span>
-          <button class="so-inc" style="width:28px;height:28px;border-radius:50%;background:#0a1a2a;border:1px solid #2a4a6a;color:#4aaeff;font-size:1.1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;">+</button>
+        <div style="font-size:0.72rem;line-height:1.5;margin-bottom:8px;">
+          <div style="color:#4aeb9a;"><b>WIN:</b> ${wl.win}</div>
+          <div style="color:#e07a7a;"><b>LOSE:</b> ${wl.lose}</div>
         </div>
-        <div class="so-dots" style="display:flex;gap:3px;flex-wrap:wrap;margin-top:6px;min-height:0;"></div>
+        ${isMirror ? `<div id="so-mirror-${f.id}" style="color:#4aaeff;font-size:0.7rem;margin-bottom:6px;">Opp: ?</div>` : ''}
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:auto;">
+          <button class="so-dec" style="width:36px;height:36px;border-radius:50%;background:#1a1a2a;border:1px solid #2a2a4a;color:#888;font-size:1.3rem;cursor:pointer;display:flex;align-items:center;justify-content:center;">−</button>
+          <span class="so-count" style="color:#4aaeff;font-size:1.4rem;font-weight:bold;min-width:32px;text-align:center;cursor:pointer;">0</span>
+          <button class="so-inc" style="width:36px;height:36px;border-radius:50%;background:#0a1a2a;border:1px solid #2a4a6a;color:#4aaeff;font-size:1.3rem;cursor:pointer;display:flex;align-items:center;justify-content:center;">+</button>
+        </div>
+        <div class="so-dots" style="display:flex;gap:3px;flex-wrap:wrap;margin-top:8px;min-height:0;"></div>
       `;
       const cvs = card.querySelector('canvas');
-      cvs.width = 28; cvs.height = 28;
+      cvs.width = 48; cvs.height = 48;
       drawFieldIcon(cvs, f.id);
       card.addEventListener('click', (e) => { if (e.target.closest('.so-inc,.so-dec,.so-count')) return; adjustToken(f.id, 1); });
       card.querySelector('.so-inc').addEventListener('click', (e) => { e.stopPropagation(); adjustToken(f.id, 1); });
@@ -476,7 +490,7 @@ export function renderStandoff(root) {
     const result = resolveRound(fields, hostFields, guestFields, roundIndex, context);
 
     root.innerHTML = `
-      <div id="so-reveal" style="min-height:100vh;background:#08080f;display:flex;flex-direction:column;align-items:center;padding:16px;box-sizing:border-box;font-family:monospace;">
+      <div id="so-reveal" style="min-height:100vh;width:100%;background:#08080f;display:flex;flex-direction:column;align-items:center;padding:16px;box-sizing:border-box;font-family:monospace;">
         <div style="color:#4aaeff;font-size:1rem;margin-bottom:2px;letter-spacing:2px;">REVEAL</div>
         <div style="color:#666;font-size:0.75rem;margin-bottom:16px;">Round ${roundIndex + 1}</div>
         <div id="so-reveal-cards" style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:400px;"></div>
@@ -555,7 +569,7 @@ export function renderStandoff(root) {
     // Powers fire immediately — vibe deferred until after broadcast
     showPowerWindow(result, (modifiedResult) => {
       bountyCarried = modifiedResult.bountyCarriedToNext || false;
-      roundResults.push(modifiedResult);
+      roundResults.push({ ...modifiedResult, _roundIndex: roundIndex });
 
       const myVibe = roundVibeSeconds(modifiedResult, myKey);
       const oppVibe = roundVibeSeconds(modifiedResult, oppKey);
@@ -817,7 +831,7 @@ export function renderStandoff(root) {
     haptics.setForfeitIntensity(intensity);
 
     root.innerHTML = `
-      <div style="min-height:100vh;background:#08080f;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;font-family:monospace;">
+      <div style="min-height:100vh;width:100%;background:#08080f;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;font-family:monospace;">
         <div style="color:#f44;font-size:1.1rem;margin-bottom:4px;letter-spacing:2px;">ROUND TIED — STANDOFF</div>
         <div style="color:#888;font-size:0.75rem;margin-bottom:24px;">First to stop gives opponent +3 tokens next round</div>
         <div style="width:100%;max-width:340px;">
@@ -875,6 +889,7 @@ export function renderStandoff(root) {
       const { outcome, stoppedBy } = ev.detail;
       if (outcome !== 'simultaneous' && stoppedBy !== myRole) chickenTokenBonus = 3;
       roundIndex++;
+      fields = fieldSchedule[roundIndex];
       setTimeout(showAllocation, 1200);
     };
     socket.addEventListener(MSG.SO_CHICKEN_RESULT, onChickenResult);
@@ -889,15 +904,15 @@ export function renderStandoff(root) {
     const myVibeSeconds = iWon ? winnerSeconds : loserSeconds;
 
     root.innerHTML = `
-      <div style="min-height:100vh;background:#08080f;display:flex;flex-direction:column;align-items:center;padding:24px;box-sizing:border-box;font-family:monospace;">
+      <div style="min-height:100vh;width:100%;background:#08080f;display:flex;flex-direction:column;align-items:center;padding:24px;box-sizing:border-box;font-family:monospace;">
         <div style="color:${iWon ? '#00ff88' : '#f44'};font-size:1.4rem;margin-bottom:4px;letter-spacing:2px;margin-top:24px;">${iWon ? 'VICTORY' : 'DEFEAT'}</div>
         <div style="color:#666;font-size:0.8rem;margin-bottom:16px;">${myRoundWins} — ${oppRoundWins}</div>
         <div style="width:100%;max-width:420px;margin-bottom:20px;">
           <div style="color:#555;font-size:0.72rem;letter-spacing:1px;margin-bottom:8px;">MATCH SUMMARY</div>
-          ${roundResults.map((r, i) => `
+          ${roundResults.map((r) => `
             <div style="background:#12121e;border:1px solid #2a2a4a;border-radius:6px;padding:10px;margin-bottom:6px;">
-              <div style="color:#555;font-size:0.68rem;margin-bottom:6px;">Round ${i + 1} ${r.roundWinner === myKey ? '✓ Your round' : (r.roundWinner === oppKey ? '✗ Their round' : '— Draw')}</div>
-              ${fields.map(f => {
+              <div style="color:#555;font-size:0.68rem;margin-bottom:6px;">Round ${r._roundIndex + 1} ${r.roundWinner === myKey ? '✓ Your round' : (r.roundWinner === oppKey ? '✗ Their round' : '— Draw')}</div>
+              ${fieldSchedule[r._roundIndex].map(f => {
                 const myT  = myKey  === 'A' ? r.alloc?.A?.[f.id] ?? 0 : r.alloc?.B?.[f.id] ?? 0;
                 const oppT = myKey  === 'A' ? r.alloc?.B?.[f.id] ?? 0 : r.alloc?.A?.[f.id] ?? 0;
                 const fr = r.fieldResults?.[f.id];
@@ -1045,13 +1060,20 @@ function fieldDesc(f) {
   return descs[f.id] || '';
 }
 
-function fieldDescShort(f) {
-  const descs = {
-    vault: 'Higher tokens wins', armory: 'Higher tokens wins', gate: 'Higher tokens wins', keep: 'Higher tokens wins',
-    gambit: '1 token → 4pt jackpot', curse: 'Loser: +30s flat', bounty: 'Tie: pot carries over',
-    mirror: 'Live counts visible', shadow: 'Counts hidden till reveal', spy: 'Win: peek one field next round',
+function fieldWinLose(f) {
+  const wl = {
+    vault:  { win: `+${f.pts}pt`, lose: `you feel ${f.rate}s per token placed` },
+    armory: { win: `+${f.pts}pt`, lose: `you feel ${f.rate}s per token placed` },
+    gate:   { win: `+${f.pts}pt`, lose: `you feel ${f.rate}s per token placed` },
+    keep:   { win: `+${f.pts}pt`, lose: `you feel ${f.rate}s per token placed` },
+    gambit: { win: `1 token → +4pt jackpot! · 2+ tokens → +1pt`, lose: `you feel ${f.rate}s per token placed` },
+    curse:  { win: `+${f.pts}pt`, lose: `you feel ${f.rate}s per token, plus +30s flat` },
+    bounty: { win: `+${f.pts}pt`, lose: `you feel ${f.rate}s per token · a tie carries the pot, doubled, to next round` },
+    mirror: { win: `+${f.pts}pt · both sides see live counts here`, lose: `you feel ${f.rate}s per token placed` },
+    shadow: { win: `+${f.pts}pt · counts stay hidden until reveal`, lose: `you feel ${f.rate}s per token placed` },
+    spy:    { win: `no points, but you peek at one opponent field next round`, lose: `no penalty — 0pt field` },
   };
-  return descs[f.id] || '';
+  return wl[f.id] || { win: '—', lose: '—' };
 }
 
 function powerIcon(id) {

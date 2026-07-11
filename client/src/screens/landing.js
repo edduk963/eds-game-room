@@ -15,6 +15,7 @@ export function renderLanding(root) {
       <div style="margin-top:16px;text-align:center;">
         <button id="open-wheel" class="ghost" style="width:100%;font-size:14px;">🎡 Spin the Wheel</button>
       </div>
+      <div style="margin-top:16px;text-align:center;font-size:11px;opacity:0.5;">v${__APP_VERSION__} (${__COMMIT_HASH__})</div>
     </div>
   `;
 

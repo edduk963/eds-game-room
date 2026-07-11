@@ -6,6 +6,7 @@ let devices = [];
 let stopTimer = null;
 let vibeSeconds = 0;
 let vibeTickInterval = null;
+let missSpikeUntil = 0; // timestamp until which an explicit pulse() should win over ambient loops
 
 function stopAllDevices() {
   devices.forEach(d => d.stop().catch(() => {}));
@@ -65,9 +66,13 @@ export async function pulse(intensity, durationMs) {
   if (devices.length === 0) return;
   if (vibeSeconds > 0) return;
   clearTimeout(stopTimer);
+  // Win over any ambient loop (e.g. forfeit vibe) for the pulse's duration, so an
+  // explicit pulse is never immediately overwritten by a concurrent 100ms tick.
+  missSpikeUntil = performance.now() + durationMs;
   await vibe(intensity);
   stopTimer = setTimeout(() => {
-    if (vibeSeconds <= 0) stopAllDevices();
+    missSpikeUntil = 0;
+    if (vibeSeconds <= 0 && forfeitSeconds <= 0 && shootVibeSeconds <= 0) stopAllDevices();
   }, durationMs);
 }
 
@@ -170,6 +175,8 @@ export function startForfeitVibe(seconds) {
       clearInterval(forfeitTickInterval);
       forfeitTickInterval = null;
       stopAllDevices();
+    } else if (performance.now() < missSpikeUntil) {
+      // an explicit pulse() is mid-flight — don't stomp it
     } else if (_waveVibeMode) {
       _wavePhase++;
       vibe(waveIntensity(forfeitIntensity));
@@ -211,6 +218,8 @@ export function addForfeitSeconds(n) {
         clearInterval(forfeitTickInterval);
         forfeitTickInterval = null;
         stopAllDevices();
+      } else if (performance.now() < missSpikeUntil) {
+        // an explicit pulse() is mid-flight — don't stomp it
       } else if (_waveVibeMode) {
         _wavePhase++;
         vibe(waveIntensity(forfeitIntensity));

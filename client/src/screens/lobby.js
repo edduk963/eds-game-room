@@ -40,6 +40,8 @@ export function renderLobby(root) {
   let selectedBsGridSize = 'standard';
   let selectedBsVibeMultiplier = 1.5;
   let selectedUnoRounds = 5;
+  const ALL_UNO_PACKS = ['plus10', 'edge', 'skipall', 'swaphands', 'doubledown', 'ctrl2', 'mirror', 'deflect'];
+  // Special cards are all-or-nothing: [] = off, the full list = on.
   let selectedUnoSpecialPacks = [];
   let selectedSnlMode = 'versus';
   let selectedSnlBoardSize = 'standard';
@@ -325,16 +327,15 @@ export function renderLobby(root) {
             <button class="mm-rounds-btn mm-rounds-selected" data-uno-rounds="5">5</button>
           </div>
         </div>
-        <div class="mm-rounds-row" style="flex-direction:column;align-items:stretch;gap:6px;">
-          <span>Special card packs <span style="font-size:11px;color:var(--muted)">(tap to toggle)</span>:</span>
-          <div class="uno-packs-grid" id="uno-packs-grid">
-            <button class="uno-pack-btn ghost" data-uno-pack="plus10">+10 Pickup<br><span class="uno-pack-desc">Like Wild +4 but draws 10</span></button>
-            <button class="uno-pack-btn ghost" data-uno-pack="edge">+1 Edge<br><span class="uno-pack-desc">Per colour · stackable on draws</span></button>
-            <button class="uno-pack-btn ghost" data-uno-pack="skipall">Skip All<br><span class="uno-pack-desc">Wild · all opponents skipped</span></button>
-            <button class="uno-pack-btn ghost" data-uno-pack="swaphands">Swap Hands<br><span class="uno-pack-desc">Wild · swap hand with a player</span></button>
-            <button class="uno-pack-btn ghost" data-uno-pack="doubledown">Double Down<br><span class="uno-pack-desc">Wild · doubles pending draw (min ×2)</span></button>
-            <button class="uno-pack-btn ghost" data-uno-pack="ctrl2">2 Min Ctrl<br><span class="uno-pack-desc">Wild · winner controls loser's vibe for 2 min</span></button>
+        <div class="mm-rounds-row">
+          <span>Special cards:</span>
+          <div class="mm-rounds-btns" id="uno-packs-btns">
+            <button class="mm-rounds-btn ghost" data-uno-packs="off">Off</button>
+            <button class="mm-rounds-btn ghost" data-uno-packs="on">On</button>
           </div>
+        </div>
+        <div class="mm-rounds-row" id="uno-packs-note" style="font-size:11px;color:var(--muted);margin-top:-6px;">
+          Adds +10, Edge, Skip All, Swap Hands, Double Down, 30s Ctrl, Mirror &amp; Deflect.
         </div>
       </div>
       <div id="mm-config" style="display:none">
@@ -649,7 +650,7 @@ export function renderLobby(root) {
   const randomizeBtn = root.querySelector('#randomize-btn');
   const unoConfig = root.querySelector('#uno-config');
   const unoRoundsBtns = root.querySelector('#uno-rounds-btns');
-  const unoPacksGrid = root.querySelector('#uno-packs-grid');
+  const unoPacksBtns = root.querySelector('#uno-packs-btns');
   const mmConfig = root.querySelector('#mm-config');
   const hiloConfig = root.querySelector('#hilo-config');
   const stlConfig = root.querySelector('#stl-config');
@@ -1026,8 +1027,9 @@ export function renderLobby(root) {
       b.classList.toggle('ghost', !sel);
       b.disabled = state.role !== 'host';
     });
-    unoPacksGrid.querySelectorAll('[data-uno-pack]').forEach(b => {
-      const sel = selectedUnoSpecialPacks.includes(b.dataset.unoPack);
+    const packsOn = selectedUnoSpecialPacks.length > 0;
+    unoPacksBtns.querySelectorAll('[data-uno-packs]').forEach(b => {
+      const sel = (b.dataset.unoPacks === 'on') === packsOn;
       b.classList.toggle('mm-rounds-selected', sel);
       b.classList.toggle('ghost', !sel);
       b.disabled = state.role !== 'host';
@@ -1269,7 +1271,7 @@ export function renderLobby(root) {
         break;
       case 'uno':
         selectedUnoRounds = 5;
-        selectedUnoSpecialPacks = ['plus10', 'edge', 'skipall', 'swaphands', 'doubledown', 'ctrl2'];
+        selectedUnoSpecialPacks = [...ALL_UNO_PACKS];
         break;
       case 'memory':
         selectedMemMode = 'versus';
@@ -1541,16 +1543,11 @@ export function renderLobby(root) {
     sendConfig();
   });
 
-  unoPacksGrid.addEventListener('click', (e) => {
+  unoPacksBtns.addEventListener('click', (e) => {
     if (state.role !== 'host') return;
-    const btn = e.target.closest('[data-uno-pack]');
+    const btn = e.target.closest('[data-uno-packs]');
     if (!btn) return;
-    const pack = btn.dataset.unoPack;
-    if (selectedUnoSpecialPacks.includes(pack)) {
-      selectedUnoSpecialPacks = selectedUnoSpecialPacks.filter(p => p !== pack);
-    } else {
-      selectedUnoSpecialPacks = [...selectedUnoSpecialPacks, pack];
-    }
+    selectedUnoSpecialPacks = btn.dataset.unoPacks === 'on' ? [...ALL_UNO_PACKS] : [];
     paintOptions();
     sendConfig();
   });

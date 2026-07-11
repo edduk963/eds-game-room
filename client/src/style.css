@@ -2537,6 +2537,9 @@ button.ghost {
   box-shadow: 0 4px 14px rgba(0,0,0,0.4);
 }
 .uno-pile-wrap:hover .uno-pile-img { transform: scale(1.06); box-shadow: 0 6px 22px rgba(0,0,0,0.55); }
+/* When a control stack is aimed at you, the draw pile becomes a "take it" button. */
+.uno-pile-wrap.uno-pile-ctrl .uno-pile-img { outline: 3px solid #ffd54a; box-shadow: 0 0 18px rgba(255,213,74,0.7); }
+.uno-pile-wrap.uno-pile-ctrl .uno-pile-label { color: #ffd54a; font-weight: 800; }
 
 /* Discard pile */
 .uno-discard-wrap {
