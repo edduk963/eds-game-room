@@ -26,6 +26,10 @@ RUN npm ci --omit=dev && npm cache clean --force
 # Server code + the built client it serves
 COPY server ./server
 COPY --from=builder /app/dist ./dist
+# Conquest's game logic (map generator, round resolution, seeded RNG) is imported directly by
+# server/index.js at runtime as raw ES modules — it's not bundled into dist/, which only covers
+# the browser build — so the source files themselves need to exist in the runtime image too.
+COPY client/src/game ./client/src/game
 
 EXPOSE 3001
 CMD ["node", "server/index.js"]
