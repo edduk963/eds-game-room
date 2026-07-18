@@ -4,6 +4,7 @@ import { navigate } from '../main.js';
 import { MSG } from '../shared/messages.js';
 import * as haptics from '../haptics.js';
 import { initVibeBattery } from '../vibeBattery.js';
+import { initVibeModeBar } from '../vibeModeBar.js';
 import { makeRng } from '../game/seededRng.js';
 import {
   getBaseConfig, nextRoundConfig, generateCode, evaluateGuessPositional,
@@ -65,6 +66,7 @@ export function renderMastermind3(root) {
 
   let forfeitInterval = null;
   let vibeBatteryInstance = initVibeBattery(root);
+  let vibeModeBarInstance = null;
 
   // Mode + feedback-dot legend.
   const _modeName = gameMode === 'hard' ? 'Hard' : 'Easy';
@@ -122,6 +124,8 @@ export function renderMastermind3(root) {
       </div>
       <div id="mm-powerup-bar" class="mm-powerup-bar"></div>
     </div>`;
+
+  vibeModeBarInstance = initVibeModeBar(root);
 
   const countdownOverlay = root.querySelector('#mm-countdown-overlay');
   const forfeitOverlay = root.querySelector('#mm-forfeit-overlay');
@@ -733,6 +737,7 @@ export function renderMastermind3(root) {
     socket.removeEventListener(MSG.MM_GAME_END_READY, onMmGameEndReady);
     socket.removeEventListener(MSG.PEER_LEFT, onPeerLeft);
     if (vibeBatteryInstance) { vibeBatteryInstance.destroy(); vibeBatteryInstance = null; }
+    if (vibeModeBarInstance) { vibeModeBarInstance.destroy(); vibeModeBarInstance = null; }
     haptics.stopAll();
   };
   window.addEventListener('hashchange', cleanup, { once: true });

@@ -180,6 +180,10 @@ export function generateBoard(seed, opts) {
       if (tail < 1 || used.has(tail)) continue;
       snakes[head] = tail;
       used.add(head);
+      // Reserve the tail too so forfeit/pickup/fork tiles are never allocated onto a
+      // viper's landing square — otherwise the tile renders as a tail (higher render
+      // priority) and its forfeit/star reads as missing when you land there.
+      used.add(tail);
       entryTiles.push(head);
     }
 

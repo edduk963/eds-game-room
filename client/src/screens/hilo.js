@@ -8,6 +8,7 @@ import {
   buildDeck, computeVibeDurationMs, buildPowerUpMap, pickStartingRole,
   buildCycleRngs, POWER_UP_LABELS, RED_SUITS,
 } from '../game/hiloGame.js';
+import { initVibeModeBar } from '../vibeModeBar.js';
 
 export function renderHilo(root) {
   const myRole      = state.role;
@@ -167,6 +168,8 @@ export function renderHilo(root) {
 
       <div id="hilo-status-bar" class="hilo-status-bar"></div>
     </div>`;
+
+  const vibeModeBarInstance = initVibeModeBar(root.querySelector('.hilo-header'));
 
   // ── Card renderers ──────────────────────────────────────────────────────────
   function cardHtml(card) {
@@ -1111,6 +1114,7 @@ export function renderHilo(root) {
     stopHiloVibe();
     if (pauseDisplayInterval) { clearInterval(pauseDisplayInterval); pauseDisplayInterval = null; }
     clearTimeout(feedbackTimer);
+    vibeModeBarInstance.destroy();
     window.removeEventListener('keydown', onKeydown);
     socket.removeEventListener(MSG.HILO_GUESS,          onHiloGuess);
     socket.removeEventListener(MSG.HILO_SPACEBAR,       onHiloSpacebar);

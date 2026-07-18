@@ -3,11 +3,14 @@ import { state } from '../state.js';
 import { navigate } from '../main.js';
 import { MSG } from '../shared/messages.js';
 import * as haptics from '../haptics.js';
+import { initVibeModeBar } from '../vibeModeBar.js';
 import {
   generateBoard, rollFor, buildForfeitDeck, buildPowerupDeck,
   tierFor, vibeSeconds as calcVibeSeconds, resolveForfeitText, tileGridPos,
   POWERUP_INFO,
 } from '../game/snakesGame.js';
+
+let vibeModeBarInstance = null;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // entry
@@ -63,6 +66,7 @@ function renderController(root) {
   </div>`;
 
   injectStyles();
+  vibeModeBarInstance = initVibeModeBar(root.querySelector('.snl-header'), { prepend: false });
   const bw = root.querySelector('#snl-board-wrap');
   renderBoard(bw, board, positions);
 
@@ -198,6 +202,7 @@ function renderController(root) {
     socket.removeEventListener(MSG.SNL_VIBE_START,   onVibeStart);
     socket.removeEventListener(MSG.SNL_VIBE_STOP,    onVibeStop);
     socket.removeEventListener('peer_left',          onPeerLeft);
+    if (vibeModeBarInstance) { vibeModeBarInstance.destroy(); vibeModeBarInstance = null; }
   }, { once: true });
 }
 
@@ -319,6 +324,7 @@ function renderClimber(root) {
   </div>`;
 
   injectStyles();
+  vibeModeBarInstance = initVibeModeBar(root.querySelector('.snl-header'), { prepend: false });
   const bw          = root.querySelector('#snl-board-wrap');
   const rollBtn     = root.querySelector('#snl-roll-btn');
   const dieEl       = root.querySelector('#snl-die');
@@ -343,6 +349,8 @@ function renderClimber(root) {
   let bannerInt = null;
   let vibeOnExpire = null;   // set by startSliderCountdown; skip fast-forwards to this
   let vibeSkipHandler = null; // set by waits that don't go through the slider countdown
+  let vibeDriveTargets = null; // roles whose vibe MY slider currently drives (null = the
+                               // lone active victim, for the snake-driver default)
   let forkFallbackTimer = null; // auto-resolves a fork-reveal wait if the partner vanishes
   const departedRoles = new Set(); // roles whose socket has disconnected mid-game
 
@@ -509,7 +517,11 @@ function renderClimber(root) {
   vibeSlider.addEventListener('input', () => {
     vibePctEl.textContent = `${vibeSlider.value}%`;
     const intensity = vibeSlider.value / 100;
-    socket.send({ type: MSG.SNL_VIBE_CTRL, intensity, target: activeRole() });
+    // Snake driving leaves vibeDriveTargets null and drives the lone active victim;
+    // ladder/fork driving sets it explicitly (possibly several victims). pattern:'wave'
+    // makes every in-game vibe use randomly-cycling wave patterns on the victim's device.
+    const targets = vibeDriveTargets || [activeRole()];
+    targets.forEach(t => socket.send({ type: MSG.SNL_VIBE_CTRL, intensity, pattern: 'wave', target: t }));
     if (mirrorVibeActive) haptics.setForfeitIntensity(intensity);
   });
 
@@ -558,15 +570,12 @@ function renderClimber(root) {
     return { card: forfeitDeck[idx % forfeitDeck.length] || forfeitDeck[0], idx };
   }
 
-  // ── pickup ──
+  // ── pickup ── every star hands out a powerup (until the shared deck runs dry); the
+  // old every-2nd/3rd-landing catch-up rule made stars feel broken ("sometimes you get
+  // one, sometimes you don't").
   function tryPickup(r) {
     pickCount[r]++;
-    const myP = pos[r], maxP = Math.max(...roles.map(rr => pos[rr]));
-    const threshold = (myP >= maxP) ? 3 : 2;
-    // Rewards the 1st landing, then every `threshold` landings after that — pickCount
-    // starting the modulo at 1 meant the very first star ever collected always yielded
-    // nothing, and with only a handful of pickup tiles on the board that often meant none.
-    if ((pickCount[r] - 1) % threshold !== 0 || powerupIdx >= powerupDeck.length) return null;
+    if (powerupIdx >= powerupDeck.length) return null;
     return powerupDeck[powerupIdx++];
   }
 
@@ -694,7 +703,7 @@ function renderClimber(root) {
           <button id="snl-fin-stop" class="snl-btn-secondary">Stop</button>
         </div>
       </div>
-      <button id="snl-fin-finish" class="snl-btn-primary" style="margin-top:14px">Finish → Results</button>
+      <button id="snl-fin-finish" class="snl-btn-primary" style="margin-top:14px">Return to Lobby</button>
     </div>`);
 
     const slider = modalEl.querySelector('#snl-fin-slider');
@@ -718,7 +727,10 @@ function renderClimber(root) {
       sendStop();
       haptics.stopAll();
       socket.send({ type: MSG.SNL_FINALE_DONE });
-      navigate('#/results');
+      // Straight back to the lobby — the winner's live Finale panel already covered the
+      // recap + vibe control, so the generic results screen's separate final-vibe slider
+      // is redundant here and is skipped entirely.
+      navigate(`#/session/${state.sessionId}`);
     });
   }
 
@@ -843,6 +855,7 @@ function renderClimber(root) {
 
       if (deflect) {
         deflect = false;
+        paintActivePowerups();
         const opp = autoTarget(role);
         pos[opp] = Math.max(1, pos[opp] - (tile - tail));
         repaintBoard();
@@ -854,6 +867,7 @@ function renderClimber(root) {
       if (hands[role].includes('antivenom')) {
         hands[role].splice(hands[role].indexOf('antivenom'), 1);
         paintHand();
+        paintActivePowerups();
         socket.send({ type: MSG.SNL_POWERUP, puId: 'antivenom' });
         setStatus('Antivenom blocked the snake!');
         afterResolution();
@@ -870,12 +884,16 @@ function renderClimber(root) {
       const top = ladders[tile];
       if (greased[role]) {
         greased[role] = false;
+        paintActivePowerups();
         setStatus('Greased Rung! Ladder disabled.');
         afterResolution();
         return;
       }
       pos[role] = top;
       repaintBoard();
+      // Broadcast the climb right away so opponents see the token move BEFORE the vibe
+      // announcement lands (tokens move, then forfeits) — matching snake handling.
+      socket.send({ type: MSG.SNL_MOVE_DONE, tile: pos[role], final: false });
       doLadder(tile, top, top - tile);
       return;
     }
@@ -895,6 +913,7 @@ function renderClimber(root) {
 
     if (isSolo) {
       haptics.startForfeitVibe(secs);
+      haptics.setWaveVibeMode(true); // randomly-cycling pattern for the whole vibe
       startVibeBanner(secs, '🐍 Snake vibe!');
       setStatus(`Snake vibe — ${secs}s!`);
       const finish = () => { vibeSkipHandler = null; stopVibeBanner(); haptics.stopAll(); afterResolution(); };
@@ -905,8 +924,9 @@ function renderClimber(root) {
 
     const driver = hijacker || autoTarget(role);
     const mirrored = mirrorNext;
-    if (mirrored) mirrorNext = false;
+    if (mirrored) { mirrorNext = false; paintActivePowerups(); }
     haptics.startForfeitVibe(secs);
+    haptics.setWaveVibeMode(true); // randomly-cycling pattern for the whole vibe
     startVibeBanner(secs, mirrored
       ? `🐍 ${name(driver)} is driving your vibe — Mirror! They'll feel it too`
       : `🐍 ${name(driver)} is driving your vibe`);
@@ -944,11 +964,15 @@ function renderClimber(root) {
   // deflecting player stays safe and drives the punishment instead of receiving it.
   function doDeflectedSnake(target, head, tail) {
     const secs = calcVibeSeconds(head - tail, head, n, snlVibeScale);
+    // Drive `target` (not the default active victim — that's me, the safe deflector).
+    vibeDriveTargets = [target];
     vibeSlider.value = 50; vibePctEl.textContent = '50%';
-    socket.send({ type: MSG.SNL_VIBE_CTRL, intensity: 0.5, target });
+    socket.send({ type: MSG.SNL_VIBE_CTRL, intensity: 0.5, pattern: 'wave', target });
+    socket.send({ type: MSG.SNL_VIBE_START, secs, target, victim: true });
     startVibeBanner(secs, `🐍 Deflected! You're driving ${name(target)}'s vibe`);
     startSliderCountdown(secs, () => {
       socket.send({ type: MSG.SNL_VIBE_STOP, target });
+      vibeDriveTargets = null;
       stopVibeBanner();
       afterResolution();
     });
@@ -962,6 +986,7 @@ function renderClimber(root) {
     socket.send({ type: MSG.SNL_FORFEIT_DRAW, cardIndex: idx, secs: 0 });
     if (mirrorNext) {
       mirrorNext = false;
+      paintActivePowerups();
       socket.send({ type: MSG.SNL_FORFEIT_ASSIGN, cardIndex: idx, target: autoTarget(role) });
     }
     noteMyForfeitTaken();
@@ -984,36 +1009,33 @@ function renderClimber(root) {
       return;
     }
     const secs = calcVibeSeconds(dist, top, n, snlVibeScale);
-    const target = playerCount === 3 ? null : oppOf(role);
-    if (target === null) {
-      pickTarget(t => showLadderChoice(t, secs, dist, bottom));
-    } else {
-      showLadderChoice(target, secs, dist, bottom);
-    }
+    // Climbing a vine is a reward for the climber — every OTHER player gets vibed, and
+    // the climber drives all of them from one slider. (Was: a single picked target.)
+    const targets = roles.filter(rr => rr !== role);
+    showLadderChoice(targets, secs, bottom, top);
   }
 
-  function pickTarget(cb) {
-    const opts = roles.filter(rr => rr !== role)
-      .map(rr => `<button class="snl-btn-secondary snl-target" data-r="${rr}">${name(rr)}</button>`).join('');
-    showModal(`<div class="snl-forfeit-card"><div class="snl-forfeit-tier">Ladder — punish who?</div>
-      <div style="display:flex;gap:10px;justify-content:center;margin:12px 0">${opts}</div></div>`);
-    modalEl.querySelectorAll('.snl-target').forEach(b => b.addEventListener('click', () => { hideModal(); cb(b.dataset.r); }));
-  }
-
-  function showLadderChoice(target, secs, dist, bottom) {
+  function showLadderChoice(targets, secs, bottom, top) {
+    const names = targets.map(name).join(' & ');
     showModal(`<div class="snl-forfeit-card">
-      <div class="snl-forfeit-tier">Vine! ${bottom} → ${bottom + dist} 🪜</div>
-      <div class="snl-forfeit-text">Drive ${name(target)}'s vibe for ${secs}s:</div>
+      <div class="snl-forfeit-tier">Vine! ${bottom} → ${top} 🪜</div>
+      <div class="snl-forfeit-text">You climbed — drive ${names}'s vibe for ${secs}s:</div>
       <button id="snl-lv" class="snl-btn-primary" style="margin-top:10px">Start Vibe ▶</button>
     </div>`);
 
     modalEl.querySelector('#snl-lv').addEventListener('click', () => {
       hideModal();
+      vibeDriveTargets = targets.slice();
       vibeSlider.value = 50; vibePctEl.textContent = '50%';
-      socket.send({ type: MSG.SNL_VIBE_CTRL, intensity: 0.5, target });
-      startVibeBanner(secs, `🪜 You're driving ${name(target)}'s vibe`);
+      targets.forEach(t => {
+        socket.send({ type: MSG.SNL_VIBE_CTRL, intensity: 0.5, pattern: 'wave', target: t });
+        // Tell each victim WHY they're buzzing + for how long (they don't run this code).
+        socket.send({ type: MSG.SNL_VIBE_START, secs, target: t, victim: true, bottom, top, driver: role });
+      });
+      startVibeBanner(secs, `🪜 You climbed ${bottom}→${top} — driving ${names}'s vibe`);
       startSliderCountdown(secs, () => {
-        socket.send({ type: MSG.SNL_VIBE_STOP, target });
+        targets.forEach(t => socket.send({ type: MSG.SNL_VIBE_STOP, target: t }));
+        vibeDriveTargets = null;
         stopVibeBanner();
         afterResolution();
       });
@@ -1064,6 +1086,7 @@ function renderClimber(root) {
   function doRoll(ti) {
     const die = (loadedDie !== null) ? loadedDie : rollFor(seed, ti);
     loadedDie = null;
+    paintActivePowerups(); // a spent Loaded Die must drop off the armed-effects strip
     dieEl.textContent = ['', '⚀','⚁','⚂','⚃','⚄','⚅'][die] || String(die);
     setStatus(`Rolled ${die}`);
     const rawPos = pos[role] + die;
@@ -1146,19 +1169,31 @@ function renderClimber(root) {
     modalEl.querySelector('#snl-fass-ok').addEventListener('click', () => hideModal());
   };
 
-  // Active player's snake started — I'm the driver, show the slider
+  // Active player's snake started — I'm the driver, show the slider. `victim:true` flips
+  // it: a remote driver (ladder climber / deflector) is vibing ME, so show a "you're
+  // being vibed" banner instead — my intensity then arrives via SNL_VIBE_CTRL.
   const onVibeStart = ev => {
-    if (ev.detail.target && ev.detail.target !== role) return; // someone else drives this one
+    if (ev.detail.target && ev.detail.target !== role) return; // someone else is involved
     const secs = ev.detail.secs || 10;
+    if (ev.detail.victim) {
+      haptics.setWaveVibeMode(true); // randomly-cycling pattern for the whole vibe
+      const { bottom, top } = ev.detail;
+      startVibeBanner(secs, bottom && top
+        ? `🪜 ${name(ev.detail.driver || activeRole())} climbed a vine ${bottom}→${top} — you're vibed ${secs}s`
+        : `🐍 Deflected onto you — you're vibed ${secs}s`);
+      setStatus(`You're being vibed for ${secs}s.`);
+      return;
+    }
     mirrorVibeActive = !!ev.detail.mirror;
+    vibeDriveTargets = null; // snake: my slider drives the lone active victim (the faller)
     vibeSlider.value = 50; vibePctEl.textContent = '50%';
-    if (mirrorVibeActive) haptics.startForfeitVibe(secs); // Mirror: I feel what I dish out
+    if (mirrorVibeActive) { haptics.startForfeitVibe(secs); haptics.setWaveVibeMode(true); } // Mirror: I feel what I dish out
     startVibeBanner(secs, mirrorVibeActive
       ? `🐍 ${name(activeRole())} hit a snake — Mirror! You're driving AND feeling it`
       : `🐍 ${name(activeRole())} hit a snake — you're driving!`);
     startSliderCountdown(secs, () => {
       socket.send({ type: MSG.SNL_VIBE_STOP });
-      if (mirrorVibeActive) { haptics.stopAll(); mirrorVibeActive = false; }
+      if (mirrorVibeActive) { haptics.stopAll(); haptics.setWaveVibeMode(false); mirrorVibeActive = false; }
       stopVibeBanner();
     });
     setStatus(`${name(activeRole())} hit a snake — drive the vibe!${mirrorVibeActive ? ' (Mirrored — you feel it too)' : ''}`);
@@ -1172,12 +1207,20 @@ function renderClimber(root) {
     if (!haptics.isForfeitActive()) haptics.addForfeitSeconds(FINALE_VIBE_SAFETY_CAP_SECS);
     haptics.setForfeitIntensity(ev.detail.intensity || 0);
     if (ev.detail.pattern) haptics.setWaveVibeMode(ev.detail.pattern === 'wave');
+    // Shared-slider vibes (mutual betrayal): I'm both driving and feeling it, so reflect
+    // the other driver's drag on my own slider so the one control stays in sync.
+    if (mirrorVibeActive && vibeRow.style.display !== 'none') {
+      vibeSlider.value = Math.round((ev.detail.intensity || 0) * 100);
+      vibePctEl.textContent = `${vibeSlider.value}%`;
+    }
   };
 
   // Vibe ended — stop haptics (I'm victim) and hide slider (I'm driver)
   const onVibeStop = ev => {
     haptics.stopAll();
+    haptics.setWaveVibeMode(false); // don't leak wave patterns into the next/results vibe
     mirrorVibeActive = false;
+    vibeDriveTargets = null;
     clearInterval(vibeInt);
     vibeRow.style.display = 'none';
     stopVibeBanner();
@@ -1203,6 +1246,48 @@ function renderClimber(root) {
     modalEl.querySelector('#snl-rbetr').addEventListener('click', () => respond('betray'));
   };
 
+  // Runs the post-betrayal vibe on every participant's client from the same synced
+  // choice pair. `driverRoles` drive the shared slider (last-drag-wins); `victimRoles`
+  // feel it. In a lone betrayal the betrayer drives and the cooperator feels it; in a
+  // mutual betrayal everyone both drives and feels it. The LANDER's turn only advances
+  // once the vibe is fully over (only the lander's client has `_forkDone` set).
+  function runForkVibe(secs, driverRoles, victimRoles, labels) {
+    const iDrive  = driverRoles.includes(role);
+    const iVictim = victimRoles.includes(role);
+    const finishLander = () => { if (_forkDone) { const fn = _forkDone; _forkDone = null; fn(); } };
+
+    if (!iDrive && !iVictim) { finishLander(); return; } // 3P bystander to this fork
+
+    if (iVictim) { haptics.startForfeitVibe(secs); haptics.setWaveVibeMode(true); }
+
+    if (iDrive) {
+      // I hold a slider. mirrorVibeActive means I also feel what I dish out (mutual
+      // betrayal) and keeps my slider synced with the other driver's drag via onVibeCtrl.
+      mirrorVibeActive = iVictim;
+      vibeDriveTargets = victimRoles.filter(r => r !== role);
+      vibeSlider.value = 50; vibePctEl.textContent = '50%';
+      if (iVictim) haptics.setForfeitIntensity(0.5);
+      vibeDriveTargets.forEach(t => socket.send({ type: MSG.SNL_VIBE_CTRL, intensity: 0.5, pattern: 'wave', target: t }));
+      startVibeBanner(secs, labels.driver);
+      startSliderCountdown(secs, () => {
+        vibeDriveTargets?.forEach(t => socket.send({ type: MSG.SNL_VIBE_STOP, target: t }));
+        vibeDriveTargets = null;
+        if (iVictim) { haptics.stopAll(); haptics.setWaveVibeMode(false); mirrorVibeActive = false; }
+        stopVibeBanner();
+        finishLander();
+      });
+    } else {
+      // Pure victim — the betrayer controls my intensity via SNL_VIBE_CTRL; end when
+      // their SNL_VIBE_STOP lands (with a safety fallback if it goes missing).
+      startVibeBanner(secs, labels.victim);
+      const onStop = () => { vibeSkipHandler = null; haptics.stopAll(); haptics.setWaveVibeMode(false); stopVibeBanner(); finishLander(); };
+      const onRemoteStop = () => { clearTimeout(fb); onStop(); };
+      const fb = setTimeout(() => { socket.removeEventListener(MSG.SNL_VIBE_STOP, onRemoteStop); onStop(); }, (secs + 6) * 1000);
+      socket.addEventListener(MSG.SNL_VIBE_STOP, onRemoteStop, { once: true });
+      vibeSkipHandler = () => { clearTimeout(fb); socket.removeEventListener(MSG.SNL_VIBE_STOP, onRemoteStop); onStop(); };
+    }
+  }
+
   // Fork resolved — both participants know both choices. Named by role (lander/partner)
   // rather than host/guest so this works for any pairing in a 3-player game, and a
   // bystander who isn't part of this fork ignores the reveal entirely.
@@ -1213,42 +1298,53 @@ function renderClimber(root) {
     const my = role === landerRole ? landerChoice : partnerChoice;
     const op = role === landerRole ? partnerChoice : landerChoice;
     const oppRole = role === landerRole ? partnerRole : landerRole;
+    // betrayer/betrayed named in absolute roles so both clients agree who drives.
+    const choiceOf = { [landerRole]: landerChoice, [partnerRole]: partnerChoice };
+    const betrayers = [landerRole, partnerRole].filter(r => choiceOf[r] === 'betray');
     hideModal();
     // Both participants' clients run this from the same synced choice pair, so each
     // must apply BOTH players' position changes locally — leaving the opponent's side
     // unset here is what let the two screens drift out of sync after a reveal.
-    if (my === 'cooperate' && op === 'cooperate') {
+    if (betrayers.length === 0) {
       pos[role] = Math.min(n - 1, pos[role] + 5);
       pos[oppRole] = Math.min(n - 1, pos[oppRole] + 5);
       setStatus('Both cooperated — small mutual climb!');
-    } else if (my === 'betray' && op === 'cooperate') {
-      pos[oppRole] = Math.max(1, pos[oppRole] - 8);
-      pos[role] = Math.min(n - 1, pos[role] + 5);
-      setStatus('You betrayed! You climb, they slide.');
-    } else if (my === 'cooperate' && op === 'betray') {
-      pos[role] = Math.max(1, pos[role] - 8);
-      pos[oppRole] = Math.min(n - 1, pos[oppRole] + 5);
-      const secs = calcVibeSeconds(8, pos[role], n, snlVibeScale);
-      setStatus(`You were betrayed — you slide and vibe for ${secs}s!`);
-      haptics.startForfeitVibe(secs);
-      startVibeBanner(secs, '🔱 Betrayed!');
-    } else {
-      // Mutual betrayal is the worst outcome — a bigger slide AND a much longer vibe
-      // than being the lone betrayed party, so blind mutual distrust never pays off.
-      pos[role] = Math.max(1, pos[role] - 10);
-      pos[oppRole] = Math.max(1, pos[oppRole] - 10);
-      setStatus(`Both betrayed — worst outcome! Vibe for ${FORK_MUTUAL_BETRAY_VIBE_SECS}s.`);
-      haptics.startForfeitVibe(FORK_MUTUAL_BETRAY_VIBE_SECS);
-      startVibeBanner(FORK_MUTUAL_BETRAY_VIBE_SECS, '🔱 Mutual betrayal!');
+      repaintBoard();
+      if (_forkDone) { const fn = _forkDone; _forkDone = null; fn(); }
+      return;
     }
+    if (betrayers.length === 1) {
+      const betrayer = betrayers[0];
+      const betrayed = betrayer === landerRole ? partnerRole : landerRole;
+      pos[betrayer] = Math.min(n - 1, pos[betrayer] + 5);
+      pos[betrayed] = Math.max(1, pos[betrayed] - 8);
+      repaintBoard();
+      const secs = calcVibeSeconds(8, pos[betrayed], n, snlVibeScale);
+      setStatus(role === betrayer
+        ? `You betrayed ${name(betrayed)} — you climb, drive their vibe for ${secs}s!`
+        : `${name(betrayer)} betrayed you — you slide and vibe for ${secs}s!`);
+      runForkVibe(secs, [betrayer], [betrayed], {
+        driver: `🔱 You betrayed ${name(betrayed)} — drive their vibe`,
+        victim: `🔱 Betrayed! ${name(betrayer)} drives your vibe`,
+      });
+      return;
+    }
+    // Mutual betrayal — the worst outcome: a bigger slide for both AND a long vibe both
+    // feel while sharing one slider, so blind mutual distrust never pays off.
+    pos[role] = Math.max(1, pos[role] - 10);
+    pos[oppRole] = Math.max(1, pos[oppRole] - 10);
     repaintBoard();
-    if (_forkDone) { const fn = _forkDone; _forkDone = null; fn(); }
+    setStatus(`Both betrayed — worst outcome! Share the ${FORK_MUTUAL_BETRAY_VIBE_SECS}s vibe.`);
+    runForkVibe(FORK_MUTUAL_BETRAY_VIBE_SECS, [landerRole, partnerRole], [landerRole, partnerRole], {
+      driver: `🔱 Mutual betrayal — you both drive AND feel this (${FORK_MUTUAL_BETRAY_VIBE_SECS}s)`,
+      victim: `🔱 Mutual betrayal!`,
+    });
   };
 
   const onOppFinal = ev => { if (!gameOver) triggerFinale(ev.detail?.role); };
-  // Winner clicked Finish on their Finale panel — everyone else stops vibing and
-  // follows them to results, rather than leaving when they individually feel like it.
-  const onFinaleDone = () => { haptics.stopAll(); hideModal(); navigate('#/results'); };
+  // Winner clicked Return to Lobby on their Finale panel — everyone else stops vibing and
+  // follows them back to the lobby, rather than leaving when they individually feel like it.
+  const onFinaleDone = () => { haptics.stopAll(); hideModal(); navigate(`#/session/${state.sessionId}`); };
   const onEnduranceOut = ev => {
     const r = ev.detail?.role;
     if (r && roles.includes(r) && !outRoles.has(r)) { outRoles.add(r); checkEnduranceEnd(); }
@@ -1306,6 +1402,7 @@ function renderClimber(root) {
     socket.removeEventListener(MSG.SNL_FINALE_DONE,   onFinaleDone);
     socket.removeEventListener('peer_left',           onPeerLeft);
     socket.removeEventListener('peer_reconnected',    onPeerReconnected);
+    if (vibeModeBarInstance) { vibeModeBarInstance.destroy(); vibeModeBarInstance = null; }
   }, { once: true });
 
   // ── initial paint ──

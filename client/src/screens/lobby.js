@@ -3,6 +3,7 @@ import { state } from '../state.js';
 import { navigate } from '../main.js';
 import { MSG } from '../shared/messages.js';
 import * as haptics from '../haptics.js';
+import { initVibeModeBar } from '../vibeModeBar.js';
 import { DEFAULT_FORFEIT_LINES } from '../game/beatdealerGame.js';
 import { pairBudget as memPairBudget, fitsGrid as memFitsGrid } from '../game/memoryGame.js';
 
@@ -639,6 +640,7 @@ export function renderLobby(root) {
       <div style="margin-top:8px;">
         <button class="ghost" id="btn-test-vibe" style="font-size:13px;padding:8px 14px;">Test Vibe</button>
       </div>
+      <div id="vibe-mode-bar-slot" style="margin-top:8px;"></div>
       <div id="err" style="margin-top:8px;"></div>
     </div>
   `;
@@ -1710,6 +1712,9 @@ export function renderLobby(root) {
     openTestVibeOverlay(state, socket, haptics);
   });
 
+  const vibeModeBarInstance = initVibeModeBar(root.querySelector('#vibe-mode-bar-slot'), { prepend: false });
+  window.addEventListener('hashchange', () => vibeModeBarInstance.destroy(), { once: true });
+
   function paint() {
     const ph = root.querySelector('#p-host');
     const pg = root.querySelector('#p-guest');
@@ -1726,6 +1731,7 @@ export function renderLobby(root) {
       pg2.classList.toggle('empty', !state.guest2Name);
       pg2.querySelector('.name').textContent = state.guest2Name || 'player 3 (optional)…';
     }
+    vibeModeBarInstance.refresh();
     paintOptions();
   }
   paint();

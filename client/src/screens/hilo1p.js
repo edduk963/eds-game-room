@@ -3,6 +3,7 @@ import { navigate } from '../main.js';
 import * as haptics from '../haptics.js';
 import { makeRng, rngInt } from '../game/seededRng.js';
 import { buildDeck, computeVibeDurationMs, buildCycleRngs, RED_SUITS } from '../game/hiloGame.js';
+import { initVibeModeBar } from '../vibeModeBar.js';
 
 export function renderHilo1P(root) {
   const myName = state.hostName || state.myName || 'Player';
@@ -269,6 +270,8 @@ export function renderHilo1P(root) {
       <div id="hilo-status-bar" class="hilo-status-bar"></div>
     </div>`;
 
+  const vibeModeBarInstance = initVibeModeBar(root.querySelector('.hilo-header'));
+
   // ── Renderers ─────────────────────────────────────────────────────────────────
   function cardHtml(card) {
     const red = RED_SUITS.has(card.suit) ? ' hilo-card-red' : '';
@@ -400,6 +403,7 @@ export function renderHilo1P(root) {
   window.addEventListener('hashchange', () => {
     stopVibe();
     clearTimeout(feedbackTimer);
+    vibeModeBarInstance.destroy();
     window.removeEventListener('keydown', onKeydown);
   }, { once: true });
 

@@ -7,11 +7,13 @@ import * as haptics from '../haptics.js';
 import { initEdgeMode } from '../game/edgeMode.js';
 import { showEdgeReadyOverlay } from '../game/edgeAssignment.js';
 import { initVibeBattery } from '../vibeBattery.js';
+import { initVibeModeBar } from '../vibeModeBar.js';
 
 let currentGame = null;
 let scoreThrottle = 0;
 let edgeModeInstance = null;
 let vibeBatteryInstance = null;
+let vibeModeBarInstance = null;
 
 export function renderEndurance(root) {
   root.innerHTML = `
@@ -23,6 +25,7 @@ export function renderEndurance(root) {
     </div>`;
   const host = root.querySelector('#game-root');
   vibeBatteryInstance = initVibeBattery(root);
+  vibeModeBarInstance = initVibeModeBar(root);
 
   root.querySelector('#back-to-lobby').addEventListener('click', () => {
     state.myFinal = null;
@@ -133,6 +136,7 @@ export function renderEndurance(root) {
     socket.removeEventListener(MSG.VIBE_ADD, onOppVibeAdd);
     if (edgeModeInstance) { edgeModeInstance.destroy(); edgeModeInstance = null; }
     if (vibeBatteryInstance) { vibeBatteryInstance.destroy(); vibeBatteryInstance = null; }
+    if (vibeModeBarInstance) { vibeModeBarInstance.destroy(); vibeModeBarInstance = null; }
     if (currentGame) { currentGame.destroy(true); currentGame = null; }
     haptics.stopAll();
   }

@@ -3,6 +3,7 @@ import { state } from '../state.js';
 import { navigate } from '../main.js';
 import { MSG } from '../shared/messages.js';
 import * as haptics from '../haptics.js';
+import { initVibeModeBar } from '../vibeModeBar.js';
 
 const SHIPS_STANDARD = [
   { id: 'carrier',     name: 'Carrier',       size: 5 },
@@ -87,6 +88,8 @@ export function renderBattleships(root) {
 
   const titleEl   = root.querySelector('#bs-title');
   const contentEl = root.querySelector('#bs-content');
+
+  let vibeModeBarInstance = initVibeModeBar(root.querySelector('.bs-header'), { prepend: false });
 
   // ── Grid HTML ─────────────────────────────────────────────────────────────
   function buildGridHTML(mode) {
@@ -908,6 +911,7 @@ export function renderBattleships(root) {
   // ── Cleanup ───────────────────────────────────────────────────────────────
   window.addEventListener('hashchange', () => {
     if (vibeInterval) { clearInterval(vibeInterval); vibeInterval = null; }
+    if (vibeModeBarInstance) { vibeModeBarInstance.destroy(); vibeModeBarInstance = null; }
     document.removeEventListener('keydown', onKey);
     socket.removeEventListener('disconnect',           onDisconnect);
     socket.removeEventListener(MSG.JOINED,            onRejoined);

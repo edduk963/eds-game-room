@@ -6,6 +6,7 @@ import * as haptics from '../haptics.js';
 import { makeRng } from '../game/seededRng.js';
 import { createGameState, submitIntent, resolveForfeits } from '../game/splitLootGame.js';
 import { CELL } from '../game/splitLootMap.js';
+import { initVibeModeBar } from '../vibeModeBar.js';
 
 const COLORS = {
   bg: '#0d0d1a',
@@ -131,6 +132,8 @@ export function renderSplitLoot(root) {
       </div>
     </div>
   `;
+
+  let vibeModeBarInstance = initVibeModeBar(root);
 
   const style = document.createElement('style');
   style.dataset.stl = '1';
@@ -576,6 +579,7 @@ export function renderSplitLoot(root) {
     haptics.stopAll();
     const s = document.querySelector('style[data-stl]');
     if (s) s.remove();
+    vibeModeBarInstance.destroy();
   };
   window.addEventListener('hashchange', cleanup, { once: true });
 
@@ -696,6 +700,7 @@ export function renderSplitLoot(root) {
 
     const startNewGame = (newSeed) => {
       cleanup();
+      vibeModeBarInstance = initVibeModeBar(root);
       state.seed = newSeed;
       gs = createGameState(newSeed, state.stlDifficulty, state.stlForfeitCards, playerNames);
       endScreen.style.display = 'none';

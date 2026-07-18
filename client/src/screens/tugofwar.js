@@ -7,12 +7,14 @@ import * as haptics from '../haptics.js';
 import { initEdgeMode } from '../game/edgeMode.js';
 import { showEdgeReadyOverlay } from '../game/edgeAssignment.js';
 import { initVibeBattery } from '../vibeBattery.js';
+import { initVibeModeBar } from '../vibeModeBar.js';
 
 let currentGame = null;
 let scoreThrottle = 0;
 let vibeLoopInterval = null;
 let edgeModeInstance = null;
 let vibeBatteryInstance = null;
+let vibeModeBarInstance = null;
 
 function computeVibeIntensity(myScore, oppScore) {
   if (!state.startAt) return 0;
@@ -48,6 +50,7 @@ export function renderTugOfWar(root) {
     </div>`;
   const host = root.querySelector('#game-root');
   vibeBatteryInstance = initVibeBattery(root);
+  vibeModeBarInstance = initVibeModeBar(root);
 
   root.querySelector('#back-to-lobby').addEventListener('click', () => {
     state.myFinal = null;
@@ -146,6 +149,7 @@ export function renderTugOfWar(root) {
     socket.removeEventListener(MSG.PEER_LEFT, onPeerLeft);
     if (edgeModeInstance) { edgeModeInstance.destroy(); edgeModeInstance = null; }
     if (vibeBatteryInstance) { vibeBatteryInstance.destroy(); vibeBatteryInstance = null; }
+    if (vibeModeBarInstance) { vibeModeBarInstance.destroy(); vibeModeBarInstance = null; }
     stopVibeLoop();
     if (currentGame) { currentGame.destroy(true); currentGame = null; }
     haptics.stopAll();

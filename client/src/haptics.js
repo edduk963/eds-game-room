@@ -1,5 +1,14 @@
 import { ButtplugClient, ButtplugBrowserWebsocketClientConnector } from 'buttplug';
 import { ButtplugWasmClientConnector } from 'buttplug-wasm/dist/buttplug-wasm.mjs';
+import { getVibeMode as _getVibeMode, setVibeMode as _setVibeMode, createVibeModeDriver, vibeModeLabel, VIBE_MODES } from './vibeModes.js';
+
+export { VIBE_MODES };
+export const getVibeMode = _getVibeMode;
+
+export function setVibeMode(id) {
+  _setVibeMode(id);
+  if (_waveVibeMode) _modeDriver = createVibeModeDriver(id);
+}
 
 let client = null;
 let devices = [];
@@ -122,46 +131,16 @@ let forfeitSeconds = 0;
 let forfeitIntensity = 1.0;
 let forfeitTickInterval = null;
 let _waveVibeMode = false;
-let _wavePhase    = 0;   // ticks within current state
-let _waveState    = 'steady'; // 'steady' | 'oscillate' | 'pulse'
-let _waveStateTicks = 0;
-let _waveStateMax   = 40;
-
-function _pickWaveState(exclude) {
-  const pool = ['steady', 'oscillate', 'pulse'].filter(s => s !== exclude);
-  _waveState = pool[Math.floor(Math.random() * pool.length)];
-  _wavePhase = 0;
-  _waveStateTicks = 0;
-  if (_waveState === 'steady')    _waveStateMax = 30  + Math.floor(Math.random() * 1770); // 3–180s
-  if (_waveState === 'oscillate') _waveStateMax = 50  + Math.floor(Math.random() * 1150); // 5–120s
-  if (_waveState === 'pulse')     _waveStateMax = 40  + Math.floor(Math.random() * 560);  // 4–60s
-}
+let _modeDriver = null;
 
 export function setWaveVibeMode(enabled) {
   _waveVibeMode = enabled;
-  if (enabled) _pickWaveState(null);
+  _modeDriver = enabled ? createVibeModeDriver(_getVibeMode()) : null;
 }
 
 function waveIntensity(base) {
-  _waveStateTicks++;
-  _wavePhase++;
-  if (_waveStateTicks >= _waveStateMax) _pickWaveState(_waveState);
-
-  if (_waveState === 'steady') return base;
-
-  if (_waveState === 'oscillate') {
-    // smooth sine: 50%–100% of max, ~4.8s period
-    const wave = 0.75 + 0.25 * Math.sin(_wavePhase * 0.1 * 1.3);
-    return Math.max(0, Math.min(1, base * wave));
-  }
-
-  if (_waveState === 'pulse') {
-    // 70%–100% toggle: 20 ticks (2s) at each level
-    const high = Math.floor(_wavePhase / 20) % 2 === 0;
-    return base * (high ? 1.0 : 0.7);
-  }
-
-  return base;
+  if (!_modeDriver) _modeDriver = createVibeModeDriver(_getVibeMode());
+  return Math.max(0, Math.min(1, _modeDriver.sample(100, base)));
 }
 
 export function startForfeitVibe(seconds) {
@@ -178,7 +157,6 @@ export function startForfeitVibe(seconds) {
     } else if (performance.now() < missSpikeUntil) {
       // an explicit pulse() is mid-flight — don't stomp it
     } else if (_waveVibeMode) {
-      _wavePhase++;
       vibe(waveIntensity(forfeitIntensity));
     } else {
       vibe(forfeitIntensity);
@@ -221,7 +199,6 @@ export function addForfeitSeconds(n) {
       } else if (performance.now() < missSpikeUntil) {
         // an explicit pulse() is mid-flight — don't stomp it
       } else if (_waveVibeMode) {
-        _wavePhase++;
         vibe(waveIntensity(forfeitIntensity));
       } else {
         vibe(forfeitIntensity);
@@ -309,7 +286,7 @@ export function setBtdVibe(intensity) {
   }
 }
 
-export const getWaveState = () => _waveVibeMode ? _waveState : 'steady';
+export const getWaveState = () => _waveVibeMode ? vibeModeLabel(_getVibeMode()) : 'Steady';
 
 export function stopAll() {
   if (vibeTickInterval)    { clearInterval(vibeTickInterval);    vibeTickInterval    = null; }

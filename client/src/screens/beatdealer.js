@@ -7,6 +7,7 @@ import {
   cardLabel, isRed, beats, parseVibeForfeit, forfeitTier, pickDealerCardByTier,
 } from '../game/beatdealerGame.js';
 import { setBtdVibe } from '../haptics.js';
+import { initVibeModeBar } from '../vibeModeBar.js';
 
 const SUITS = { S: '♠', H: '♥', D: '♦', C: '♣' };
 const D6 = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
@@ -79,6 +80,8 @@ export function renderBeatDealer(root) {
 
   // ── D6 state ─────────────────────────────────────────────────
   let d6Result = null;
+
+  let vibeModeBarInstance = null;
 
   // ── Vibe state ────────────────────────────────────────────────
   let vibeEnabled = true; // master on/off (host-broadcast)
@@ -586,6 +589,9 @@ export function renderBeatDealer(root) {
       </div>
     `;
 
+    if (vibeModeBarInstance) vibeModeBarInstance.destroy();
+    vibeModeBarInstance = initVibeModeBar(root.querySelector('.btd-header'));
+
     // ── Listeners ─────────────────────────────────────────────
 
     root.querySelectorAll('.btd-btn-leave').forEach(btn =>
@@ -838,6 +844,7 @@ export function renderBeatDealer(root) {
     ROLES.forEach(r => { vibeClaimIntervals[r] = null; });
     myActiveClaim = false;
     setBtdVibe(0);
+    if (vibeModeBarInstance) { vibeModeBarInstance.destroy(); vibeModeBarInstance = null; }
     if (!isSolo) socket.removeEventListener(MSG.BTD_OPP_PLAY, onOppPlay);
     if (!isSolo) socket.removeEventListener(MSG.BTD_NEXT_READY, onNextReady);
     if (!isSolo) socket.removeEventListener(MSG.BTD_DRAW_FORFEIT, onDrawForfeit);

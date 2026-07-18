@@ -2,6 +2,7 @@ import { state } from '../state.js';
 import { navigate } from '../main.js';
 import * as haptics from '../haptics.js';
 import { initVibeBattery } from '../vibeBattery.js';
+import { initVibeModeBar } from '../vibeModeBar.js';
 import { makeRng } from '../game/seededRng.js';
 import {
   getBaseConfig, nextRoundConfig, generateCode, evaluateGuessPositional,
@@ -47,6 +48,7 @@ export function renderMastermind1P(root) {
   let totalVibeEarned = 0;
 
   let vibeBatteryInstance = initVibeBattery(root);
+  let vibeModeBarInstance = null;
 
   const _modeName = gameMode === 'hard' ? 'Hard' : 'Easy';
   const _modeSub = gameMode === 'hard'
@@ -107,6 +109,8 @@ export function renderMastermind1P(root) {
       </div>
       <div id="mm-powerup-bar" class="mm-powerup-bar"></div>
     </div>`;
+
+  vibeModeBarInstance = initVibeModeBar(root);
 
   const forfeitOverlay  = root.querySelector('#mm-forfeit-overlay');
   const forfeitContent  = root.querySelector('#mm-forfeit-content');
@@ -412,9 +416,7 @@ export function renderMastermind1P(root) {
       if (ctr) ctr.textContent = Math.ceil(remaining);
       if (bar) bar.style.width = `${(remaining / vibeSeconds) * 100}%`;
       if (waveStateEl && vibeRunning) {
-        const s = haptics.getWaveState();
-        const labels = { steady: 'Steady', oscillate: 'Wave', pulse: 'Pulse' };
-        waveStateEl.textContent = labels[s] || s;
+        waveStateEl.textContent = haptics.getWaveState();
       }
     }, 100);
 
@@ -544,6 +546,7 @@ export function renderMastermind1P(root) {
     clearInterval(forfeitInterval);
     document.removeEventListener('keydown', onKeyDown);
     if (vibeBatteryInstance) { vibeBatteryInstance.destroy(); vibeBatteryInstance = null; }
+    if (vibeModeBarInstance) { vibeModeBarInstance.destroy(); vibeModeBarInstance = null; }
     haptics.stopAll();
   }, { once: true });
 

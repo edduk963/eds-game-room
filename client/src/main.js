@@ -1,5 +1,7 @@
 import './style.css';
 import { socket } from './net/socket.js';
+import { MSG } from './shared/messages.js';
+import * as haptics from './haptics.js';
 import { state, reset } from './state.js';
 import { renderLanding } from './screens/landing.js';
 import { renderLobby } from './screens/lobby.js';
@@ -178,6 +180,21 @@ socket.addEventListener('opp_final', (ev) => {
   state.oppFinal = ev.detail.value;
   state.oppVibeResidual = ev.detail.vibeSeconds || 0;
   window.dispatchEvent(new CustomEvent('opp-final-landed'));
+});
+
+socket.addEventListener(MSG.LOBBY, (ev) => {
+  if (ev.detail.vibeModes) {
+    state.vibeModes = ev.detail.vibeModes;
+    window.dispatchEvent(new CustomEvent('vibe-modes-updated'));
+  }
+});
+
+socket.addEventListener(MSG.VIBE_MODE_SET, (ev) => {
+  const { target, mode } = ev.detail;
+  if (!target || !mode) return;
+  state.vibeModes[target] = mode;
+  if (target === state.role) haptics.setVibeMode(mode);
+  window.dispatchEvent(new CustomEvent('vibe-modes-updated'));
 });
 
 socket.addEventListener('begin', (ev) => {

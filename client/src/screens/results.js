@@ -3,6 +3,7 @@ import { socket } from '../net/socket.js';
 import { navigate } from '../main.js';
 import { MSG } from '../shared/messages.js';
 import * as haptics from '../haptics.js';
+import { initVibeModeBar } from '../vibeModeBar.js';
 
 export function renderResults(root) {
   const me = state.myFinal ?? 0;
@@ -87,8 +88,10 @@ export function renderResults(root) {
     </div>
   `;
 
+  const vibeModeBarInstance = initVibeModeBar(root.querySelector('.card'));
+
   // If opp final not yet received, wait for the global listener's window event
-  const onOppLanded = () => renderResults(root);
+  const onOppLanded = () => { vibeModeBarInstance.destroy(); renderResults(root); };
   if (state.oppFinal == null) {
     window.addEventListener('opp-final-landed', onOppLanded, { once: true });
   }
@@ -193,7 +196,10 @@ export function renderResults(root) {
     window.addEventListener('hashchange', cleanupForfeit, { once: true });
   }
 
-  const cleanupNav = () => window.removeEventListener('opp-final-landed', onOppLanded);
+  const cleanupNav = () => {
+    window.removeEventListener('opp-final-landed', onOppLanded);
+    vibeModeBarInstance.destroy();
+  };
   window.addEventListener('hashchange', cleanupNav, { once: true });
 
   root.querySelector('#again').addEventListener('click', () => {

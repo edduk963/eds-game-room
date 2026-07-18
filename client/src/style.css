@@ -863,6 +863,30 @@ button.ghost {
 .vbb-opp { color: var(--gold); }
 .vbb-sep { opacity: 0.4; }
 
+/* ── Vibe mode bar ── */
+
+.vibe-mode-bar {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 4px 12px;
+  font-size: 13px;
+}
+
+.vmb-entry { display: flex; align-items: center; gap: 6px; }
+.vmb-name { color: var(--muted); }
+.vmb-select {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid #25304d;
+}
+
 /* ── Edge mode ── */
 
 .edge-lives-bar {

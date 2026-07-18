@@ -6,6 +6,7 @@ import * as haptics from '../haptics.js';
 import { initEdgeMode } from '../game/edgeMode.js';
 import { showEdgeReadyOverlay } from '../game/edgeAssignment.js';
 import { initVibeBattery } from '../vibeBattery.js';
+import { initVibeModeBar } from '../vibeModeBar.js';
 import { makeRng } from '../game/seededRng.js';
 import {
   getBaseConfig, nextRoundConfig, generateCode, evaluateGuessPositional,
@@ -60,6 +61,7 @@ export function renderMastermind(root) {
   let gameEndOppReady = false;
   let edgeModeInstance = null;
   let vibeBatteryInstance = initVibeBattery(root);
+  let vibeModeBarInstance = null;
   let edgePaused = false;
   let savedHaptics = null;
 
@@ -129,6 +131,8 @@ export function renderMastermind(root) {
       </div>
       <div id="mm-powerup-bar" class="mm-powerup-bar"></div>
     </div>`;
+
+  vibeModeBarInstance = initVibeModeBar(root);
 
   const countdownOverlay = root.querySelector('#mm-countdown-overlay');
   const forfeitOverlay = root.querySelector('#mm-forfeit-overlay');
@@ -678,9 +682,7 @@ export function renderMastermind(root) {
       if (oppCtr) oppCtr.textContent = Math.ceil(oppRemaining);
       if (oppBar) oppBar.style.width = `${(oppRemaining / oppVibeSeconds) * 100}%`;
       if (waveStateEl && vibeRunning) {
-        const state = haptics.getWaveState();
-        const labels = { steady: 'Steady', oscillate: 'Wave', pulse: 'Pulse' };
-        waveStateEl.textContent = labels[state] || state;
+        waveStateEl.textContent = haptics.getWaveState();
       }
     }, 100);
 
@@ -1054,6 +1056,7 @@ export function renderMastermind(root) {
     socket.removeEventListener(MSG.PEER_LEFT, onPeerLeft);
     if (edgeModeInstance) { edgeModeInstance.destroy(); edgeModeInstance = null; }
     if (vibeBatteryInstance) { vibeBatteryInstance.destroy(); vibeBatteryInstance = null; }
+    if (vibeModeBarInstance) { vibeModeBarInstance.destroy(); vibeModeBarInstance = null; }
     haptics.stopAll();
   };
   window.addEventListener('hashchange', cleanup, { once: true });

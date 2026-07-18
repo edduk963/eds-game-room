@@ -5,6 +5,7 @@ import { MSG } from '../shared/messages.js';
 import * as haptics from '../haptics.js';
 import { makeRng } from '../game/seededRng.js';
 import { buildDeck, gridDims, pickStartingRole, nextRole, isMatch } from '../game/memoryGame.js';
+import { initVibeModeBar } from '../vibeModeBar.js';
 
 const SOLO_VIBE_INTENSITY = 0.7;
 const SOLO_VIBE_PATTERN = 'steady';
@@ -82,6 +83,8 @@ export function renderMemory(root) {
       </div>
       <div id="mem-payout-wrap"></div>
     </div>`;
+
+  let vibeModeBarInstance = initVibeModeBar(root.querySelector('.mem-header'), { prepend: false });
 
   // ── Render ────────────────────────────────────────────────────────────────
   function renderStatus() {
@@ -586,6 +589,7 @@ export function renderMemory(root) {
 
   window.addEventListener('hashchange', function onHashChange() {
     window.removeEventListener('hashchange', onHashChange);
+    if (vibeModeBarInstance) { vibeModeBarInstance.destroy(); vibeModeBarInstance = null; }
     if (vibeCountdownTimer) clearInterval(vibeCountdownTimer);
     if (firingCountdownTimer) clearInterval(firingCountdownTimer);
     if (resolveTimer) clearTimeout(resolveTimer);

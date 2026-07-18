@@ -6,6 +6,7 @@ import * as haptics from '../haptics.js';
 import { initEdgeMode } from '../game/edgeMode.js';
 import { showEdgeReadyOverlay } from '../game/edgeAssignment.js';
 import { initVibeBattery } from '../vibeBattery.js';
+import { initVibeModeBar } from '../vibeModeBar.js';
 
 const DICE_FACES = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
 
@@ -81,6 +82,8 @@ export function renderDice(root) {
         <button id="dice-next-btn" class="dice-next-btn" style="display:none">Next Round</button>
       </div>
     </div>`;
+
+  let vibeModeBarInstance = initVibeModeBar(root.querySelector('.dice-header'));
 
   const faceEls = {};
   const lossEls = {};
@@ -353,6 +356,7 @@ export function renderDice(root) {
     clearInterval(countdownInterval);
     if (edgeModeInstance) { edgeModeInstance.destroy(); edgeModeInstance = null; }
     if (vibeBatteryInstance) { vibeBatteryInstance.destroy(); vibeBatteryInstance = null; }
+    if (vibeModeBarInstance) { vibeModeBarInstance.destroy(); vibeModeBarInstance = null; }
     socket.removeEventListener(MSG.DICE_OPP_ROLL, onOppRoll);
     socket.removeEventListener(MSG.DICE_INTENSITY, onDiceIntensity);
     socket.removeEventListener(MSG.DICE_NEXT, onDiceNext);

@@ -10,6 +10,7 @@ import {
   LC_POOL_BASE, LC_POOL_TIMER,
   lcDeckRng, lcPowerRng, extendPowerMap, pickStarterIndex, lcCardSeconds,
 } from '../game/lastcallGame.js';
+import { initVibeModeBar } from '../vibeModeBar.js';
 
 export function renderLastCall(root) {
   const myRole      = state.role;
@@ -127,6 +128,8 @@ export function renderLastCall(root) {
       <div id="lc-powerups" class="hilo-powerups"></div>
       <div id="lc-status-bar" class="hilo-status-bar"></div>
     </div>`;
+
+  const vibeModeBarInstance = initVibeModeBar(root.querySelector('.hilo-header'));
 
   const $ = (id) => document.getElementById(id);
 
@@ -899,6 +902,7 @@ export function renderLastCall(root) {
     if (runLoop) { clearInterval(runLoop); runLoop = null; }
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
     clearTimeout(feedbackTimer);
+    vibeModeBarInstance.destroy();
     if (!is1P) {
       socket.removeEventListener(MSG.LC_GUESS, onGuess);
       socket.removeEventListener(MSG.LC_RESOLVE, onResolve);

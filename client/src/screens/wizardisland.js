@@ -12,6 +12,7 @@ import {
   drawWizardSpell, checkWinCondition, redealIslands,
   getAttack, getDefence, getMaxStamina, getArmourCount,
 } from '../game/wizardIslandGame.js';
+import { initVibeModeBar } from '../vibeModeBar.js';
 
 export function renderWizardIsland(root) {
   const myKey = state.role === 'host' ? 'A' : 'B';
@@ -33,6 +34,8 @@ export function renderWizardIsland(root) {
       <div id="wi-actions" style="padding:8px;display:flex;gap:6px;justify-content:center;background:#111;border-top:1px solid #2a2a3a;flex-shrink:0;flex-wrap:wrap;min-height:52px;align-items:center;"></div>
       <div id="wi-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:100;align-items:center;justify-content:center;"></div>
     </div>`;
+
+  const vibeModeBarInstance = initVibeModeBar(root.querySelector('#wi-root'));
 
   const canvas = root.querySelector('#wi-canvas');
   const ctx = canvas.getContext('2d');
@@ -1320,6 +1323,7 @@ export function renderWizardIsland(root) {
     socket.removeEventListener(MSG.PEER_LEFT, onPeerLeft);
     if (activeBattleCleanup) activeBattleCleanup();
     if (animRafId) { cancelAnimationFrame(animRafId); animRafId = null; }
+    vibeModeBarInstance.destroy();
   };
   window.addEventListener('hashchange', cleanup, { once: true });
 

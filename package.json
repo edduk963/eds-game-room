@@ -1,6 +1,6 @@
 {
   "name": "galactic-salvage",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Two-player Space-Invaders-style game with shared real-time scores.",

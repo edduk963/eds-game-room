@@ -59,6 +59,7 @@ export const state = {
   memForfeitLines: [],
   memVibeDurations: [],
   memGridSize: '6x6',
+  vibeModes: { host: 'random', guest: 'random', guest2: 'random' },
 };
 
 export function reset() {
@@ -120,4 +121,5 @@ export function reset() {
   state.memForfeitLines = [];
   state.memVibeDurations = [];
   state.memGridSize = '6x6';
+  state.vibeModes = { host: 'random', guest: 'random', guest2: 'random' };
 }

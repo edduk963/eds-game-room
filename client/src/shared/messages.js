@@ -34,6 +34,7 @@ export const MSG = {
   INST_GO: 'inst_go',
   VIBE_BATTERY: 'vibe_battery',
   OPP_VIBE_BATTERY: 'opp_vibe_battery',
+  VIBE_MODE_SET: 'vibe_mode_set',
   HILO_GUESS: 'hilo_guess',
   HILO_SPACEBAR: 'hilo_spacebar',
   HILO_POWERUP_USE: 'hilo_powerup_use',

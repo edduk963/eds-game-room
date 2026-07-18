@@ -4,6 +4,7 @@ import { navigate } from '../main.js';
 import { MSG } from '../shared/messages.js';
 import { makeRng } from '../game/seededRng.js';
 import * as haptics from '../haptics.js';
+import { initVibeModeBar } from '../vibeModeBar.js';
 
 const COLORS = ['red', 'yellow', 'green', 'blue'];
 const COLOR_HEX = { red: '#c62828', yellow: '#f9a825', green: '#2e7d32', blue: '#1565c0', wild: '#111', black: '#111' };
@@ -175,6 +176,7 @@ export function renderUno(root) {
   let gs = null;
   let vibeCtrlEndAt = 0;
   let vibeCtrlTarget = null; // role currently being controlled by my vibe panel
+  let vibeModeBarInstance = null;
   // render() fully replaces root.innerHTML on every action, so the disconnect banner is
   // rebuilt from this Set inside the template each time rather than mutated out-of-band.
   const departedRoles = new Set();
@@ -289,6 +291,7 @@ export function renderUno(root) {
     vibeCtrlEndAt = 0;
     socket.send({ type: MSG.UNO_VIBE_CTRL, intensity: 0, from: myRole });
     document.getElementById('uno-vibe-ctrl-panel')?.remove();
+    if (vibeModeBarInstance) { vibeModeBarInstance.destroy(); vibeModeBarInstance = null; }
   }, { once: true });
 
   // ── Vibe control overlay ───────────────────────────────────────────────────
@@ -629,6 +632,9 @@ export function renderUno(root) {
       </div>
     `;
 
+    if (vibeModeBarInstance) vibeModeBarInstance.destroy();
+    vibeModeBarInstance = initVibeModeBar(root.querySelector('.uno-header'), { prepend: false });
+
     root.querySelector('#uno-return-lobby-btn')?.addEventListener('click', () => {
       haptics.stopAll();
       state.seed = null;
@@ -779,6 +785,7 @@ export function renderUno(root) {
   // ── Forfeit screen ─────────────────────────────────────────────────────────
 
   function showForfeitScreen() {
+    if (vibeModeBarInstance) { vibeModeBarInstance.destroy(); vibeModeBarInstance = null; }
     // Determine game winner (highest score; host wins ties)
     const gameWinner = playerRoles.reduce((best, r) =>
       scores[r] > scores[best] ? r : best, playerRoles[0]);

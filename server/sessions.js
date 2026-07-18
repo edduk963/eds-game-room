@@ -14,6 +14,7 @@ export function createSession(hostName) {
     status: 'waiting',
     seed: null,
     createdAt: Date.now(),
+    vibeModes: { host: 'random', guest: 'random', guest2: 'random' },
   });
   return id;
 }
@@ -53,6 +54,7 @@ export function lobbySnapshot(s) {
     host: s.host ? { name: s.host.name } : null,
     guest: s.guest ? { name: s.guest.name } : null,
     guest2: s.guest2 ? { name: s.guest2.name } : null,
+    vibeModes: s.vibeModes,
   };
 }
 

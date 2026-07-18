@@ -103,6 +103,7 @@ app.get(/^\/(?!session|ws).*/, (_req, res) => {
 });
 
 const VALID_SPELL_IDS = new Set(['gust','bolt','mirror','confiscate','mend','rust','veil','fog','smite','recall','leap','shield','doubleedge','summon','ironskin','curse','drain','hex','blink','overload']);
+const VALID_VIBE_MODES = new Set(['random','low','medium','high','ultra','wave','pulse','tease','ramp','tempo']);
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024 });
@@ -642,6 +643,16 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    if (msg.type === 'vibe_mode_set') {
+      const target = ['host', 'guest', 'guest2'].includes(msg.target) ? msg.target : null;
+      const mode = VALID_VIBE_MODES.has(msg.mode) ? msg.mode : null;
+      if (!target || !mode) return;
+      if (!s.vibeModes) s.vibeModes = { host: 'random', guest: 'random', guest2: 'random' };
+      s.vibeModes[target] = mode;
+      broadcast(s, { type: 'vibe_mode_set', target, mode });
+      return;
+    }
+
     if (msg.type === 'forfeit_toggle') {
       broadcast(s, { type: 'forfeit_toggle', running: !!msg.running });
       return;
@@ -1105,7 +1116,12 @@ wss.on('connection', (ws) => {
     if (msg.type === 'snl_vibe_start') {
       const secs = Number.isFinite(msg.secs) ? Math.max(1, msg.secs) : 10;
       const target = ['host', 'guest', 'guest2'].includes(msg.target) ? msg.target : null;
-      broadcast(s, { type: 'snl_vibe_start', role, secs, target, mirror: !!msg.mirror }, ws);
+      // victim:true flips this from "you drive" to "you're being vibed" (ladder/deflect);
+      // bottom/top/driver just annotate the victim's banner.
+      const driver = ['host', 'guest', 'guest2'].includes(msg.driver) ? msg.driver : null;
+      const bottom = Number.isInteger(msg.bottom) ? msg.bottom : null;
+      const top = Number.isInteger(msg.top) ? msg.top : null;
+      broadcast(s, { type: 'snl_vibe_start', role, secs, target, mirror: !!msg.mirror, victim: !!msg.victim, bottom, top, driver }, ws);
       return;
     }
 

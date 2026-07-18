@@ -3,6 +3,7 @@ import { state } from '../state.js';
 import { navigate } from '../main.js';
 import { MSG } from '../shared/messages.js';
 import * as haptics from '../haptics.js';
+import { initVibeModeBar } from '../vibeModeBar.js';
 import {
   drawBattlefieldSchedule, drawPowerDraft, tokenPoolSize,
   resolveRound, resolveRoundTie, applyPostRevealPowers,
@@ -44,6 +45,13 @@ export function renderStandoff(root) {
   const myKey = myRole === 'host' ? 'A' : 'B';
   const oppKey = myRole === 'host' ? 'B' : 'A';
 
+  let vibeModeBarInstance = null;
+  // Every phase fully reassigns root.innerHTML, wiping any appended child — remount after each.
+  function mountVibeModeBar() {
+    if (vibeModeBarInstance) vibeModeBarInstance.destroy();
+    vibeModeBarInstance = initVibeModeBar(root);
+  }
+
   function onGo(ev) {}
   function onSpyReveal(ev) {}
   function onOppTokenCount(ev) {}
@@ -71,6 +79,7 @@ export function renderStandoff(root) {
     socket.removeEventListener(MSG.SO_CHICKEN_INTENSITY, onChickenIntensity);
     socket.removeEventListener(MSG.SO_CHICKEN_RESULT, onChickenResult);
     socket.removeEventListener(MSG.SO_VIBE_PATTERN, onVibePattern);
+    if (vibeModeBarInstance) { vibeModeBarInstance.destroy(); vibeModeBarInstance = null; }
     haptics.stopAll();
   }, { once: true });
 
@@ -87,6 +96,7 @@ export function renderStandoff(root) {
         <div id="so-field-list" style="display:flex;flex-direction:column;gap:12px;width:100%;max-width:380px;"></div>
         <div id="so-preview-status" style="margin-top:24px;color:#444;font-size:0.75rem;">Revealing battlefields…</div>
       </div>`;
+    mountVibeModeBar();
 
     const list = root.querySelector('#so-field-list');
     const status = root.querySelector('#so-preview-status');
@@ -147,6 +157,7 @@ export function renderStandoff(root) {
         <button id="so-confirm" style="margin-top:20px;background:#4aaeff;color:#000;border:none;border-radius:8px;padding:14px 32px;font-size:1rem;cursor:pointer;font-family:monospace;font-weight:bold;">CONFIRM — I'M READY</button>
         <div id="so-brief-status" style="margin-top:12px;color:#444;font-size:0.75rem;">Waiting for opponent…</div>
       </div>`;
+    mountVibeModeBar();
 
     let confirmed = false;
     root.querySelector('#so-confirm').addEventListener('click', () => {
@@ -185,6 +196,7 @@ export function renderStandoff(root) {
         </div>
         <div id="so-spy-result" style="margin-top:20px;color:#555;font-size:0.85rem;min-height:24px;"></div>
       </div>`;
+    mountVibeModeBar();
     root.querySelectorAll('[data-field]').forEach(btn => {
       btn.addEventListener('click', () => {
         socket.send({ type: MSG.SO_SPY_PICK, fieldId: btn.dataset.field });
@@ -272,6 +284,7 @@ export function renderStandoff(root) {
         ${showPower ? `<div style="margin-top:10px;"><button id="so-power-btn" style="width:100%;padding:10px 14px;background:#1a1a2a;border:1px solid #2a3a4a;border-radius:8px;color:#aaa;font-family:monospace;font-size:0.82rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;"><span>${powerIcon(myPowerId)}</span><span class="pname">Use ${myPowerCard.name} — ${myPowerCard.desc}</span></button></div>` : (myPowerUsed ? `<div style="margin-top:8px;color:#333;font-size:0.72rem;text-align:center;">${powerIcon(myPowerId)} ${myPowerCard.name} already used</div>` : '')}
         <button id="so-commit-btn" disabled style="width:100%;padding:14px;background:#1a1a2a;border:1px solid #2a2a4a;border-radius:8px;color:#444;font-family:monospace;font-size:1rem;cursor:not-allowed;margin-top:10px;">Place all tokens to commit</button>
       </div>`;
+    mountVibeModeBar();
 
     const timerEl = root.querySelector('#so-timer');
     const oppTotalEl = root.querySelector('#so-opp-total');
@@ -496,6 +509,7 @@ export function renderStandoff(root) {
         <div id="so-reveal-cards" style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:400px;"></div>
         <div id="so-reveal-summary" style="margin-top:20px;text-align:center;width:100%;max-width:400px;padding-bottom:24px;"></div>
       </div>`;
+    mountVibeModeBar();
 
     if (!document.querySelector('#so-keyframes')) {
       const style = document.createElement('style');
@@ -776,8 +790,7 @@ export function renderStandoff(root) {
       if (myVibeSeconds  > 0) fpMyBar.style.width  = `${(mySecs  / myVibeSeconds)  * 100}%`;
       if (oppVibeSeconds > 0) fpOppBar.style.width = `${(oppSecs / oppVibeSeconds) * 100}%`;
 
-      const ws = haptics.getWaveState();
-      fpWave.textContent = '≈ ' + (ws === 'oscillate' ? 'oscillating' : ws === 'pulse' ? 'pulsing' : 'steady');
+      fpWave.textContent = '≈ ' + haptics.getWaveState();
 
       // My vibe finished
       if (!myDone && mySecs <= 0) {
@@ -844,6 +857,7 @@ export function renderStandoff(root) {
         <button id="so-chicken-stop" style="margin-top:32px;background:#1a0a0a;border:2px solid #f44;border-radius:8px;padding:16px 52px;color:#f44;font-family:monospace;font-size:1rem;cursor:pointer;letter-spacing:2px;">STOP</button>
         <div style="color:#444;font-size:0.7rem;margin-top:8px;">Stopping gives opponent +3 tokens</div>
       </div>`;
+    mountVibeModeBar();
 
     const slider = root.querySelector('#so-chicken-slider');
     const pctEl = root.querySelector('#so-chicken-pct');
@@ -852,8 +866,7 @@ export function renderStandoff(root) {
     const stopBtn = root.querySelector('#so-chicken-stop');
 
     const waveInterval = setInterval(() => {
-      const ws = haptics.getWaveState();
-      if (waveEl) waveEl.textContent = `≈ ${ws === 'oscillate' ? 'oscillating' : ws === 'pulse' ? 'pulsing' : 'steady'}`;
+      if (waveEl) waveEl.textContent = `≈ ${haptics.getWaveState()}`;
     }, 800);
 
     slider.addEventListener('input', () => {
@@ -925,6 +938,7 @@ export function renderStandoff(root) {
         <div id="so-end-vibe-area" style="width:100%;max-width:420px;margin-bottom:16px;"></div>
         <button id="so-back" style="margin-top:8px;background:#1a1a2a;border:1px solid #2a2a4a;border-radius:8px;padding:12px 24px;color:#888;font-family:monospace;cursor:pointer;">Back to lobby</button>
       </div>`;
+    mountVibeModeBar();
 
     const endVibeArea = root.querySelector('#so-end-vibe-area');
 
@@ -1010,8 +1024,7 @@ export function renderStandoff(root) {
         const secs = Math.max(0, myVibeSeconds - (Date.now() - panelStart) / 1000);
         endTime.textContent = secs.toFixed(0) + 's';
         endBar.style.width = `${(secs / myVibeSeconds) * 100}%`;
-        const ws = haptics.getWaveState();
-        endWave.textContent = '≈ ' + (ws === 'oscillate' ? 'oscillating' : ws === 'pulse' ? 'pulsing' : 'steady');
+        endWave.textContent = '≈ ' + haptics.getWaveState();
         if (secs <= 0) { clearInterval(endInterval); socket.removeEventListener(MSG.SO_FORFEIT_INTENSITY, onFI); endTime.textContent = 'Done'; }
       }, 200);
     };
