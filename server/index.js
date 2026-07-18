@@ -14,16 +14,28 @@ import {
   purgeStaleSessions,
 } from './sessions.js';
 import {
-  getWorld,
-  applyMove,
-  applyDuelPick,
-  applyClaimUse,
-  applySkipToken,
-  resetGame,
-} from './world.js';
+  generateMap as cqGenerateMap,
+  redactHiddenSpaces as cqRedactHiddenSpaces,
+  initialOwnership as cqInitialOwnership,
+  getFrontier as cqGetFrontier,
+  findNodeIdByType as cqFindNodeIdByType,
+} from '../client/src/game/conquestMap.js';
+import {
+  rollAllocation as cqRollAllocation,
+  resolveRound as cqResolveRound,
+  applyPassiveEffects as cqApplyPassiveEffects,
+  computeDicePool as cqComputeDicePool,
+  checkDomination as cqCheckDomination,
+  checkRoundCap as cqCheckRoundCap,
+  resolveMatchEndPassives as cqResolveMatchEndPassives,
+  DEFAULT_BASE_DICE as CQ_DEFAULT_BASE_DICE,
+  DEFAULT_ROUND_CAP as CQ_DEFAULT_ROUND_CAP,
+} from '../client/src/game/conquestGame.js';
+import { makeRng as cqMakeRng } from '../client/src/game/seededRng.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3001;
+const CQ_SEED_ROLL = 0x0d5f88c9;
 
 const app = express();
 app.use(express.json());
@@ -45,54 +57,6 @@ app.get('/session/:id', (req, res) => {
     status: s.status,
   });
 });
-
-// ── World Map (Conquest) routes ───────────────────────────────────────────────
-app.get('/world', (_req, res) => {
-  try { res.json(getWorld()); }
-  catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/world/move', (req, res) => {
-  const { playerKey, spaceId } = req.body || {};
-  if (!['p1','p2'].includes(playerKey) || typeof spaceId !== 'string') {
-    return res.status(400).json({ error: 'bad_request' });
-  }
-  const result = applyMove(playerKey, spaceId);
-  result.error ? res.status(400).json(result) : res.json(result);
-});
-
-app.post('/world/duel', (req, res) => {
-  const { playerKey, pick } = req.body || {};
-  if (!['p1','p2'].includes(playerKey) || !Number.isInteger(pick) || pick < 1 || pick > 5) {
-    return res.status(400).json({ error: 'bad_request' });
-  }
-  const result = applyDuelPick(playerKey, pick);
-  result.error ? res.status(400).json(result) : res.json(result);
-});
-
-app.post('/world/claim', (req, res) => {
-  const { playerKey, spaceId } = req.body || {};
-  if (!['p1','p2'].includes(playerKey) || typeof spaceId !== 'string') {
-    return res.status(400).json({ error: 'bad_request' });
-  }
-  const result = applyClaimUse(playerKey, spaceId);
-  result.error ? res.status(400).json(result) : res.json(result);
-});
-
-app.post('/world/skip', (req, res) => {
-  const { playerKey, targetDesc } = req.body || {};
-  if (!['p1','p2'].includes(playerKey) || typeof targetDesc !== 'string') {
-    return res.status(400).json({ error: 'bad_request' });
-  }
-  const result = applySkipToken(playerKey, targetDesc.slice(0, 200));
-  result.error ? res.status(400).json(result) : res.json(result);
-});
-
-app.post('/world/reset', (_req, res) => {
-  try { res.json(resetGame()); }
-  catch (e) { res.status(500).json({ error: e.message }); }
-});
-// ── End World Map routes ──────────────────────────────────────────────────────
 
 const distDir = path.join(__dirname, '..', 'dist');
 app.use(express.static(distDir));
@@ -204,7 +168,7 @@ wss.on('connection', (ws) => {
       s.soRoundStartAt = Date.now(); s.soDraftPicks = [];
       s.soHostReady = false; s.soGuestReady = false;
       s.snlHostRollReady = false; s.snlGuestRollReady = false; s.snlTurnIndex = 0;
-      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo', 'splitloot', 'wizardisland', 'beatdealer', 'standoff', 'lastcall', 'battleships', 'uno', 'snakes', 'memory'];
+      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo', 'splitloot', 'wizardisland', 'beatdealer', 'standoff', 'lastcall', 'battleships', 'uno', 'snakes', 'memory', 'conquest'];
       const gameType = validGameTypes.includes(msg.gameType) ? msg.gameType : 'galactic';
       const rounds = Number.isInteger(msg.rounds) && msg.rounds >= 1 && msg.rounds <= 5 ? msg.rounds : 3;
       const mode = msg.mode === 'hard' ? 'hard' : 'easy';
@@ -221,7 +185,53 @@ wss.on('connection', (ws) => {
       const hiloLives = Number.isInteger(msg.hiloLives) && msg.hiloLives >= 1 && msg.hiloLives <= 10 ? msg.hiloLives : 3;
       const validHiloVibeTargets = ['both', 'highest_lives', 'random'];
       const hiloVibeTarget = validHiloVibeTargets.includes(msg.hiloVibeTarget) ? msg.hiloVibeTarget : 'both';
-      const playerCount = !s.guest ? 1 : s.guest2 ? 3 : 2;
+      const cqBotEnabled = gameType === 'conquest' && !!msg.cqBotEnabled && !s.guest2;
+      const cqRounds = [5, 10].includes(msg.cqRounds) ? msg.cqRounds : 10;
+      const cqReckoning = ['on', 'off', 'random'].includes(msg.cqReckoning) ? msg.cqReckoning : 'random';
+      const playerCount = !s.guest ? 1 : (s.guest2 || cqBotEnabled) ? 3 : 2;
+      if (gameType === 'conquest') {
+        const cqPlayerRoles = playerCount === 3 ? ['host', 'guest', 'guest2'] : ['host', 'guest'];
+        s.cqPlayerRoles = cqPlayerRoles;
+        s.cqBotRoles = cqBotEnabled ? ['guest2'] : [];
+        s.cqMap = cqGenerateMap(s.seed, cqPlayerRoles.length, cqReckoning);
+        s.cqPublicMap = cqRedactHiddenSpaces(s.cqMap);
+        s.cqOwnership = cqInitialOwnership(s.cqMap, cqPlayerRoles);
+        s.cqNodeIds = {
+          dungeonGate: cqFindNodeIdByType(s.cqMap, 'dungeonGate'),
+          ironThrone: cqFindNodeIdByType(s.cqMap, 'ironThrone'),
+          edgePost: cqFindNodeIdByType(s.cqMap, 'edgePost'),
+          mirror: cqFindNodeIdByType(s.cqMap, 'mirror'),
+          muster: cqFindNodeIdByType(s.cqMap, 'muster'),
+          ridgepath: cqFindNodeIdByType(s.cqMap, 'ridgepath'),
+          reckoning: cqFindNodeIdByType(s.cqMap, 'reckoning'),
+        };
+        s.cqRoundIndex = 0;
+        s.cqRoundCap = cqRounds;
+        s.cqBaseDice = CQ_DEFAULT_BASE_DICE;
+        s.cqDicePool = {};
+        s.cqCommits = {};
+        s.cqReady = {};
+        s.cqEdgeAck = {};
+        s.cqSkipTokens = {};
+        s.cqDungeonGateUsed = {};
+        s.cqIronThroneUsed = {};
+        s.cqLastForfeit = {};
+        for (const r of cqPlayerRoles) {
+          s.cqDicePool[r] = cqComputeDicePool(s.cqBaseDice, r, s.cqOwnership, s.cqNodeIds.muster);
+          s.cqReady[r] = false;
+          s.cqEdgeAck[r] = false;
+          s.cqSkipTokens[r] = 0;
+          s.cqDungeonGateUsed[r] = false;
+          s.cqIronThroneUsed[r] = false;
+          s.cqLastForfeit[r] = null;
+        }
+        s.cqAutoCommitTimer = null;
+        s.cqRoundStartAt = Date.now();
+        s.cqControlStreakHolder = null;
+        s.cqControlStreak = 0;
+        s.cqSecretTrapNodeIds = s.cqMap.secretTrapNodeIds;
+        s.cqMatchEnded = false;
+      }
       const validStlDifficulties = ['easy', 'normal', 'hard'];
       const stlDifficulty = validStlDifficulties.includes(msg.stlDifficulty) ? msg.stlDifficulty : 'normal';
       const soDifficulty = ['beginner', 'experienced'].includes(msg.soDifficulty) ? msg.soDifficulty : 'beginner';
@@ -262,8 +272,8 @@ wss.on('connection', (ws) => {
       const validMemGridSizes = ['4x4', '5x5', '6x6', '8x8'];
       const memGridSize = validMemGridSizes.includes(msg.memGridSize) ? msg.memGridSize : '6x6';
       s.edgeMode = edgeMode;
-      const guest2Name = s.guest2?.name ?? null;
-      broadcast(s, { type: 'begin', seed: s.seed, startAt: null, gameType, rounds, mode, forfeitDuration, edgeMode, edgeLives, hiloMode, hiloCycles, hiloDeckSize, hiloVibeRamp, hiloLives, hiloVibeTarget, playerCount, guest2Name, stlDifficulty, stlForfeitCards, soDifficulty, btdForfeits, btdMode, btdGameMode, wiWinCondition, wiSpellLimit, diceVibeRule, lcTimer, lcMinutes, lcDeckSize, lcReward, bsGridSize, bsVibeMultiplier, unoSpecialPacks, snlMode, snlBoardSize, snlDensity, snlStakeMix, snlVibeScale, snlWinCondition, snlFinalRule, snlPowerups, snlCoopBetray, snlForfeitCards, snlForfeitLines, snlAmbient, snlTapOut, memMode, memForfeitLines, memVibeDurations, memGridSize });
+      const guest2Name = s.guest2?.name ?? (cqBotEnabled ? 'Computer' : null);
+      broadcast(s, { type: 'begin', seed: s.seed, startAt: null, gameType, rounds, mode, forfeitDuration, edgeMode, edgeLives, hiloMode, hiloCycles, hiloDeckSize, hiloVibeRamp, hiloLives, hiloVibeTarget, playerCount, guest2Name, stlDifficulty, stlForfeitCards, soDifficulty, btdForfeits, btdMode, btdGameMode, wiWinCondition, wiSpellLimit, diceVibeRule, lcTimer, lcMinutes, lcDeckSize, lcReward, bsGridSize, bsVibeMultiplier, unoSpecialPacks, snlMode, snlBoardSize, snlDensity, snlStakeMix, snlVibeScale, snlWinCondition, snlFinalRule, snlPowerups, snlCoopBetray, snlForfeitCards, snlForfeitLines, snlAmbient, snlTapOut, memMode, memForfeitLines, memVibeDurations, memGridSize, cqPublicMap: s.cqPublicMap ?? null, cqOwnership: s.cqOwnership ?? null, cqDicePool: s.cqDicePool ?? null, cqRoundCap: s.cqRoundCap ?? CQ_DEFAULT_ROUND_CAP, cqBaseDice: s.cqBaseDice ?? CQ_DEFAULT_BASE_DICE, cqPlayerRoles: s.cqPlayerRoles ?? null, cqBotRoles: s.cqBotRoles ?? [] });
       return;
     }
 
@@ -298,7 +308,7 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.type === 'lobby_config' && role === 'host') {
-      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo', 'splitloot', 'wizardisland', 'beatdealer', 'standoff', 'lastcall', 'battleships', 'uno', 'snakes', 'memory'];
+      const validGameTypes = ['galactic', 'mastermind', 'endurance', 'tugofwar', 'dice', 'hilo', 'splitloot', 'wizardisland', 'beatdealer', 'standoff', 'lastcall', 'battleships', 'uno', 'snakes', 'memory', 'conquest'];
       const validDurations = [15, 30, 60, 120, 300, 600];
       const validHiloModes = ['submission', 'fixed', 'random'];
       broadcast(s, {
@@ -318,6 +328,8 @@ wss.on('connection', (ws) => {
         stlDifficulty: ['easy', 'normal', 'hard'].includes(msg.stlDifficulty) ? msg.stlDifficulty : 'normal',
         stlForfeitCards: Array.isArray(msg.stlForfeitCards) ? msg.stlForfeitCards.filter(c => typeof c === 'string').map(c => c.slice(0, 32)).slice(0, 10) : [],
         soDifficulty: ['beginner', 'experienced'].includes(msg.soDifficulty) ? msg.soDifficulty : 'beginner',
+        cqRounds: [5, 10].includes(msg.cqRounds) ? msg.cqRounds : 10,
+        cqReckoning: ['on', 'off', 'random'].includes(msg.cqReckoning) ? msg.cqReckoning : 'random',
         btdForfeits: Array.isArray(msg.btdForfeits) ? msg.btdForfeits.filter(c => typeof c === 'string').map(c => c.slice(0, 200)).slice(0, 100) : [],
         btdMode: msg.btdMode === 'reveal' ? 'reveal' : 'draw',
         btdGameMode: msg.btdGameMode === 'h2h' ? 'h2h' : 'dealer',
@@ -909,6 +921,102 @@ wss.on('connection', (ws) => {
     }
     // ── End Standoff ──────────────────────────────────────────────────────────
 
+    // ── Conquest ─────────────────────────────────────────────────────────────
+    if (msg.type === 'cq_ready') {
+      if (!s.cqPlayerRoles?.includes(role)) return;
+      const edgePostNodeId = s.cqNodeIds?.edgePost;
+      const edgePostHolder = edgePostNodeId ? s.cqOwnership[edgePostNodeId] : null;
+      const oweEdge = edgePostHolder && edgePostHolder !== 'neutral' && edgePostHolder !== role;
+      if (oweEdge && !s.cqEdgeAck[role]) return; // must confirm the edge before readying up
+      s.cqReady[role] = true;
+      // Bot roles have no socket to send cq_ready themselves — they're trivially ready always,
+      // and exempt from the edge-post gate (nothing to physically edge).
+      const allReady = s.cqPlayerRoles.every(r => s.cqBotRoles?.includes(r) || s.cqReady[r]);
+      if (allReady) {
+        for (const r of s.cqPlayerRoles) {
+          s.cqReady[r] = false;
+          s.cqEdgeAck[r] = false;
+          s.cqDicePool[r] = cqComputeDicePool(s.cqBaseDice, r, s.cqOwnership, s.cqNodeIds.muster);
+        }
+        s.cqRoundStartAt = Date.now();
+        broadcast(s, { type: 'cq_go', pools: s.cqDicePool, roundIndex: s.cqRoundIndex });
+        for (const botRole of s.cqBotRoles || []) cqBotAllocate(s, botRole);
+        cqTryReveal(s);
+      }
+      return;
+    }
+
+    if (msg.type === 'cq_edge_ack') {
+      if (!s.cqPlayerRoles?.includes(role)) return;
+      s.cqEdgeAck[role] = true;
+      return;
+    }
+
+    if (msg.type === 'cq_allocate' && msg.allocation && typeof msg.allocation === 'object') {
+      if (!s.cqPlayerRoles?.includes(role)) return;
+      const frontier = new Set(cqGetFrontier(s.cqMap, s.cqOwnership, role));
+      const owned = new Set(s.cqMap.nodes.filter(n => s.cqOwnership[n.id] === role).map(n => n.id));
+      const safeAlloc = {};
+      for (const [nodeId, count] of Object.entries(msg.allocation).slice(0, 64)) {
+        if (typeof nodeId !== 'string' || nodeId.length > 32 || !Number.isInteger(count) || count <= 0) continue;
+        if (!owned.has(nodeId) && !frontier.has(nodeId)) continue; // illegal target, drop it
+        safeAlloc[nodeId] = count;
+      }
+      // Server does not trust the client's total — clamp down to the round's actual pool,
+      // unlike Standoff's commit handler, since ownership/pool desync here is not acceptable.
+      const pool = s.cqDicePool[role] ?? s.cqBaseDice;
+      let remaining = pool;
+      for (const nodeId of Object.keys(safeAlloc)) {
+        const clamped = Math.min(safeAlloc[nodeId], remaining);
+        safeAlloc[nodeId] = clamped;
+        remaining -= clamped;
+      }
+      s.cqCommits[role] = safeAlloc;
+      if (!s.cqAutoCommitTimer) {
+        s.cqAutoCommitTimer = setTimeout(() => {
+          for (const r of s.cqPlayerRoles) if (!s.cqCommits[r]) s.cqCommits[r] = {};
+          cqTryReveal(s);
+        }, 45000);
+      }
+      cqTryReveal(s);
+      return;
+    }
+
+    if (msg.type === 'cq_claim_dungeon_gate') {
+      const targetRole = s.cqPlayerRoles?.includes(msg.targetRole) && msg.targetRole !== role ? msg.targetRole : null;
+      if (!targetRole) return;
+      cqHandleClaim(s, role, 'dungeonGate', () => cqDungeonGateEffect(s, targetRole));
+      return;
+    }
+
+    if (msg.type === 'cq_claim_iron_throne') {
+      const targetRole = s.cqPlayerRoles?.includes(msg.targetRole) && msg.targetRole !== role ? msg.targetRole : null;
+      if (!targetRole) return;
+      cqHandleClaim(s, role, 'ironThrone', () => cqIronThroneEffect(s, targetRole));
+      return;
+    }
+
+    if (msg.type === 'cq_debug_reveal_traps') {
+      // Hidden dev/testing shortcut (Alt+R) — answered directly to the requesting socket only,
+      // never broadcast, so it can't leak trap locations to the other player.
+      if (!s.cqPlayerRoles?.includes(role) || !s.cqMap) return;
+      const nodeIds = s.cqMap.nodes.filter(n => n.type === 'trap' || n.type === 'secretTrap').map(n => n.id);
+      ws.send(JSON.stringify({ type: 'cq_debug_reveal_traps', nodeIds }));
+      return;
+    }
+
+    if (msg.type === 'cq_match_end_ready') {
+      broadcast(s, { type: 'cq_match_end_ready', role }, ws);
+      return;
+    }
+
+    if (msg.type === 'cq_match_end_intensity') {
+      const level = Number.isFinite(msg.level) ? Math.max(0, Math.min(1, msg.level)) : 1;
+      broadcast(s, { type: 'cq_match_end_intensity', byRole: role, level }, ws);
+      return;
+    }
+    // ── End Conquest ─────────────────────────────────────────────────────────
+
     // ── Battleships messages ──────────────────────────────────────────────────
     if (msg.type === 'bs_powerup_use') {
       const puType = ['torpedo', 'depth', 'sonar'].includes(msg.puType) ? msg.puType : null;
@@ -1258,6 +1366,206 @@ function soBroadcastPowers(s) {
     guest: s.soPowerPlays?.guest ?? null,
   });
   s.soPowerPlays = {};
+}
+
+function cqUsedMapFor(s, claimKey) {
+  if (claimKey === 'dungeonGate') return s.cqDungeonGateUsed;
+  if (claimKey === 'ironThrone') return s.cqIronThroneUsed;
+  return null;
+}
+
+// Shared validation for the two manual-invoke claim abilities: must currently hold the
+// node and not have used it yet this session. `applyFn` performs the ability's effect and
+// returns the extra fields for `cq_claim_result`, or null if there's nothing to apply
+// (e.g. Iron Throne with no pending forfeit to double) — in which case nothing is marked used.
+function cqHandleClaim(s, role, claimKey, applyFn) {
+  if (!s.cqPlayerRoles?.includes(role)) return;
+  const nodeId = s.cqNodeIds?.[claimKey];
+  if (!nodeId || s.cqOwnership[nodeId] !== role) return;
+  const used = cqUsedMapFor(s, claimKey);
+  if (!used || used[role]) return;
+  const result = applyFn();
+  if (!result) return;
+  used[role] = true;
+  broadcast(s, { type: 'cq_claim_result', claim: claimKey, byRole: role, ...result });
+}
+
+function cqTryReveal(s) {
+  if (!s.cqPlayerRoles.every(r => s.cqCommits[r])) return;
+  clearTimeout(s.cqAutoCommitTimer);
+  s.cqAutoCommitTimer = null;
+
+  const rng = cqMakeRng((s.seed ^ CQ_SEED_ROLL ^ s.cqRoundIndex) >>> 0);
+  const rolls = cqRollAllocation(s.cqCommits, rng);
+  const prevOwnership = { ...s.cqOwnership };
+  const { newOwnership, contested } = cqResolveRound(s.cqMap, s.cqOwnership, rolls, s.cqRoundIndex);
+  const effects = cqApplyPassiveEffects(s.cqMap, prevOwnership, newOwnership, contested, s.cqSecretTrapNodeIds);
+  s.cqOwnership = newOwnership;
+
+  // Sanctuary skip tokens shield a Trap hit before it's assigned (existing tokens only —
+  // a token granted by this same round's Sanctuary win doesn't retroactively self-shield).
+  const trapShielded = [];
+  for (const r of effects.trapHits) {
+    if ((s.cqSkipTokens[r] || 0) > 0) {
+      s.cqSkipTokens[r]--;
+      trapShielded.push(r);
+    } else {
+      s.cqLastForfeit[r] = { kind: 'trap', durationSec: 30, appliedAt: Date.now() };
+    }
+  }
+  // Trap's node type is redacted from the public map, so clients can't identify a hit by
+  // looking up a node's type themselves. Per design, opponents are never told a Trap fired at
+  // all (same secrecy bar as Secret Trap) — so this goes out as a private message to the
+  // affected role's own socket only, never as a field on the general cq_reveal broadcast.
+  for (const r of effects.trapHits) {
+    const sock = s[r]?.socket;
+    if (sock?.readyState === 1) {
+      sock.send(JSON.stringify({ type: 'cq_trap_hit', shielded: trapShielded.includes(r) }));
+    }
+  }
+  for (const r of effects.sanctuaryGrants) {
+    s.cqSkipTokens[r] = (s.cqSkipTokens[r] || 0) + 1;
+  }
+  // The Mirror: any forfeit just assigned to its holder this reveal is duplicated onto every
+  // other player. Guarded by `appliedAt` freshness — without it, a Mirror holder's forfeit from
+  // several rounds ago (nothing clears cqLastForfeit once Vault is removed) would get re-mirrored
+  // onto everyone else every single round for the rest of the match.
+  if (effects.mirrorHolder) {
+    const holderForfeit = s.cqLastForfeit[effects.mirrorHolder];
+    if (holderForfeit && Date.now() - holderForfeit.appliedAt < 5000) {
+      for (const r of s.cqPlayerRoles) {
+        if (r !== effects.mirrorHolder) s.cqLastForfeit[r] = { ...holderForfeit, mirrored: true };
+      }
+    }
+  }
+
+  // Secret Trap: private-only notifications, never broadcast to the other player(s).
+  for (const transfer of effects.secretTrapTransfers) {
+    if (transfer.toRole !== 'neutral') {
+      const toSocket = s[transfer.toRole]?.socket;
+      if (toSocket?.readyState === 1) {
+        toSocket.send(JSON.stringify({ type: 'cq_secret_status', nodeId: transfer.nodeId, isSecretTrap: true }));
+      }
+    }
+    if (transfer.fromRole !== 'neutral') {
+      const fromSocket = s[transfer.fromRole]?.socket;
+      if (fromSocket?.readyState === 1) {
+        fromSocket.send(JSON.stringify({ type: 'cq_secret_status', nodeId: transfer.nodeId, isSecretTrap: false }));
+      }
+    }
+  }
+
+  const domination = cqCheckDomination(s.cqOwnership, s.cqMap.claimSpaceIds, s.cqPlayerRoles, s.cqControlStreakHolder, s.cqControlStreak);
+  s.cqControlStreakHolder = domination.streakHolder;
+  s.cqControlStreak = domination.streak;
+
+  s.cqRoundIndex++;
+  s.cqCommits = {};
+
+  let matchWinner = domination.dominationWinner;
+  let matchOver = !!matchWinner;
+  if (!matchWinner) {
+    const capResult = cqCheckRoundCap(s.cqRoundIndex, s.cqRoundCap, s.cqOwnership, s.cqMap.claimSpaceIds, s.cqPlayerRoles);
+    if (capResult.reached) {
+      matchOver = true;
+      // A tie at the cap ends the match as a genuine draw (winnerRole: null) rather than
+      // extending into sudden death — the draw-handling match-end screen already covers this.
+      matchWinner = capResult.tied ? null : capResult.winner;
+    }
+  }
+
+  broadcast(s, {
+    type: 'cq_reveal',
+    rolls,
+    contested,
+    ownership: s.cqOwnership,
+    dicePool: s.cqDicePool,
+    roundIndex: s.cqRoundIndex,
+    controlStreakHolder: s.cqControlStreakHolder,
+    controlStreak: s.cqControlStreak,
+    skipTokens: s.cqSkipTokens,
+    edgePostHolder: effects.edgePostHolder,
+    mirrorHolder: effects.mirrorHolder,
+    musterHolder: effects.musterHolder,
+  });
+
+  for (const botRole of s.cqBotRoles || []) cqBotMaybeClaim(s, botRole);
+
+  if (matchOver) {
+    s.cqMatchEnded = true;
+    const passives = cqResolveMatchEndPassives(s.cqMap, s.cqOwnership, s.cqPlayerRoles);
+    broadcast(s, { type: 'cq_match_end', winnerRole: matchWinner, ridgepath: passives.ridgepath, reckoning: passives.reckoning });
+    // No socket exists for a bot role, so it can never send its own cq_match_end_ready —
+    // broadcast one on its behalf immediately so human clients aren't left waiting forever.
+    for (const botRole of s.cqBotRoles || []) {
+      broadcast(s, { type: 'cq_match_end_ready', role: botRole });
+    }
+  }
+}
+
+// ── Computer-player (bot) logic ─────────────────────────────────────────────
+// A bot has no socket at all — s[role] stays null throughout. It's exempt from anything
+// requiring a physical response (edge-post gating, forfeits) since there's no one to feel it.
+
+function cqDungeonGateEffect(s, targetRole) {
+  if ((s.cqSkipTokens[targetRole] || 0) > 0) {
+    s.cqSkipTokens[targetRole]--;
+    return { targetRole, shielded: true };
+  }
+  s.cqLastForfeit[targetRole] = { kind: 'punishment', durationSec: 300, appliedAt: Date.now() };
+  return { targetRole, durationSec: 300 };
+}
+
+function cqIronThroneEffect(s, targetRole) {
+  const forfeit = s.cqLastForfeit[targetRole];
+  if (!forfeit) return null;
+  forfeit.durationSec *= 2;
+  return { targetRole, newDurationSec: forfeit.durationSec };
+}
+
+// Simple heuristic with randomness: attack/reinforce a handful of legal targets (mostly
+// frontier, occasionally reinforcing its own ground), unevenly splitting its dice pool.
+function cqBotAllocate(s, role) {
+  const frontier = cqGetFrontier(s.cqMap, s.cqOwnership, role);
+  const owned = s.cqMap.nodes.filter(n => s.cqOwnership[n.id] === role).map(n => n.id);
+  const reinforceSample = owned.filter(() => Math.random() < 0.3);
+  const candidates = [...new Set([...frontier, ...reinforceSample])];
+  const pool = s.cqDicePool[role] ?? s.cqBaseDice;
+
+  if (candidates.length === 0 || pool <= 0) { s.cqCommits[role] = {}; return; }
+
+  const chosen = [...candidates].sort(() => Math.random() - 0.5).slice(0, Math.min(4, candidates.length));
+  const alloc = {};
+  let remaining = pool;
+  chosen.forEach((nodeId, i) => {
+    const isLast = i === chosen.length - 1;
+    const share = isLast ? remaining : Math.max(1, Math.round((remaining / (chosen.length - i)) * (0.6 + Math.random() * 0.8)));
+    const amount = Math.min(share, remaining);
+    if (amount > 0) alloc[nodeId] = (alloc[nodeId] || 0) + amount;
+    remaining -= amount;
+  });
+  s.cqCommits[role] = alloc;
+}
+
+// After each reveal, a bot that now controls an unused claim ability invokes it about
+// half the time, targeting a random human opponent (never another bot).
+function cqBotMaybeClaim(s, botRole) {
+  const abilities = [
+    ['dungeonGate', (targetRole) => cqDungeonGateEffect(s, targetRole)],
+    ['ironThrone', (targetRole) => cqIronThroneEffect(s, targetRole)],
+  ];
+  const humanTargets = s.cqPlayerRoles.filter(r => r !== botRole && !s.cqBotRoles.includes(r));
+
+  for (const [claimKey, effectFn] of abilities) {
+    const nodeId = s.cqNodeIds?.[claimKey];
+    if (!nodeId || s.cqOwnership[nodeId] !== botRole) continue;
+    const used = cqUsedMapFor(s, claimKey);
+    if (!used || used[botRole]) continue;
+    if (Math.random() >= 0.5) continue;
+    const targetRole = humanTargets[Math.floor(Math.random() * humanTargets.length)];
+    if (!targetRole) continue;
+    cqHandleClaim(s, botRole, claimKey, () => effectFn(targetRole));
+  }
 }
 
 setInterval(purgeStaleSessions, 5 * 60 * 1000);

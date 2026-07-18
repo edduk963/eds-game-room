@@ -286,15 +286,62 @@ export function setBtdVibe(intensity) {
   }
 }
 
+let continuousLevel = 0;
+let continuousInterval = null;
+
+// An indefinite background vibe that runs until explicitly stopped — distinct from the
+// countdown-based forfeit/vibe/shoot channels above. Used for Conquest's Secret Trap (flat
+// intensity, no pattern) and its match-end winner-controlled vibe (respects wave/pattern mode
+// via the same setWaveVibeMode/setVibeMode toggles the forfeit channel uses, so a selected
+// pattern is audible here too). Calling again while already running just updates the level —
+// the next 500ms tick picks it up, so a live slider can drive this without restarting it.
+export function startContinuousVibe(intensity) {
+  continuousLevel = Math.max(0, Math.min(1, intensity));
+  if (!continuousInterval) {
+    vibe(_waveVibeMode ? waveIntensity(continuousLevel) : continuousLevel);
+    continuousInterval = setInterval(() => {
+      if (performance.now() < missSpikeUntil) return;
+      vibe(_waveVibeMode ? waveIntensity(continuousLevel) : continuousLevel);
+    }, 500);
+  }
+}
+
+export function stopContinuousVibe() {
+  if (continuousInterval) { clearInterval(continuousInterval); continuousInterval = null; }
+  continuousLevel = 0;
+  if (vibeSeconds <= 0 && forfeitSeconds <= 0 && shootVibeSeconds <= 0) stopAllDevices();
+}
+
+// Escalating ramp toward a forced climax cue, then a flat lower-intensity cooldown —
+// Conquest's "The Reckoning" end-of-match effect.
+export function triggerReckoning(postCumSeconds = 180) {
+  let lvl = 0.5;
+  setWaveVibeMode(false);
+  addShootVibe(lvl, 6);
+  const ramp = setInterval(() => {
+    lvl = Math.min(1, lvl + 0.1);
+    addShootVibe(lvl, 1);
+    if (lvl >= 1) {
+      clearInterval(ramp);
+      setTimeout(() => {
+        startForfeitVibe(postCumSeconds);
+        setForfeitIntensity(0.3);
+      }, 1500);
+    }
+  }, 1000);
+}
+
 export const getWaveState = () => _waveVibeMode ? vibeModeLabel(_getVibeMode()) : 'Steady';
 
 export function stopAll() {
   if (vibeTickInterval)    { clearInterval(vibeTickInterval);    vibeTickInterval    = null; }
   if (forfeitTickInterval) { clearInterval(forfeitTickInterval); forfeitTickInterval = null; }
   if (shootVibeInterval)   { clearInterval(shootVibeInterval);   shootVibeInterval   = null; }
+  if (continuousInterval)  { clearInterval(continuousInterval);  continuousInterval  = null; }
   vibeSeconds    = 0;
   forfeitSeconds = 0;
   shootVibeSeconds = 0;
+  continuousLevel = 0;
   _waveVibeMode = false;
   stopAllDevices();
 }

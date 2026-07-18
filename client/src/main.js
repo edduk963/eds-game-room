@@ -25,6 +25,7 @@ import { renderWheel } from './screens/wheel.js';
 import { renderUno } from './screens/uno.js';
 import { renderSnakes } from './screens/snakes.js';
 import { renderMemory } from './screens/memory.js';
+import { renderConquest } from './screens/conquest.js';
 
 const app = document.getElementById('app');
 
@@ -161,6 +162,12 @@ function route() {
     return;
   }
 
+  if (hash === '#/conquest') {
+    if (!state.seed) { navigate('#/'); return; }
+    renderConquest(app);
+    return;
+  }
+
   if (hash === '#/wheel') {
     renderWheel(app);
     return;
@@ -248,6 +255,13 @@ socket.addEventListener('begin', (ev) => {
   state.memForfeitLines = ev.detail.memForfeitLines || [];
   state.memVibeDurations = ev.detail.memVibeDurations || [];
   state.memGridSize = ev.detail.memGridSize || '6x6';
+  state.cqPublicMap = ev.detail.cqPublicMap || null;
+  state.cqOwnership = ev.detail.cqOwnership || null;
+  state.cqDicePool = ev.detail.cqDicePool || null;
+  state.cqRoundCap = ev.detail.cqRoundCap || 20;
+  state.cqBaseDice = ev.detail.cqBaseDice || 8;
+  state.cqPlayerRoles = ev.detail.cqPlayerRoles || null;
+  state.cqBotRoles = ev.detail.cqBotRoles || [];
   const gt = state.gameType;
   if (gt === 'mastermind') navigate(state.playerCount === 3 ? '#/mastermind3' : state.playerCount === 1 ? '#/mastermind1p' : '#/mastermind');
   else if (gt === 'endurance') navigate('#/endurance');
@@ -263,6 +277,7 @@ socket.addEventListener('begin', (ev) => {
   else if (gt === 'uno') navigate('#/uno');
   else if (gt === 'snakes') navigate('#/snakes');
   else if (gt === 'memory') navigate('#/memory');
+  else if (gt === 'conquest') navigate('#/conquest');
   else navigate('#/game');
 });
 

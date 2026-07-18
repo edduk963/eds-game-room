@@ -1,383 +1,716 @@
+import { socket } from '../net/socket.js';
+import { state } from '../state.js';
 import { navigate } from '../main.js';
+import { MSG } from '../shared/messages.js';
+import * as haptics from '../haptics.js';
+import { getFrontier, HEX_SIZE } from '../game/conquestMap.js';
+import { initVibeModeBar } from '../vibeModeBar.js';
 
-// ── API helpers ───────────────────────────────────────────────────────────────
-async function api(path, body) {
-  const opts = body
-    ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
-    : { method: 'GET' };
-  const r = await fetch(path, opts);
-  return r.json();
-}
+const ROLE_COLOR = { host: '#4aaeff', guest: '#ff5a7a', guest2: '#ffd633' };
 
-// ── Map rendering ─────────────────────────────────────────────────────────────
-const CW = 80, CH = 75, R = 22, PAD = 44;
-const COLS = 11, ROWS = 5;
-const SVG_W = COLS * CW + PAD * 2 - CW;
-const SVG_H = ROWS * CH + PAD * 2 - CH;
+const TYPE_ICON = {
+  start: '⌂', safe: '', trap: '☠', sanctuary: '⛪', dungeonGate: '⛓',
+  ironThrone: '👑', edgePost: '📍', mirror: '🪞', muster: '⚔', ridgepath: '🛤', reckoning: '💥',
+};
+const TYPE_LABEL = {
+  start: 'Start', safe: 'Quiet ground', trap: 'Trap', sanctuary: 'Sanctuary',
+  dungeonGate: 'Dungeon Gate', ironThrone: 'Iron Throne',
+  edgePost: 'Edge Post', mirror: 'The Mirror', muster: 'The Muster',
+  ridgepath: 'Ridgepath', reckoning: 'The Reckoning',
+};
+// Hover text for special spaces. Deliberately has no entry for 'safe'/'start' (nothing to
+// explain) and none for 'secretTrap' either — that type never reaches the client at all, it's
+// redacted to 'safe' before the map is ever sent (see conquestMap.js's redactSecretTraps), so
+// there is nothing here that could leak it even by omission.
+const TYPE_DESC = {
+  trap: 'Vibe forfeit for whoever wins or holds this space each round.',
+  sanctuary: 'Grants a skip token — cancels one future forfeit.',
+  dungeonGate: 'Invoke once per session to assign your opponent a 5-minute punishment forfeit.',
+  ironThrone: 'Invoke once per session to double one forfeit assigned to your opponent.',
+  edgePost: 'While held, every other player must edge once before each round starts.',
+  mirror: 'While held, any forfeit you owe is also owed by every other player.',
+  muster: '+2 dice per round for as long as you control this space.',
+  ridgepath: 'Whoever does not control this at match end owes a 10-minute edging session before the next match.',
+  reckoning: "Whoever isn't in control of this space at the end will have to cum, and get 3 min postcum.",
+};
 
-function cx(space) { return space.col * CW + PAD; }
-function cy(space) { return space.row * CH + PAD; }
+export function renderConquest(root) {
+  root.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#4aaeff;font-size:2rem;font-family:monospace;">Conquest…</div>`;
 
-const TYPE_ICON = { trap: '☠', toll: '⛔', sanctuary: '⛪', duel: '⚔', claim: '★', start: '⌂', safe: '' };
+  const myRole = state.role;
+  const playerRoles = state.cqPlayerRoles || ['host', 'guest'];
+  const map = state.cqPublicMap;
 
-function drawMap(config, state, playerKey, validMoves) {
-  const spaceMap = Object.fromEntries(config.spaces.map(s => [s.id, s]));
-  const p1 = state.players.p1;
-  const p2 = state.players.p2;
+  let ownership = { ...state.cqOwnership };
+  let dicePool = { ...state.cqDicePool };
+  let roundIndex = 0;
+  let controlStreakHolder = null;
+  let controlStreak = 0;
+  let edgePostHolder = null;
+  let mirrorHolder = null;
+  let musterHolder = null;
+  let secretTrapMine = null;
+  let edgeOwed = false;
+  let edgeAcked = false;
+  let usedClaims = { dungeonGate: false, ironThrone: false };
+  let myAlloc = {};
 
-  // Edges
-  const drawn = new Set();
-  const edges = [];
-  for (const [fromId, toIds] of Object.entries(config.adjacency)) {
-    const from = spaceMap[fromId];
-    if (!from) continue;
-    for (const toId of toIds) {
-      const key = [fromId, toId].sort().join('|');
-      if (drawn.has(key)) continue;
-      drawn.add(key);
-      const to = spaceMap[toId];
-      if (!to) continue;
-      edges.push(`<line x1="${cx(from)}" y1="${cy(from)}" x2="${cx(to)}" y2="${cy(to)}" stroke="#1e2d4a" stroke-width="2"/>`);
+  const NODE_IDS = {};
+  for (const n of map.nodes) if (!(n.type in NODE_IDS)) NODE_IDS[n.type] = n.id;
+
+  const VIEWBOX = (() => {
+    const xs = map.nodes.map(n => n.x), ys = map.nodes.map(n => n.y);
+    const pad = HEX_SIZE * 1.3;
+    const minX = Math.min(...xs) - pad, maxX = Math.max(...xs) + pad;
+    const minY = Math.min(...ys) - pad, maxY = Math.max(...ys) + pad;
+    return { minX, minY, w: maxX - minX, h: maxY - minY };
+  })();
+
+  function hexPoints(cx, cy, size) {
+    const pts = [];
+    for (let i = 0; i < 6; i++) {
+      const angle = (Math.PI / 180) * (60 * i);
+      pts.push(`${(cx + size * Math.cos(angle)).toFixed(1)},${(cy + size * Math.sin(angle)).toFixed(1)}`);
     }
+    return pts.join(' ');
   }
 
-  // Nodes
-  const nodes = config.spaces.map(space => {
-    const x = cx(space), y = cy(space);
-    const isP1Here  = p1.pos === space.id;
-    const isP2Here  = p2.pos === space.id;
-    const p1Owns    = p1.owns.includes(space.id);
-    const p2Owns    = p2.owns.includes(space.id);
-    const isValid   = validMoves.includes(space.id);
-    const isDuel    = state.pendingDuel?.spaceId === space.id;
-    const p1Used    = p1.usedClaims.includes(space.id);
-    const p2Used    = p2.usedClaims.includes(space.id);
+  const nameFor = (role) => (role === 'host' ? state.hostName : role === 'guest' ? state.guestName : state.guest2Name) || role;
+  const colorFor = (role) => ROLE_COLOR[role] || '#888';
+  const labelFor = (node) => TYPE_LABEL[node.type] || node.id;
 
-    let fill   = '#131a2c';
-    let stroke = '#2a3556';
-    let sw     = 1.5;
-
-    if (p1Owns) { fill = '#0e2244'; stroke = '#3a7bd5'; sw = 2; }
-    if (p2Owns) { fill = '#2a0e22'; stroke = '#d53a7b'; sw = 2; }
-    if (isValid) { stroke = '#5cffd4'; sw = 2.5; }
-    if (isDuel)  { stroke = '#ffcc44'; sw = 3; }
-
-    const glow = (isP1Here || isP2Here)
-      ? `<circle cx="${x}" cy="${y}" r="${R + 8}" fill="none" stroke="${isP1Here && isP2Here ? '#ffcc44' : isP1Here ? '#3a7bd5' : '#d53a7b'}" stroke-width="1.5" opacity="0.5" />`
-      : '';
-
-    const icon = TYPE_ICON[space.type] ?? '';
-    let label = '';
-    if (isP1Here && isP2Here) label = `<text x="${x - 6}" y="${y + 4}" text-anchor="middle" font-size="10" fill="#3a7bd5" font-weight="bold">P1</text><text x="${x + 6}" y="${y + 4}" text-anchor="middle" font-size="10" fill="#d53a7b" font-weight="bold">P2</text>`;
-    else if (isP1Here)        label = `<text x="${x}" y="${y + 5}" text-anchor="middle" font-size="12" fill="#fff" font-weight="bold">P1</text>`;
-    else if (isP2Here)        label = `<text x="${x}" y="${y + 5}" text-anchor="middle" font-size="12" fill="#fff" font-weight="bold">P2</text>`;
-    else if (icon)            label = `<text x="${x}" y="${y + 5}" text-anchor="middle" font-size="14" fill="#8794b8">${icon}</text>`;
-
-    // Claim-used dot
-    const usedDot = (p1Used || p2Used)
-      ? `<circle cx="${x + R - 4}" cy="${y - R + 4}" r="4" fill="${p1Used && p2Used ? '#aaa' : p1Used ? '#3a7bd5' : '#d53a7b'}" />`
-      : '';
-
-    const fortBorder = space.fortified
-      ? `<circle cx="${x}" cy="${y}" r="${R + 4}" fill="none" stroke="#ffcc44" stroke-width="1" stroke-dasharray="3,3"/>`
-      : '';
-
-    const cursor  = isValid ? 'cursor:pointer' : '';
-    const dataAttr = isValid ? `data-move="${space.id}"` : '';
-
-    const nameY = y + R + 13;
-    const nameColor = p1Owns ? '#5a9bf5' : p2Owns ? '#f55a9b' : '#6a7a9a';
-
+  // Every phase includes this at the top of its template — same top-nav-bar treatment (title +
+  // Leave button + the shared vibe-mode pattern control) every other game screen has.
+  function headerHtml(title) {
     return `
-      ${fortBorder}
-      ${glow}
-      <circle cx="${x}" cy="${y}" r="${R}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" style="${cursor}" ${dataAttr}/>
-      ${label}
-      ${usedDot}
-      <text x="${x}" y="${nameY}" text-anchor="middle" font-size="9" fill="${nameColor}" style="${cursor}" ${dataAttr}>${esc(space.name)}</text>
-    `;
-  });
-
-  return `<svg width="${SVG_W}" height="${SVG_H}" viewBox="0 0 ${SVG_W} ${SVG_H}" xmlns="http://www.w3.org/2000/svg" id="conquest-svg" style="display:block">
-    ${edges.join('')}
-    ${nodes.join('')}
-  </svg>`;
-}
-
-// ── Main render ───────────────────────────────────────────────────────────────
-export async function renderConquest(root) {
-  root.innerHTML = `<div style="color:var(--muted);padding:40px;text-align:center">Loading the realm…</div>`;
-
-  let data;
-  try { data = await api('/world'); }
-  catch { root.innerHTML = `<div style="padding:40px;color:var(--warn)">Could not reach server.</div>`; return; }
-
-  // Identify player
-  const playerKey = await identifyPlayer(root, data.config);
-  if (!playerKey) return;
-
-  let pollTimer = null;
-  let currentData = data;
-
-  async function refresh() {
-    try {
-      currentData = await api('/world');
-      render(currentData);
-    } catch {}
-  }
-
-  function startPoll() {
-    stopPoll();
-    pollTimer = setInterval(refresh, 4000);
-  }
-  function stopPoll() {
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-  }
-
-  window.addEventListener('hashchange', stopPoll, { once: true });
-
-  function render(d) {
-    const { config, state } = d;
-    const myPlayer  = state.players[playerKey];
-    const oppKey    = playerKey === 'p1' ? 'p2' : 'p1';
-    const oppPlayer = state.players[oppKey];
-    const isMyTurn  = state.currentTurn === playerKey && !state.winner;
-    const hasDuel   = !!state.pendingDuel;
-    const myDuel    = hasDuel && (state.pendingDuel.attacker === playerKey || state.pendingDuel.defender === playerKey);
-    const myPicked  = myDuel && (playerKey === state.pendingDuel.attacker ? state.pendingDuel.attackerPick !== null : state.pendingDuel.defenderPick !== null);
-
-    const validMoves = (isMyTurn && !hasDuel)
-      ? (config.adjacency[myPlayer.pos] || [])
-      : [];
-
-    const statusText = state.winner
-      ? `${state.players[state.winner].name} wins by ${state.winReason}!`
-      : hasDuel
-        ? `Duel at ${config.spaces.find(s => s.id === state.pendingDuel.spaceId)?.name}`
-        : isMyTurn ? 'Your turn' : `${oppPlayer.name}'s turn`;
-
-    const statusColor = state.winner ? 'var(--gold)' : isMyTurn ? 'var(--accent)' : 'var(--muted)';
-
-    // Owned claimable spaces with abilities
-    const myClaimSpaces = config.spaces.filter(s =>
-      s.type === 'claim' && s.ability && myPlayer.owns.includes(s.id) && s.ability.type !== 'sanctuary'
-    );
-    const oppClaimSpaces = config.spaces.filter(s =>
-      s.type === 'claim' && s.ability && oppPlayer.owns.includes(s.id) && s.ability.type !== 'sanctuary'
-    );
-
-    const claimsHtml = myClaimSpaces.length ? myClaimSpaces.map(space => {
-      const used = myPlayer.usedClaims.includes(space.id);
-      return `<div style="margin:4px 0;padding:8px 10px;background:#0d1326;border-radius:8px;border:1px solid ${used ? '#2a3556' : '#3a4a6a'}">
-        <div style="font-size:12px;font-weight:600;color:${used ? 'var(--muted)' : 'var(--ink)'}">★ ${esc(space.name)}</div>
-        <div style="font-size:11px;color:var(--muted);margin:2px 0 6px">${esc(space.ability.label)}: ${esc(space.ability.desc)}</div>
-        ${used
-          ? `<span style="font-size:11px;color:var(--muted)">Used this session</span>`
-          : `<button class="use-claim" data-space="${space.id}" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid var(--accent);background:transparent;color:var(--accent);cursor:pointer">Invoke</button>`
-        }
+      <div class="cq-header" style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#0d0d17;border-bottom:1px solid #22223a;width:100%;box-sizing:border-box;flex-shrink:0;">
+        <button id="cq-leave" style="background:transparent;border:1px solid #333;color:#888;border-radius:6px;padding:6px 12px;font-size:0.75rem;cursor:pointer;font-family:monospace;flex-shrink:0;">← Leave</button>
+        <span style="color:#4aaeff;font-size:0.85rem;letter-spacing:1px;font-weight:bold;flex:1;">${title}</span>
       </div>`;
-    }).join('') : `<div style="font-size:12px;color:var(--muted)">No claim spaces owned.</div>`;
+  }
 
-    const oppClaimsHtml = oppClaimSpaces.length ? oppClaimSpaces.map(space => {
-      const used = oppPlayer.usedClaims.includes(space.id);
-      return `<div style="margin:3px 0;padding:6px 8px;background:#0d1326;border-radius:6px;border:1px solid #2a1a2a;font-size:11px;color:var(--muted)">
-        <span style="color:${used ? '#5a3a5a' : '#d53a7b'}">★ ${esc(space.name)}</span>
-        — ${esc(space.ability.label)}${used ? ' <em>(used)</em>' : ''}
-      </div>`;
-    }).join('') : '';
+  let vibeModeBarInstance = null;
+  // Every phase fully reassigns root.innerHTML, wiping any appended child — remount after each.
+  function mountVibeModeBar() {
+    if (vibeModeBarInstance) vibeModeBarInstance.destroy();
+    const header = root.querySelector('.cq-header');
+    vibeModeBarInstance = initVibeModeBar(header || root, { prepend: false });
+    const leaveBtn = root.querySelector('#cq-leave');
+    if (leaveBtn) leaveBtn.addEventListener('click', () => {
+      haptics.stopContinuousVibe();
+      haptics.stopAll();
+      state.seed = null;
+      navigate(`#/session/${state.sessionId}`);
+    });
+  }
 
-    const recentLog = state.log.slice(0, 12).map(e =>
-      `<div style="padding:4px 0;border-bottom:1px solid #1a2236;font-size:11px;color:var(--muted)">
-        <span style="color:#3a4a6a;margin-right:6px">S${e.session} T${e.turn}</span>${esc(e.msg)}
-      </div>`
-    ).join('');
+  // Hidden dev/testing shortcut: Alt+R asks the server (privately) for the true trap/secretTrap
+  // node ids and overlays them on whichever map is currently drawn. Never shown to the opponent.
+  let debugTrapNodeIds = null;
+  let lastMapRenderOpts = null;
+  function refreshMap() {
+    const container = root.querySelector('#cq-map-area');
+    if (container && lastMapRenderOpts) renderMapInto(container, lastMapRenderOpts);
+  }
+  function onKeyDown(ev) {
+    if (!ev.altKey || (ev.key !== 'r' && ev.key !== 'R')) return;
+    ev.preventDefault();
+    if (debugTrapNodeIds) { debugTrapNodeIds = null; refreshMap(); return; }
+    socket.send({ type: MSG.CQ_DEBUG_REVEAL_TRAPS });
+  }
+  window.addEventListener('keydown', onKeyDown);
 
-    const skipHtml = myPlayer.skipTokens > 0
-      ? `<div style="margin-top:8px;padding:8px 10px;background:#0d1326;border-radius:8px;border:1px solid #2a3a2a">
-          <div style="font-size:12px;color:var(--ink)">⛪ Skip Tokens: <strong>${myPlayer.skipTokens}</strong></div>
-          <div style="font-size:11px;color:var(--muted);margin:3px 0 6px">Use to cancel a forfeit imposed on you.</div>
-          <input id="skip-target" placeholder="Describe the forfeit to cancel…" style="width:100%;padding:5px 8px;background:#1a2236;border:1px solid #2a3556;border-radius:5px;color:var(--ink);font-size:11px;margin-bottom:5px">
-          <button id="use-skip" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid #5cffd4;background:transparent;color:#5cffd4;cursor:pointer">Use Skip Token</button>
-        </div>`
+  // These are reassigned to their real handler bodies further down (and, for onGo/onReveal,
+  // again on every phase transition). addEventListener captures whatever function VALUE a
+  // variable holds at the moment it's called — reassigning the variable later does not
+  // retroactively change what's already registered. Registering a stable wrapper that looks up
+  // the current value of onX at call time (instead of registering onX directly) is what makes
+  // later reassignment actually take effect; without it every one of these listeners would stay
+  // permanently bound to the empty no-op below and silently never fire.
+  let onGo = (ev) => {};
+  let onReveal = (ev) => {};
+  let onClaimResult = (ev) => {};
+  let onSecretStatus = (ev) => {};
+  let onTrapHit = (ev) => {};
+  let onDebugRevealTraps = (ev) => { debugTrapNodeIds = new Set(ev.detail.nodeIds || []); refreshMap(); };
+  let onMatchEnd = (ev) => {};
+  let onMatchEndIntensity = (ev) => {};
+  let onMatchEndReady = (ev) => {};
+
+  const goWrapper = (ev) => onGo(ev);
+  const revealWrapper = (ev) => onReveal(ev);
+  const claimResultWrapper = (ev) => onClaimResult(ev);
+  const secretStatusWrapper = (ev) => onSecretStatus(ev);
+  const trapHitWrapper = (ev) => onTrapHit(ev);
+  const debugRevealTrapsWrapper = (ev) => onDebugRevealTraps(ev);
+  const matchEndWrapper = (ev) => onMatchEnd(ev);
+  const matchEndIntensityWrapper = (ev) => onMatchEndIntensity(ev);
+  const matchEndReadyWrapper = (ev) => onMatchEndReady(ev);
+
+  socket.addEventListener(MSG.CQ_GO, goWrapper);
+  socket.addEventListener(MSG.CQ_REVEAL, revealWrapper);
+  socket.addEventListener(MSG.CQ_CLAIM_RESULT, claimResultWrapper);
+  socket.addEventListener(MSG.CQ_SECRET_STATUS, secretStatusWrapper);
+  socket.addEventListener(MSG.CQ_TRAP_HIT, trapHitWrapper);
+  socket.addEventListener(MSG.CQ_DEBUG_REVEAL_TRAPS, debugRevealTrapsWrapper);
+  socket.addEventListener(MSG.CQ_MATCH_END, matchEndWrapper);
+  socket.addEventListener(MSG.CQ_MATCH_END_INTENSITY, matchEndIntensityWrapper);
+  socket.addEventListener(MSG.CQ_MATCH_END_READY, matchEndReadyWrapper);
+
+  window.addEventListener('hashchange', () => {
+    socket.removeEventListener(MSG.CQ_GO, goWrapper);
+    socket.removeEventListener(MSG.CQ_REVEAL, revealWrapper);
+    socket.removeEventListener(MSG.CQ_CLAIM_RESULT, claimResultWrapper);
+    socket.removeEventListener(MSG.CQ_SECRET_STATUS, secretStatusWrapper);
+    socket.removeEventListener(MSG.CQ_TRAP_HIT, trapHitWrapper);
+    socket.removeEventListener(MSG.CQ_DEBUG_REVEAL_TRAPS, debugRevealTrapsWrapper);
+    socket.removeEventListener(MSG.CQ_MATCH_END, matchEndWrapper);
+    socket.removeEventListener(MSG.CQ_MATCH_END_INTENSITY, matchEndIntensityWrapper);
+    socket.removeEventListener(MSG.CQ_MATCH_END_READY, matchEndReadyWrapper);
+    window.removeEventListener('keydown', onKeyDown);
+    if (vibeModeBarInstance) { vibeModeBarInstance.destroy(); vibeModeBarInstance = null; }
+    haptics.stopContinuousVibe();
+    haptics.stopAll();
+  }, { once: true });
+
+  onClaimResult = (ev) => {
+    const { claim, byRole, targetRole, durationSec, newDurationSec, shielded } = ev.detail;
+    if (claim === 'dungeonGate' && targetRole === myRole && !shielded) {
+      haptics.setWaveVibeMode(true);
+      haptics.setForfeitIntensity(1.0);
+      haptics.startForfeitVibe(durationSec);
+    }
+    if (claim === 'ironThrone' && targetRole === myRole) {
+      haptics.startForfeitVibe(newDurationSec);
+    }
+    logEvent(shielded ? `${nameFor(targetRole)}'s skip token absorbed ${claimDescription(claim, byRole, targetRole)}` : claimDescription(claim, byRole, targetRole));
+  };
+
+  onSecretStatus = (ev) => {
+    const wasMine = !!secretTrapMine;
+    secretTrapMine = ev.detail.isSecretTrap ? ev.detail.nodeId : null;
+    if (ev.detail.isSecretTrap) {
+      haptics.startContinuousVibe(0.5);
+      logEvent("You've stepped into a hidden trap — say nothing.");
+    } else if (wasMine) {
+      haptics.stopContinuousVibe();
+      logEvent('The hidden trap released you.');
+    }
+    refreshSecretWarning();
+  };
+
+  // Trap is only ever reported to the role who actually triggered it — the server never puts
+  // this on the general reveal broadcast, so the opponent has no way to learn a trap fired at all.
+  onTrapHit = (ev) => {
+    if (ev.detail.shielded) {
+      logEvent('Your skip token absorbed a hidden trap hit.');
+      return;
+    }
+    logEvent("You stepped into a hidden trap — 30s vibe. Say nothing.");
+    haptics.setWaveVibeMode(true);
+    haptics.setForfeitIntensity(1.0);
+    haptics.startForfeitVibe(30);
+  };
+
+  onMatchEnd = (ev) => showMatchEnd(ev.detail);
+
+  let eventLog = [];
+  function logEvent(text) { eventLog.unshift(text); eventLog = eventLog.slice(0, 6); }
+  function claimDescription(claim, byRole, targetRole) {
+    const label = { dungeonGate: 'Dungeon Gate', ironThrone: 'Iron Throne' }[claim] || claim;
+    return `${nameFor(byRole)} invokes ${label} against ${nameFor(targetRole)}`;
+  }
+
+  function refreshSecretWarning() {
+    const el = root.querySelector('#cq-secret-warning');
+    if (el) el.innerHTML = secretWarningHtml();
+  }
+
+  function secretWarningHtml() {
+    return secretTrapMine
+      ? `<div style="color:#f44;font-size:0.7rem;text-align:center;padding:2px 0;">⚠ You're standing on a hidden trap — say nothing.</div>`
       : '';
-
-    const duelHtml = myDuel
-      ? myPicked
-        ? `<div style="margin-top:8px;padding:10px;background:#1a1500;border:1px solid var(--gold);border-radius:8px;font-size:13px;color:var(--gold)">
-            Duel in progress — waiting for ${oppPlayer.name} to pick…
-            <div style="font-size:11px;color:var(--muted);margin-top:4px">Score: Attacker ${state.pendingDuel.attackerWins} — Defender ${state.pendingDuel.defenderWins} (need ${state.pendingDuel.needToWin})</div>
-          </div>`
-        : `<div style="margin-top:8px;padding:10px;background:#1a1500;border:1px solid var(--gold);border-radius:8px">
-            <div style="font-size:13px;color:var(--gold);margin-bottom:8px">⚔ Duel at ${esc(config.spaces.find(s => s.id === state.pendingDuel.spaceId)?.name ?? '')} — pick 1–5</div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap">
-              ${[1,2,3,4,5].map(n => `<button class="duel-pick" data-pick="${n}" style="flex:1;min-width:36px;padding:8px;border-radius:6px;border:1px solid var(--gold);background:transparent;color:var(--gold);font-size:16px;font-weight:bold;cursor:pointer">${n}</button>`).join('')}
-            </div>
-            <div style="font-size:11px;color:var(--muted);margin-top:6px">Higher number wins. Tie = repick. Fortified spaces need 2 wins.</div>
-          </div>`
-      : hasDuel && !myDuel
-        ? `<div style="margin-top:8px;padding:10px;background:#1a1500;border:1px solid #6a4400;border-radius:8px;font-size:13px;color:#997744">Duel in progress between players…</div>`
-        : '';
-
-    root.innerHTML = `
-      <div style="width:100%;max-width:1100px;padding:16px">
-        <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;flex-wrap:wrap">
-          <button id="back-btn" style="padding:6px 14px;border-radius:6px;border:1px solid #2a3556;background:transparent;color:var(--muted);cursor:pointer;font-size:13px">← Back</button>
-          <h2 style="margin:0;font-size:20px;letter-spacing:1px">⚔ The Realm</h2>
-          <span style="color:${statusColor};font-size:13px;font-weight:600">${statusText}</span>
-          <span style="margin-left:auto;font-size:12px;color:var(--muted)">Session ${state.sessionNumber} · Turn ${state.turn} · ${myPlayer.name} (${playerKey === 'p1' ? '🔵' : '🔴'})</span>
-        </div>
-
-        <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
-
-          <!-- Map -->
-          <div style="overflow-x:auto;flex:1;min-width:280px;background:var(--panel);border:1px solid #1e2a3a;border-radius:12px;padding:12px">
-            <div style="font-size:11px;color:var(--muted);margin-bottom:8px">
-              🔵 ${esc(state.players.p1.name)} (${state.players.p1.owns.length} spaces)
-              &nbsp;·&nbsp;
-              🔴 ${esc(state.players.p2.name)} (${state.players.p2.owns.length} spaces)
-              &nbsp;·&nbsp;
-              <span style="color:#5cffd4">★ = claim &nbsp; ⚔ = duel &nbsp; ☠ = trap &nbsp; ⛔ = toll &nbsp; ⛪ = rest</span>
-            </div>
-            ${drawMap(config, state, playerKey, validMoves)}
-            ${isMyTurn && !hasDuel ? `<div style="font-size:11px;color:var(--accent);margin-top:6px">Click a highlighted space to move.</div>` : ''}
-          </div>
-
-          <!-- Sidebar -->
-          <div style="width:260px;min-width:220px;display:flex;flex-direction:column;gap:10px">
-
-            <!-- Turn / duel -->
-            <div style="background:var(--panel);border:1px solid #1e2a3a;border-radius:10px;padding:12px">
-              <div style="font-size:13px;font-weight:600;color:var(--ink);margin-bottom:6px">Status</div>
-              <div style="font-size:12px;color:var(--muted)">
-                Turn: <strong style="color:${isMyTurn ? 'var(--accent)' : 'var(--muted)'}">${isMyTurn ? 'Yours' : oppPlayer.name + "'s"}</strong><br>
-                Session turns: ${state.sessionTurns} / ${config.turnsPerSession}<br>
-                Your position: <strong>${esc(config.spaces.find(s => s.id === myPlayer.pos)?.name ?? myPlayer.pos)}</strong>
-              </div>
-              ${duelHtml}
-              ${skipHtml}
-            </div>
-
-            <!-- My claims -->
-            <div style="background:var(--panel);border:1px solid #1e2a3a;border-radius:10px;padding:12px">
-              <div style="font-size:13px;font-weight:600;color:var(--ink);margin-bottom:6px">Your Claims</div>
-              ${claimsHtml}
-            </div>
-
-            <!-- Opponent claims -->
-            ${oppClaimSpaces.length ? `
-            <div style="background:var(--panel);border:1px solid #2a1a2a;border-radius:10px;padding:12px">
-              <div style="font-size:12px;font-weight:600;color:#d53a7b;margin-bottom:6px">${esc(oppPlayer.name)}'s Claims</div>
-              ${oppClaimsHtml}
-            </div>` : ''}
-
-            <!-- Log -->
-            <div style="background:var(--panel);border:1px solid #1e2a3a;border-radius:10px;padding:12px;max-height:260px;overflow-y:auto">
-              <div style="font-size:13px;font-weight:600;color:var(--ink);margin-bottom:6px">Log</div>
-              ${recentLog || '<div style="font-size:12px;color:var(--muted)">No events yet.</div>'}
-            </div>
-
-            <!-- Admin -->
-            <div style="text-align:center">
-              <button id="reset-btn" style="font-size:11px;padding:5px 12px;border-radius:6px;border:1px solid #2a3556;background:transparent;color:#3a4a6a;cursor:pointer">Reset Game</button>
-            </div>
-
-          </div>
-        </div>
-      </div>
-    `;
-
-    // ── Event listeners ─────────────────────────────────────────────────────
-    root.querySelector('#back-btn').addEventListener('click', () => navigate('#/'));
-
-    root.querySelector('#reset-btn').addEventListener('click', async () => {
-      if (!confirm('Reset the entire game? All progress will be lost.')) return;
-      stopPoll();
-      const res = await api('/world/reset');
-      if (res.state) { currentData = res; render(currentData); startPoll(); }
-    });
-
-    // Map clicks (move)
-    root.querySelector('#conquest-svg')?.addEventListener('click', async (e) => {
-      const move = e.target.closest('[data-move]')?.dataset?.move;
-      if (!move) return;
-      stopPoll();
-      const res = await api('/world/move', { playerKey, spaceId: move });
-      if (res.error) { alert(res.error); startPoll(); return; }
-      currentData = res;
-      render(currentData);
-      startPoll();
-    });
-
-    // Duel picks
-    root.querySelectorAll('.duel-pick').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        stopPoll();
-        const pick = parseInt(btn.dataset.pick, 10);
-        const res = await api('/world/duel', { playerKey, pick });
-        if (res.error) { alert(res.error); startPoll(); return; }
-        currentData = res;
-        render(currentData);
-        startPoll();
-      });
-    });
-
-    // Claim invocations
-    root.querySelectorAll('.use-claim').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        stopPoll();
-        const res = await api('/world/claim', { playerKey, spaceId: btn.dataset.space });
-        if (res.error) { alert(res.error); startPoll(); return; }
-        currentData = res;
-        render(currentData);
-        startPoll();
-      });
-    });
-
-    // Skip token
-    root.querySelector('#use-skip')?.addEventListener('click', async () => {
-      const targetDesc = root.querySelector('#skip-target')?.value?.trim();
-      if (!targetDesc) { alert('Describe what forfeit you are cancelling.'); return; }
-      stopPoll();
-      const res = await api('/world/skip', { playerKey, targetDesc });
-      if (res.error) { alert(res.error); startPoll(); return; }
-      currentData = res;
-      render(currentData);
-      startPoll();
-    });
   }
 
-  render(currentData);
-  startPoll();
-}
+  // Simple per-player territory count — how many hexes each player currently controls.
+  function territoryCountHtml() {
+    const counts = {};
+    for (const role of playerRoles) counts[role] = 0;
+    for (const n of map.nodes) {
+      const owner = ownership[n.id];
+      if (owner && counts[owner] !== undefined) counts[owner]++;
+    }
+    const parts = playerRoles.map(role => `<span style="color:${colorFor(role)};font-weight:bold;">${nameFor(role)}: ${counts[role]}</span>`);
+    return `<div style="display:flex;justify-content:center;gap:18px;font-size:0.85rem;padding:6px 0;">${parts.join('')}</div>`;
+  }
 
-// ── Player identity ───────────────────────────────────────────────────────────
-async function identifyPlayer(root, config) {
-  const stored = localStorage.getItem('conquestPlayer');
-  if (stored === 'p1' || stored === 'p2') return stored;
+  // diceCounts: {nodeId: myCommittedCount} — shown during allocation.
+  // results: {nodeId: {totals: {role: total}, winnerRole}} — shown during reveal.
+  // highlightColor: cyan for attack/reinforce targets (allocate phase), gold for an unused
+  // claim ability you can tap to invoke (ready phase) — same highlight mechanism, different meaning.
+  function renderMapInto(container, opts = {}) {
+    lastMapRenderOpts = opts;
+    const { highlightIds = [], diceCounts = null, results = null, highlightColor = '#5cffd4' } = opts;
+    const highlightSet = new Set(highlightIds);
+    const hexRadius = HEX_SIZE - 3;
 
-  return new Promise(resolve => {
-    root.innerHTML = `
-      <div class="card" style="max-width:380px">
-        <h2>Enter the Realm</h2>
-        <p style="color:var(--muted);font-size:14px">Who are you?</p>
-        <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">
-          <button id="pick-p1" style="padding:14px;border-radius:8px;border:1px solid #3a7bd5;background:#0e2244;color:#5a9bf5;font-size:15px;cursor:pointer">
-            🔵 ${esc(config.players.p1)}
-          </button>
-          <button id="pick-p2" style="padding:14px;border-radius:8px;border:1px solid #d53a7b;background:#2a0e22;color:#f55a9b;font-size:15px;cursor:pointer">
-            🔴 ${esc(config.players.p2)}
-          </button>
-          <button id="cancel-id" style="margin-top:4px;padding:8px;border-radius:6px;border:1px solid #2a3556;background:transparent;color:var(--muted);font-size:13px;cursor:pointer">← Back</button>
-        </div>
-        <p style="font-size:11px;color:var(--muted);margin-top:12px">Your choice is saved in this browser.</p>
+    const hexSvg = map.nodes.map(n => {
+      const owner = ownership[n.id];
+      const isHighlight = highlightSet.has(n.id);
+      const isDebugTrap = debugTrapNodeIds && debugTrapNodeIds.has(n.id);
+      let fill = '#12121e', stroke = '#2a2a4a', sw = 2;
+      if (owner && owner !== 'neutral') { fill = colorFor(owner) + '4d'; stroke = colorFor(owner); sw = 3; }
+      if (isHighlight) { stroke = highlightColor; sw = 3.5; }
+      if (isDebugTrap) { stroke = '#ff33ff'; sw = 3.5; }
+
+      const lines = [];
+      if (n.type !== 'safe' && n.type !== 'start') {
+        lines.push(`<text x="${n.x}" y="${n.y - HEX_SIZE * 0.42}" text-anchor="middle" font-size="10.5" fill="#ddd" font-weight="bold" style="pointer-events:none;">${TYPE_ICON[n.type] || ''} ${TYPE_LABEL[n.type] || ''}</text>`);
+      }
+      if (isDebugTrap) {
+        lines.push(`<text x="${n.x}" y="${n.y - HEX_SIZE * 0.42}" text-anchor="middle" font-size="10.5" fill="#ff33ff" font-weight="bold" style="pointer-events:none;">☠ TRAP</text>`);
+      }
+      if (diceCounts && diceCounts[n.id]) {
+        lines.push(`<text x="${n.x}" y="${n.y + 9}" text-anchor="middle" font-size="22" fill="#4aaeff" font-weight="bold" style="pointer-events:none;">${diceCounts[n.id]}</text>`);
+      }
+      if (results && results[n.id]) {
+        const r = results[n.id];
+        const roleLine = playerRoles.map(role => `${role[0].toUpperCase()}${r.totals?.[role] ?? 0}`).join(' ');
+        const resultColor = r.winnerRole === 'neutral' ? '#888' : (r.winnerRole === myRole ? '#00ff88' : '#f66');
+        lines.push(`<text x="${n.x}" y="${n.y + 8}" text-anchor="middle" font-size="12" fill="${resultColor}" font-weight="bold" style="pointer-events:none;">${roleLine}</text>`);
+      }
+      if (owner && owner !== 'neutral') {
+        lines.push(`<text x="${n.x}" y="${n.y + HEX_SIZE * 0.6}" text-anchor="middle" font-size="9" fill="${colorFor(owner)}" style="pointer-events:none;">${nameFor(owner)}</text>`);
+      }
+
+      const tooltip = TYPE_DESC[n.type] ? `<title>${TYPE_LABEL[n.type]} — ${TYPE_DESC[n.type]}</title>` : '';
+
+      return `
+        <g>
+          ${tooltip}
+          <polygon points="${hexPoints(n.x, n.y, hexRadius)}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}" ${isDebugTrap ? 'stroke-dasharray="4,3"' : ''}
+            style="${isHighlight ? 'cursor:pointer' : ''}" ${isHighlight ? `data-node="${n.id}"` : ''} />
+          ${lines.join('')}
+        </g>
+      `;
+    }).join('');
+
+    container.innerHTML = `<svg width="100%" viewBox="${VIEWBOX.minX} ${VIEWBOX.minY} ${VIEWBOX.w} ${VIEWBOX.h}" style="max-width:640px;display:block;margin:0 auto;">${hexSvg}</svg>`;
+  }
+
+  const CLAIM_ABILITIES = [
+    { key: 'dungeonGate', type: 'dungeonGate', label: 'Dungeon Gate', msgType: MSG.CQ_CLAIM_DUNGEON_GATE, needsTarget: true },
+    { key: 'ironThrone', type: 'ironThrone', label: 'Iron Throne', msgType: MSG.CQ_CLAIM_IRON_THRONE, needsTarget: true },
+  ];
+
+  // Which of my controlled hexes have an unused claim ability right now — {nodeId: ability}.
+  // No standing panel; these are surfaced as gold-highlighted, clickable hexes on the map itself.
+  function claimableAbilities() {
+    const claimable = {};
+    CLAIM_ABILITIES.forEach(a => {
+      const nodeId = NODE_IDS[a.type];
+      if (nodeId && ownership[nodeId] === myRole && !usedClaims[a.key]) claimable[nodeId] = a;
+    });
+    return claimable;
+  }
+
+  function invokeClaim(ability) {
+    const others = playerRoles.filter(r => r !== myRole);
+    if (!ability.needsTarget) {
+      socket.send({ type: ability.msgType });
+      usedClaims[ability.key] = true;
+      return;
+    }
+    if (others.length <= 1) {
+      socket.send({ type: ability.msgType, targetRole: others[0] });
+      usedClaims[ability.key] = true;
+      return;
+    }
+    const sel = document.createElement('div');
+    sel.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.88);display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:monospace;z-index:20;padding:20px;box-sizing:border-box;';
+    sel.innerHTML = `
+      <div style="color:#4aaeff;margin-bottom:6px;">${ability.label}</div>
+      <div style="color:#666;font-size:0.75rem;margin-bottom:16px;">Choose a target</div>
+      <div style="display:flex;flex-direction:column;gap:8px;width:100%;max-width:260px;">
+        ${others.map(r => `<button data-target="${r}" style="background:#12121e;border:1px solid #2a4a6a;border-radius:6px;padding:12px;color:#ddd;font-family:monospace;cursor:pointer;">${nameFor(r)}</button>`).join('')}
       </div>
-    `;
-    root.querySelector('#pick-p1').addEventListener('click', () => { localStorage.setItem('conquestPlayer','p1'); resolve('p1'); });
-    root.querySelector('#pick-p2').addEventListener('click', () => { localStorage.setItem('conquestPlayer','p2'); resolve('p2'); });
-    root.querySelector('#cancel-id').addEventListener('click', () => { navigate('#/'); resolve(null); });
-  });
-}
+      <button id="cq-claim-cancel" style="margin-top:14px;background:transparent;border:none;color:#555;cursor:pointer;font-family:monospace;">Cancel</button>`;
+    document.body.appendChild(sel);
+    sel.querySelectorAll('[data-target]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        socket.send({ type: ability.msgType, targetRole: btn.dataset.target });
+        usedClaims[ability.key] = true;
+        sel.remove();
+      });
+    });
+    sel.querySelector('#cq-claim-cancel').addEventListener('click', () => sel.remove());
+  }
 
-function esc(s) {
-  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  showPreview();
+
+  // ── Preview ──
+
+  function showPreview() {
+    root.innerHTML = `
+      <div style="min-height:100vh;width:100%;background:#08080f;color:#ccc;display:flex;flex-direction:column;align-items:center;font-family:monospace;">
+        ${headerHtml('CONQUEST')}
+        <div style="width:100%;max-width:560px;margin:0 auto;padding:24px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;">
+          <div id="cq-map-area" style="width:100%;"></div>
+          <div style="color:#666;font-size:0.8rem;margin-top:20px;">The realm is set. Preparing match…</div>
+        </div>
+      </div>`;
+    mountVibeModeBar();
+    renderMapInto(root.querySelector('#cq-map-area'));
+    setTimeout(showReady, 2200);
+  }
+
+  // ── Ready (pre-round gate) ──
+
+  function showReady() {
+    const heldBy = edgePostHolder;
+    edgeOwed = !!(heldBy && heldBy !== myRole);
+    // Recompute fresh every round rather than carrying a stale `true` forward — the server
+    // resets its own cqEdgeAck flag for every role at the start of each round, so a client that
+    // owed-and-acked in an earlier round (or never owed one, so this defaulted true) must not
+    // walk into a later round thinking it's already acked when it isn't. Left unfixed, the
+    // client shows Ready as enabled while the server silently drops that round's cq_ready
+    // (still lacking a real ack) — both players end up stuck on "Waiting for other players…".
+    edgeAcked = !edgeOwed;
+
+    root.innerHTML = `
+      <div style="min-height:100vh;width:100%;background:#08080f;color:#ccc;display:flex;flex-direction:column;align-items:center;font-family:monospace;">
+        ${headerHtml(`CONQUEST — Round ${roundIndex + 1}`)}
+        <div style="width:100%;max-width:560px;margin:0 auto;padding:20px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;">
+          <div id="cq-territory-strip" style="width:100%;">${territoryCountHtml()}</div>
+          <div id="cq-secret-warning" style="width:100%;">${secretWarningHtml()}</div>
+          <div id="cq-map-area" style="width:100%;margin:12px 0;"></div>
+          <div id="cq-claim-hint" style="width:100%;text-align:center;color:#ffcc44;font-size:0.72rem;min-height:1em;"></div>
+          <div id="cq-edge-banner" style="width:100%;"></div>
+          <button id="cq-ready-btn" style="margin-top:16px;background:#4aaeff;color:#000;border:none;border-radius:8px;padding:14px 32px;font-size:1rem;cursor:pointer;font-family:monospace;font-weight:bold;">READY</button>
+          <div id="cq-ready-status" style="margin-top:10px;color:#444;font-size:0.75rem;"></div>
+        </div>
+      </div>`;
+    mountVibeModeBar();
+
+    const mapArea = root.querySelector('#cq-map-area');
+    const claimHint = root.querySelector('#cq-claim-hint');
+
+    function refreshClaimableMap() {
+      const claimable = claimableAbilities();
+      renderMapInto(mapArea, { highlightIds: Object.keys(claimable), highlightColor: '#ffcc44' });
+      claimHint.textContent = Object.keys(claimable).length ? 'Gold hex: an ability you control — tap to invoke it.' : '';
+    }
+    refreshClaimableMap();
+    mapArea.addEventListener('click', (e) => {
+      const el = e.target.closest('[data-node]');
+      if (!el) return;
+      const claimable = claimableAbilities();
+      const ability = claimable[el.dataset.node];
+      if (ability) { invokeClaim(ability); refreshClaimableMap(); }
+    });
+
+    const readyBtn = root.querySelector('#cq-ready-btn');
+    const banner = root.querySelector('#cq-edge-banner');
+
+    if (edgeOwed && !edgeAcked) {
+      readyBtn.disabled = true;
+      readyBtn.style.opacity = '0.4';
+      banner.innerHTML = `
+        <div style="background:#1a0a0a;border:1px solid #4a2a2a;border-radius:8px;padding:12px;margin-bottom:8px;text-align:center;">
+          <div style="color:#f88;font-size:0.85rem;margin-bottom:8px;">${nameFor(heldBy)} holds Edge Post — edge once before this round.</div>
+          <button id="cq-edge-confirm" style="background:#2a1a1a;border:1px solid #6a3a3a;color:#f88;border-radius:6px;padding:8px 16px;cursor:pointer;font-family:monospace;">I edged</button>
+        </div>`;
+      banner.querySelector('#cq-edge-confirm').addEventListener('click', () => {
+        edgeAcked = true;
+        haptics.pulse(0.6, 400);
+        socket.send({ type: MSG.CQ_EDGE_ACK });
+        banner.innerHTML = '';
+        readyBtn.disabled = false;
+        readyBtn.style.opacity = '1';
+      });
+    }
+
+    let confirmed = false;
+    readyBtn.addEventListener('click', () => {
+      if (confirmed || readyBtn.disabled) return;
+      confirmed = true;
+      readyBtn.textContent = 'Waiting…';
+      readyBtn.disabled = true;
+      readyBtn.style.opacity = '0.5';
+      root.querySelector('#cq-ready-status').textContent = 'Waiting for other players…';
+      socket.send({ type: MSG.CQ_READY });
+    });
+
+    onGo = (ev) => { dicePool = ev.detail.pools; showAllocate(); };
+  }
+
+  // ── Allocate ──
+
+  function showAllocate() {
+    myAlloc = {};
+    const frontier = getFrontier(map, ownership, myRole);
+    const owned = map.nodes.filter(n => ownership[n.id] === myRole).map(n => n.id);
+    const targets = [...new Set([...frontier, ...owned])];
+    const pool = dicePool[myRole] ?? 8;
+
+    root.innerHTML = `
+      <div style="min-height:100vh;width:100%;background:#08080f;color:#ccc;display:flex;flex-direction:column;align-items:center;font-family:monospace;">
+        ${headerHtml(`Round ${roundIndex + 1} — allocate your dice`)}
+        <div style="width:100%;max-width:560px;margin:0 auto;padding:16px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;">
+          <div id="cq-territory-strip" style="width:100%;">${territoryCountHtml()}</div>
+          <div id="cq-secret-warning" style="width:100%;">${secretWarningHtml()}</div>
+          <div style="color:#4aaeff;font-size:1.4rem;font-weight:bold;margin:8px 0;"><span id="cq-pool-left">${pool}</span> <span style="color:#555;font-size:0.8rem;">of ${pool} dice left</span></div>
+          <div id="cq-map-area" style="width:100%;margin-bottom:10px;"></div>
+          <div id="cq-target-list" style="width:100%;display:flex;flex-direction:column;gap:6px;"></div>
+          <button id="cq-commit-btn" style="width:100%;margin-top:14px;padding:14px;background:#4aaeff;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-family:monospace;font-weight:bold;">COMMIT</button>
+        </div>
+      </div>`;
+    mountVibeModeBar();
+
+    const listEl = root.querySelector('#cq-target-list');
+    const poolLeftEl = root.querySelector('#cq-pool-left');
+    const commitBtn = root.querySelector('#cq-commit-btn');
+    const mapArea = root.querySelector('#cq-map-area');
+
+    function tokensPlaced() { return Object.values(myAlloc).reduce((a, b) => a + b, 0); }
+
+    targets.forEach(nodeId => {
+      const node = map.nodes.find(n => n.id === nodeId);
+      const mine = owned.includes(nodeId);
+      const row = document.createElement('div');
+      row.dataset.node = nodeId;
+      row.style.cssText = `background:#12121e;border:1px solid ${mine ? '#2a4a6a' : '#2a2a4a'};border-radius:8px;padding:10px 12px;display:flex;align-items:center;justify-content:space-between;`;
+      row.innerHTML = `
+        <span style="color:#ddd;font-size:0.85rem;">${TYPE_ICON[node.type] || ''} ${labelFor(node)}${mine ? ' <span style="color:#4aaeff;font-size:0.7rem;">(yours)</span>' : ''}</span>
+        <span style="display:flex;align-items:center;gap:8px;">
+          <button class="cq-dec" style="width:28px;height:28px;border-radius:50%;background:#1a1a2a;border:1px solid #2a2a4a;color:#888;cursor:pointer;">−</button>
+          <span class="cq-count" style="color:#4aaeff;font-weight:bold;min-width:20px;text-align:center;">0</span>
+          <button class="cq-inc" style="width:28px;height:28px;border-radius:50%;background:#0a1a2a;border:1px solid #2a4a6a;color:#4aaeff;cursor:pointer;">+</button>
+        </span>`;
+      row.querySelector('.cq-inc').addEventListener('click', () => adjust(nodeId, 1));
+      row.querySelector('.cq-dec').addEventListener('click', () => adjust(nodeId, -1));
+      listEl.appendChild(row);
+    });
+
+    function adjust(nodeId, delta) {
+      const cur = myAlloc[nodeId] || 0;
+      const next = cur + delta;
+      if (next < 0 || (delta > 0 && tokensPlaced() >= pool)) return;
+      myAlloc[nodeId] = next;
+      listEl.querySelector(`[data-node="${nodeId}"] .cq-count`).textContent = next;
+      poolLeftEl.textContent = pool - tokensPlaced();
+      renderMapInto(mapArea, { highlightIds: targets, diceCounts: myAlloc });
+    }
+
+    renderMapInto(mapArea, { highlightIds: targets, diceCounts: myAlloc });
+    mapArea.addEventListener('click', (e) => {
+      const el = e.target.closest('[data-node]');
+      if (el) adjust(el.dataset.node, 1);
+    });
+
+    let committed = false;
+    commitBtn.addEventListener('click', () => {
+      if (committed) return;
+      committed = true;
+      commitBtn.disabled = true;
+      commitBtn.textContent = 'Committed — waiting…';
+      commitBtn.style.background = '#1a4a2a'; commitBtn.style.color = '#00ff88';
+      socket.send({ type: MSG.CQ_ALLOCATE, allocation: { ...myAlloc } });
+    });
+
+    onReveal = (ev) => showReveal(ev.detail);
+  }
+
+  // ── Reveal ──
+
+  function showReveal(detail) {
+    ownership = detail.ownership;
+    dicePool = detail.dicePool;
+    roundIndex = detail.roundIndex;
+    controlStreakHolder = detail.controlStreakHolder;
+    controlStreak = detail.controlStreak;
+    edgePostHolder = detail.edgePostHolder;
+    mirrorHolder = detail.mirrorHolder;
+    musterHolder = detail.musterHolder;
+
+    root.innerHTML = `
+      <div style="min-height:100vh;width:100%;background:#08080f;color:#ccc;display:flex;flex-direction:column;align-items:center;font-family:monospace;">
+        ${headerHtml('REVEAL')}
+        <div style="width:100%;max-width:560px;margin:0 auto;padding:16px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;">
+          <div id="cq-territory-strip" style="width:100%;">${territoryCountHtml()}</div>
+          <div id="cq-secret-warning" style="width:100%;">${secretWarningHtml()}</div>
+          <div id="cq-map-area" style="width:100%;margin:10px 0;"></div>
+          <div id="cq-edge-notice" style="width:100%;"></div>
+          <div id="cq-reveal-log" style="width:100%;display:flex;flex-direction:column;gap:4px;font-size:0.78rem;"></div>
+          <button id="cq-continue-btn" disabled style="margin-top:16px;padding:12px 28px;background:#1a1a2a;border:1px solid #2a2a4a;color:#444;border-radius:8px;font-family:monospace;cursor:not-allowed;">Continue…</button>
+        </div>
+      </div>`;
+    mountVibeModeBar();
+
+    // Edge Post isn't a one-off forfeit — it's a gate that blocks Ready on the *next* round's
+    // screen — so make the upcoming obligation explicit here too, not just as a surprise banner.
+    const edgeNoticeEl = root.querySelector('#cq-edge-notice');
+    if (edgePostHolder) {
+      const owers = playerRoles.filter(r => r !== edgePostHolder && !(state.cqBotRoles || []).includes(r));
+      if (owers.length) {
+        edgeNoticeEl.innerHTML = `<div style="background:#1a0a0a;border:1px solid #4a2a2a;border-radius:8px;padding:8px 12px;margin-bottom:8px;text-align:center;color:#f88;font-size:0.75rem;">📍 Edge Post: ${nameFor(edgePostHolder)} holds it — ${owers.map(nameFor).join(', ')} must edge before next round.</div>`;
+      }
+    }
+
+    const resultsMap = {};
+    detail.contested.forEach(entry => {
+      const totals = {};
+      for (const role of playerRoles) totals[role] = detail.rolls?.[role]?.[entry.nodeId]?.total ?? 0;
+      resultsMap[entry.nodeId] = { totals, winnerRole: entry.winnerRole };
+    });
+    renderMapInto(root.querySelector('#cq-map-area'), { results: resultsMap });
+
+    // Only forfeit-relevant events are logged here — territory outcomes are already visible
+    // directly on the map (fill color + per-role dice totals on each contested hex). Trap hits
+    // never appear here as broadcast data — they arrive earlier via the private cq_trap_hit
+    // message (see onTrapHit above), which already pushed its own line into eventLog for
+    // whichever single player actually triggered it, so this stays public-safe by construction.
+    const log = root.querySelector('#cq-reveal-log');
+
+    if (eventLog.length === 0) {
+      log.innerHTML = `<div style="color:#444;text-align:center;">No forfeits this round.</div>`;
+    } else {
+      eventLog.forEach(text => {
+        const line = document.createElement('div');
+        line.style.color = '#4aaeff';
+        line.textContent = text;
+        log.appendChild(line);
+      });
+    }
+
+    const btn = root.querySelector('#cq-continue-btn');
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = 'Continue';
+      btn.style.cssText = 'margin-top:16px;padding:12px 28px;background:#4aaeff;border:1px solid #4aaeff;color:#000;border-radius:8px;font-family:monospace;cursor:pointer;font-weight:bold;';
+    }, 1200);
+    btn.addEventListener('click', () => showReady());
+  }
+
+  // ── Match end ──
+
+  function showMatchEnd(detail) {
+    const winnerRole = detail.winnerRole;
+    // Two ways to end up with no single human winner: the computer took the realm (never gets
+    // a "control" hand of its own), or the round cap was reached still tied (winnerRole: null,
+    // no sudden death anymore — a tie just ends the match). Both read as a draw between the humans.
+    const isBotWin = (state.cqBotRoles || []).includes(winnerRole);
+    const isDraw = isBotWin || !winnerRole;
+    const loserRoles = playerRoles.filter(r => r !== winnerRole && !(state.cqBotRoles || []).includes(r));
+    const amIWinner = !isDraw && myRole === winnerRole;
+    const amILoser = loserRoles.includes(myRole);
+
+    const bannerColor = isDraw ? '#ffcc44' : amIWinner ? '#00ff88' : '#f44';
+    const bannerText = isDraw ? 'DRAW' : amIWinner ? 'VICTORY' : 'DEFEAT';
+    const subText = isBotWin
+      ? `The computer took the realm — neither of you won.`
+      : isDraw
+        ? `The round cap was reached in a tie — no one controls the realm.`
+        : `${nameFor(winnerRole)} controls the realm`;
+
+    root.innerHTML = `
+      <div style="min-height:100vh;width:100%;background:#08080f;color:#ccc;display:flex;flex-direction:column;align-items:center;font-family:monospace;">
+        ${headerHtml('MATCH END')}
+        <div style="width:100%;max-width:560px;margin:0 auto;padding:24px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;">
+          <div style="color:${bannerColor};font-size:1.4rem;letter-spacing:2px;margin-bottom:8px;">${bannerText}</div>
+          <div style="color:#888;font-size:0.85rem;margin-bottom:16px;">${subText}</div>
+          <div id="cq-map-area" style="width:100%;margin-bottom:16px;"></div>
+          <div id="cq-end-passives" style="width:100%;"></div>
+          <div id="cq-vibe-control" style="width:100%;"></div>
+          <button id="cq-end-btn" style="margin-top:20px;background:#1a1a2a;border:1px solid #2a2a4a;border-radius:8px;padding:12px 24px;color:#888;font-family:monospace;cursor:pointer;">Back to lobby</button>
+          <div id="cq-end-status" style="margin-top:10px;color:#444;font-size:0.75rem;"></div>
+        </div>
+      </div>`;
+    mountVibeModeBar();
+
+    renderMapInto(root.querySelector('#cq-map-area'));
+
+    const passivesEl = root.querySelector('#cq-end-passives');
+    if (detail.ridgepath) {
+      const line = document.createElement('div');
+      line.style.cssText = 'color:#f88;font-size:0.8rem;text-align:center;margin-bottom:6px;';
+      line.textContent = `Ridgepath held by ${nameFor(detail.ridgepath.controllerRole) ?? 'no one'} — ${detail.ridgepath.oweRoles.map(nameFor).join(', ') || 'no one'} owe a 10-minute session before the next match.`;
+      passivesEl.appendChild(line);
+    }
+    if (detail.reckoning) {
+      const line = document.createElement('div');
+      line.style.cssText = 'color:#f88;font-size:0.8rem;text-align:center;';
+      line.textContent = `The Reckoning held by ${nameFor(detail.reckoning.controllerRole) ?? 'no one'} — ${detail.reckoning.oweRoles.map(nameFor).join(', ') || 'no one'} will have to cum, and get 3 min postcum.`;
+      passivesEl.appendChild(line);
+    }
+
+    // Match-loss vibe: whoever didn't win gets vibed for the rest of this screen. In the normal
+    // case the winner drives it live (intensity here, pattern via the header bar above); in a
+    // draw both losers share one control since there's no human winner to hold it.
+    const isController = amIWinner || (isDraw && amILoser);
+    const vibeEl = root.querySelector('#cq-vibe-control');
+    let level = 0.7;
+
+    if (amILoser) {
+      haptics.setWaveVibeMode(true);
+      haptics.startContinuousVibe(level);
+    }
+
+    if (isController) {
+      vibeEl.innerHTML = `
+        <div style="background:#1a0a0a;border:1px solid #4a2a2a;border-radius:8px;padding:12px;margin-bottom:8px;">
+          <div style="color:#f88;font-size:0.78rem;margin-bottom:8px;text-align:center;">
+            ${isDraw ? 'Shared control — you\'re both in it together' : `You control ${loserRoles.map(nameFor).join(', ')}'s vibe`}
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="color:#666;font-size:0.7rem;">Intensity</span>
+            <input id="cq-end-slider" type="range" min="0" max="100" value="70" style="flex:1;">
+            <span id="cq-end-pct" style="color:#f88;font-size:0.75rem;min-width:32px;text-align:right;">70%</span>
+          </div>
+          <div style="color:#555;font-size:0.68rem;text-align:center;margin-top:6px;">Pattern is set from the header above</div>
+        </div>`;
+      vibeEl.querySelector('#cq-end-slider').addEventListener('input', (e) => {
+        level = e.target.value / 100;
+        vibeEl.querySelector('#cq-end-pct').textContent = `${e.target.value}%`;
+        if (isDraw) haptics.startContinuousVibe(level);
+        socket.send({ type: MSG.CQ_MATCH_END_INTENSITY, level });
+      });
+    } else if (amILoser) {
+      vibeEl.innerHTML = `<div style="background:#1a0a0a;border:1px solid #4a2a2a;border-radius:8px;padding:10px;margin-bottom:8px;text-align:center;color:#f88;font-size:0.78rem;">${nameFor(winnerRole)} is in control of your vibe.</div>`;
+    }
+
+    onMatchEndIntensity = (ev) => {
+      if (!amILoser) return;
+      haptics.startContinuousVibe(ev.detail.level);
+    };
+
+    if (detail.ridgepath?.oweRoles?.includes(myRole)) {
+      haptics.startForfeitVibe(600);
+      haptics.setForfeitIntensity(0.5);
+    }
+    if (detail.reckoning?.oweRoles?.includes(myRole)) {
+      haptics.triggerReckoning(180);
+    }
+
+    const acked = new Set();
+    const checkDone = () => {
+      if (!playerRoles.every(r => acked.has(r))) return;
+      haptics.stopContinuousVibe();
+      haptics.stopAll();
+      navigate(`#/session/${state.sessionId}`);
+    };
+
+    onMatchEndReady = (ev) => { acked.add(ev.detail.role); checkDone(); };
+
+    let confirmed = false;
+    root.querySelector('#cq-end-btn').addEventListener('click', () => {
+      if (confirmed) return;
+      confirmed = true;
+      acked.add(myRole);
+      root.querySelector('#cq-end-btn').textContent = 'Waiting for others…';
+      root.querySelector('#cq-end-btn').disabled = true;
+      socket.send({ type: MSG.CQ_MATCH_END_READY });
+      checkDone();
+    });
+  }
 }

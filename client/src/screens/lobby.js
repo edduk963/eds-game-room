@@ -27,6 +27,9 @@ export function renderLobby(root) {
   let selectedHiloVibeTarget = 'both';
   let selectedStlDifficulty = 'normal';
   let selectedSoDifficulty = 'beginner';
+  let selectedCqBotEnabled = false;
+  let selectedCqRounds = 10;
+  let selectedCqReckoning = 'random';
   let selectedStlForfeitCards = ['truth', 'dare', 'control', 'strip', 'drink', 'surrender'];
   let selectedBtdForfeits = [...DEFAULT_FORFEIT_LINES];
   let selectedBtdMode = 'draw';
@@ -203,6 +206,13 @@ export function renderLobby(root) {
               <div class="desc">Secretly distribute tokens across 5 battlefields. Reveal simultaneously. Outthink — every loss is felt.</div>
             </div>
           </div>
+          <div class="game-tile game-tile-selectable" data-game="conquest">
+            <div class="game-tile-icon">🗺️</div>
+            <div>
+              <div class="name-row"><span class="name">Conquest</span><span class="badge-3p">3P</span></div>
+              <div class="desc">A fresh random map every match. Allocate dice to spaces each round — highest roll takes the territory. Hidden traps, claimable powers, a realm to dominate.</div>
+            </div>
+          </div>
           <div class="game-tile game-tile-selectable" data-game="tugofwar">
             <div class="game-tile-icon">💪</div>
             <div>
@@ -317,6 +327,35 @@ export function renderLobby(root) {
         <div style="font-size:12px;color:var(--muted);line-height:1.55;margin-top:8px;">
           <strong>Beginner</strong> — battlefields start simple and gain special rules gradually across rounds, clearly marked NEW.
           <strong>Experienced</strong> — all battlefields and their special rules are in play from round 1.
+        </div>
+      </div>
+      <div id="cq-config" style="display:none">
+        <div class="mm-rounds-row">
+          <span>Rounds:</span>
+          <div class="mm-rounds-btns" id="cq-rounds-btns">
+            <button class="mm-rounds-btn ghost" data-cq-rounds="5">5</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-cq-rounds="10">10</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row">
+          <span>Computer 3rd player:</span>
+          <div class="mm-rounds-btns" id="cq-bot-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-cq-bot="off">Off</button>
+            <button class="mm-rounds-btn ghost" data-cq-bot="on">On</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row">
+          <span>The Reckoning:</span>
+          <div class="mm-rounds-btns" id="cq-reckoning-btns">
+            <button class="mm-rounds-btn ghost" data-cq-reckoning="off">Off</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-cq-reckoning="random">Random</button>
+            <button class="mm-rounds-btn ghost" data-cq-reckoning="on">On</button>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.55;margin-top:8px;">
+          <strong>Rounds</strong> — the fallback round cap if no one reaches domination first (control ≥60% of the board for 3 straight rounds ends the match early regardless).<br>
+          <strong>Computer 3rd player</strong> — adds a computer-controlled 3rd player if no one joins as player 3. It plays normally — claims territory, allocates dice each round, invokes claim abilities it holds — but is exempt from any forfeit that would need a physical response.<br>
+          <strong>The Reckoning</strong> — the end-of-match cum forfeit space. Off removes it from the map entirely; On guarantees it appears every match; Random (default) leaves it as one of the landmarks that may or may not show up.
         </div>
       </div>
       <div id="uno-config" style="display:none">
@@ -658,6 +697,10 @@ export function renderLobby(root) {
   const stlConfig = root.querySelector('#stl-config');
   const soConfig = root.querySelector('#so-config');
   const soDiffBtns = root.querySelector('#so-diff-btns');
+  const cqConfig = root.querySelector('#cq-config');
+  const cqBotBtns = root.querySelector('#cq-bot-btns');
+  const cqRoundsBtns = root.querySelector('#cq-rounds-btns');
+  const cqReckoningBtns = root.querySelector('#cq-reckoning-btns');
   const roundsBtns = root.querySelector('#rounds-btns');
   const modeBtns = root.querySelector('#mode-btns');
   const forfeitRow = root.querySelector('#forfeit-row');
@@ -835,6 +878,25 @@ export function renderLobby(root) {
       b.classList.toggle('ghost', !sel);
       b.disabled = state.role !== 'host';
     });
+    cqConfig.style.display = (selectedGame === 'conquest' && !isRandomLocked) ? 'block' : 'none';
+    cqBotBtns.querySelectorAll('[data-cq-bot]').forEach(b => {
+      const sel = (b.dataset.cqBot === 'on') === selectedCqBotEnabled;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+      b.disabled = state.role !== 'host';
+    });
+    cqRoundsBtns.querySelectorAll('[data-cq-rounds]').forEach(b => {
+      const sel = parseInt(b.dataset.cqRounds, 10) === selectedCqRounds;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+      b.disabled = state.role !== 'host';
+    });
+    cqReckoningBtns.querySelectorAll('[data-cq-reckoning]').forEach(b => {
+      const sel = b.dataset.cqReckoning === selectedCqReckoning;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+      b.disabled = state.role !== 'host';
+    });
     wiConfig.style.display = selectedGame === 'wizardisland' ? 'block' : 'none';
     wiWinBtns.querySelectorAll('[data-wi-win]').forEach(b => {
       const sel = b.dataset.wiWin === selectedWiWinCondition;
@@ -908,6 +970,7 @@ export function renderLobby(root) {
     const isMemory = selectedGame === 'memory';
     const isUno = selectedGame === 'uno';
     const isSnl = selectedGame === 'snakes';
+    const isCq = selectedGame === 'conquest';
     snlConfig.style.display = isSnl ? 'block' : 'none';
     if (isSnl) {
       const snlLocked = isRandomLocked;
@@ -1036,8 +1099,8 @@ export function renderLobby(root) {
       b.classList.toggle('ghost', !sel);
       b.disabled = state.role !== 'host';
     });
-    const hideForfeit = isHilo || isStl || isWi || isBtd || isSo || isBs || isUno || isSnl || isMemory || (isLc && !selectedLcTimer) || isRandomLocked;
-    const noEdge = isHilo || isStl || isWi || isBtd || isSo || isLc || isBs || isUno || isSnl || isMemory || isRandomLocked;
+    const hideForfeit = isHilo || isStl || isWi || isBtd || isSo || isBs || isUno || isSnl || isMemory || isCq || (isLc && !selectedLcTimer) || isRandomLocked;
+    const noEdge = isHilo || isStl || isWi || isBtd || isSo || isLc || isBs || isUno || isSnl || isMemory || isCq || isRandomLocked;
     forfeitRow.style.display   = hideForfeit ? 'none' : '';
     edgeModeRow.style.display  = noEdge ? 'none' : '';
     if (noEdge) edgeLivesRow.style.display = 'none';
@@ -1088,6 +1151,9 @@ export function renderLobby(root) {
     stlDifficulty: selectedStlDifficulty,
     stlForfeitCards: selectedStlForfeitCards,
     soDifficulty: selectedSoDifficulty,
+    cqBotEnabled: selectedCqBotEnabled,
+    cqRounds: selectedCqRounds,
+    cqReckoning: selectedCqReckoning,
     btdForfeits: selectedBtdForfeits,
     btdMode: selectedBtdMode,
     btdGameMode: selectedBtdGameMode,
@@ -1169,6 +1235,9 @@ export function renderLobby(root) {
     if (ev.detail.stlDifficulty)               selectedStlDifficulty = ev.detail.stlDifficulty;
     if (ev.detail.stlForfeitCards)             selectedStlForfeitCards = ev.detail.stlForfeitCards;
     if (ev.detail.soDifficulty)                 selectedSoDifficulty = ev.detail.soDifficulty;
+    if (ev.detail.cqBotEnabled !== undefined)   selectedCqBotEnabled = !!ev.detail.cqBotEnabled;
+    if (ev.detail.cqRounds)                     selectedCqRounds = ev.detail.cqRounds;
+    if (ev.detail.cqReckoning)                  selectedCqReckoning = ev.detail.cqReckoning;
     if (ev.detail.btdForfeits)                 selectedBtdForfeits = ev.detail.btdForfeits;
     if (ev.detail.btdMode)                     selectedBtdMode = ev.detail.btdMode;
     if (ev.detail.btdGameMode)                 selectedBtdGameMode = ev.detail.btdGameMode;
@@ -1452,7 +1521,7 @@ export function renderLobby(root) {
   });
 
   startBtn.addEventListener('click', () => {
-    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedGame === 'uno' ? selectedUnoRounds : selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives, hiloMode: selectedHiloMode, hiloCycles: selectedHiloCycles, hiloDeckSize: selectedHiloDeckSize, hiloVibeRamp: selectedHiloVibeRamp, hiloLives: selectedHiloLives, hiloVibeTarget: selectedHiloVibeTarget, stlDifficulty: selectedStlDifficulty, stlForfeitCards: selectedStlForfeitCards, btdForfeits: selectedBtdForfeits, btdMode: selectedBtdMode, btdGameMode: selectedBtdGameMode, wiWinCondition: selectedWiWinCondition, wiSpellLimit: selectedWiSpellLimit, diceVibeRule: selectedDiceVibeRule, lcTimer: selectedLcTimer, lcMinutes: selectedLcMinutes, lcDeckSize: selectedLcDeckSize, lcReward: selectedLcReward, bsGridSize: selectedBsGridSize, bsVibeMultiplier: selectedBsVibeMultiplier, unoRounds: selectedUnoRounds, unoSpecialPacks: selectedUnoSpecialPacks, snlMode: selectedSnlMode, snlBoardSize: selectedSnlBoardSize, snlDensity: selectedSnlDensity, snlStakeMix: selectedSnlStakeMix, snlVibeScale: selectedSnlVibeScale, snlWinCondition: selectedSnlWinCondition, snlFinalRule: selectedSnlFinalRule, snlPowerups: selectedSnlPowerups, snlCoopBetray: selectedSnlCoopBetray, snlForfeitCards: selectedSnlForfeitCards, snlForfeitLines: selectedSnlForfeitLines, snlAmbient: selectedSnlAmbient, snlTapOut: selectedSnlTapOut, memMode: selectedMemMode, memForfeitLines: selectedMemForfeitLines, memVibeDurations: selectedMemVibeDurations, memGridSize: selectedMemGridSize });
+    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedGame === 'uno' ? selectedUnoRounds : selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives, hiloMode: selectedHiloMode, hiloCycles: selectedHiloCycles, hiloDeckSize: selectedHiloDeckSize, hiloVibeRamp: selectedHiloVibeRamp, hiloLives: selectedHiloLives, hiloVibeTarget: selectedHiloVibeTarget, stlDifficulty: selectedStlDifficulty, stlForfeitCards: selectedStlForfeitCards, soDifficulty: selectedSoDifficulty, cqBotEnabled: selectedCqBotEnabled, cqRounds: selectedCqRounds, cqReckoning: selectedCqReckoning, btdForfeits: selectedBtdForfeits, btdMode: selectedBtdMode, btdGameMode: selectedBtdGameMode, wiWinCondition: selectedWiWinCondition, wiSpellLimit: selectedWiSpellLimit, diceVibeRule: selectedDiceVibeRule, lcTimer: selectedLcTimer, lcMinutes: selectedLcMinutes, lcDeckSize: selectedLcDeckSize, lcReward: selectedLcReward, bsGridSize: selectedBsGridSize, bsVibeMultiplier: selectedBsVibeMultiplier, unoRounds: selectedUnoRounds, unoSpecialPacks: selectedUnoSpecialPacks, snlMode: selectedSnlMode, snlBoardSize: selectedSnlBoardSize, snlDensity: selectedSnlDensity, snlStakeMix: selectedSnlStakeMix, snlVibeScale: selectedSnlVibeScale, snlWinCondition: selectedSnlWinCondition, snlFinalRule: selectedSnlFinalRule, snlPowerups: selectedSnlPowerups, snlCoopBetray: selectedSnlCoopBetray, snlForfeitCards: selectedSnlForfeitCards, snlForfeitLines: selectedSnlForfeitLines, snlAmbient: selectedSnlAmbient, snlTapOut: selectedSnlTapOut, memMode: selectedMemMode, memForfeitLines: selectedMemForfeitLines, memVibeDurations: selectedMemVibeDurations, memGridSize: selectedMemGridSize });
   });
 
   wiWinBtns.addEventListener('click', (e) => {
@@ -1609,6 +1678,16 @@ export function renderLobby(root) {
     if (state.role !== 'host') return;
     const diffBtn = e.target.closest('[data-so-diff]');
     if (diffBtn) { selectedSoDifficulty = diffBtn.dataset.soDiff; paintOptions(); sendConfig(); }
+  });
+
+  cqConfig.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const botBtn = e.target.closest('[data-cq-bot]');
+    if (botBtn) { selectedCqBotEnabled = botBtn.dataset.cqBot === 'on'; paintOptions(); sendConfig(); }
+    const roundsBtn = e.target.closest('[data-cq-rounds]');
+    if (roundsBtn) { selectedCqRounds = parseInt(roundsBtn.dataset.cqRounds, 10); paintOptions(); sendConfig(); }
+    const reckoningBtn = e.target.closest('[data-cq-reckoning]');
+    if (reckoningBtn) { selectedCqReckoning = reckoningBtn.dataset.cqReckoning; paintOptions(); sendConfig(); }
   });
 
   hiloModeBtns.addEventListener('click', (e) => {

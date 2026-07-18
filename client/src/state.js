@@ -59,6 +59,13 @@ export const state = {
   memForfeitLines: [],
   memVibeDurations: [],
   memGridSize: '6x6',
+  cqPublicMap: null,
+  cqOwnership: null,
+  cqDicePool: null,
+  cqRoundCap: 20,
+  cqBaseDice: 8,
+  cqPlayerRoles: null,
+  cqBotRoles: [],
   vibeModes: { host: 'random', guest: 'random', guest2: 'random' },
 };
 
@@ -121,5 +128,12 @@ export function reset() {
   state.memForfeitLines = [];
   state.memVibeDurations = [];
   state.memGridSize = '6x6';
+  state.cqPublicMap = null;
+  state.cqOwnership = null;
+  state.cqDicePool = null;
+  state.cqRoundCap = 20;
+  state.cqBaseDice = 8;
+  state.cqPlayerRoles = null;
+  state.cqBotRoles = [];
   state.vibeModes = { host: 'random', guest: 'random', guest2: 'random' };
 }
