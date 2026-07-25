@@ -108,7 +108,6 @@ export const MSG = {
   CQ_CLAIM_IRON_THRONE:  'cq_claim_iron_throne',
   CQ_CLAIM_RESULT:       'cq_claim_result',
   CQ_SECRET_STATUS:      'cq_secret_status',
-  CQ_TRAP_HIT:           'cq_trap_hit',
   CQ_DEBUG_REVEAL_TRAPS: 'cq_debug_reveal_traps',
   CQ_MATCH_END:          'cq_match_end',
   CQ_MATCH_END_INTENSITY: 'cq_match_end_intensity',

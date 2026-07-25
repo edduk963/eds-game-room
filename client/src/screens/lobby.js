@@ -30,6 +30,10 @@ export function renderLobby(root) {
   let selectedCqBotEnabled = false;
   let selectedCqRounds = 10;
   let selectedCqReckoning = 'random';
+  let selectedCqReckoningForfeitText = '';
+  let selectedCqGameForfeitText = '';
+  let selectedCqDisabledLocations = [];
+  let selectedCqTrapCount = 'auto';
   let selectedStlForfeitCards = ['truth', 'dare', 'control', 'strip', 'drink', 'surrender'];
   let selectedBtdForfeits = [...DEFAULT_FORFEIT_LINES];
   let selectedBtdMode = 'draw';
@@ -344,7 +348,11 @@ export function renderLobby(root) {
             <button class="mm-rounds-btn ghost" data-cq-bot="on">On</button>
           </div>
         </div>
-        <div class="mm-rounds-row">
+        <div style="font-size:12px;color:var(--muted);line-height:1.55;margin-top:8px;">
+          <strong>Rounds</strong> — the fallback round cap if no one reaches domination first (control ≥60% of the board for 3 straight rounds ends the match early regardless).<br>
+          <strong>Computer 3rd player</strong> — adds a computer-controlled 3rd player if no one joins as player 3. It plays normally — claims territory, allocates dice each round, invokes claim abilities it holds — but is exempt from any forfeit that would need a physical response.
+        </div>
+        <div class="mm-rounds-row" style="margin-top:8px;">
           <span>The Reckoning:</span>
           <div class="mm-rounds-btns" id="cq-reckoning-btns">
             <button class="mm-rounds-btn ghost" data-cq-reckoning="off">Off</button>
@@ -352,10 +360,47 @@ export function renderLobby(root) {
             <button class="mm-rounds-btn ghost" data-cq-reckoning="on">On</button>
           </div>
         </div>
-        <div style="font-size:12px;color:var(--muted);line-height:1.55;margin-top:8px;">
-          <strong>Rounds</strong> — the fallback round cap if no one reaches domination first (control ≥60% of the board for 3 straight rounds ends the match early regardless).<br>
-          <strong>Computer 3rd player</strong> — adds a computer-controlled 3rd player if no one joins as player 3. It plays normally — claims territory, allocates dice each round, invokes claim abilities it holds — but is exempt from any forfeit that would need a physical response.<br>
-          <strong>The Reckoning</strong> — the end-of-match cum forfeit space. Off removes it from the map entirely; On guarantees it appears every match; Random (default) leaves it as one of the landmarks that may or may not show up.
+        <div style="font-size:12px;color:var(--muted);line-height:1.55;">
+          The end-of-match forfeit space. Off removes it from the map entirely; On guarantees it appears every match; Random (default) leaves it as one of the landmarks that may or may not show up — <strong>either way, it never actually appears unless you set a forfeit for it below.</strong>
+        </div>
+        <div class="mm-rounds-row" style="flex-direction:column;align-items:stretch;gap:6px;margin-top:8px;">
+          <span>The Reckoning forfeit <span style="font-size:11px;color:var(--muted)">(required for Reckoning to appear at all — leave blank to exclude it regardless of the setting above)</span>:</span>
+          <textarea id="cq-reckoning-forfeit-input" rows="2"
+            placeholder="Required — e.g. do 20 pushups and edge for 2 minutes. Leave blank to keep Reckoning out of the map."
+            style="width:100%;box-sizing:border-box;resize:vertical;font-size:13px;line-height:1.5;padding:8px 10px;border-radius:8px;border:1px solid #2a3556;background:#0f1626;color:var(--ink);font-family:inherit;"></textarea>
+          <div id="cq-reckoning-note" style="font-size:11px;color:#e0a052;"></div>
+        </div>
+        <div class="mm-rounds-row" style="flex-direction:column;align-items:stretch;gap:6px;margin-top:8px;">
+          <span>Special locations <span style="font-size:11px;color:var(--muted)">(tap to turn off — hover a button for what it does. Normally only 4 of these 5 landmarks appear per match anyway; Sanctuary &amp; Edge Post are otherwise always on)</span>:</span>
+          <div class="mm-rounds-btns" id="cq-locations-btns" style="flex-wrap:wrap;">
+            <button class="mm-rounds-btn mm-rounds-selected" data-cq-loc="dungeonGate" title="Invoke once per session to assign your opponent a 5-minute punishment forfeit.">Dungeon Gate</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-cq-loc="ironThrone" title="Invoke once per session to double one forfeit assigned to your opponent.">Iron Throne</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-cq-loc="mirror" title="While held, any forfeit you owe is also owed by every other player.">Mirror</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-cq-loc="muster" title="+2 dice per round for as long as you control this space.">Muster</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-cq-loc="ridgepath" title="Whoever does not control this at match end owes a 10-minute edging session before the next match.">Ridgepath</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-cq-loc="sanctuary" title="Grants a skip token — cancels one future forfeit.">Sanctuary</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-cq-loc="edgePost" title="While held, every other player must edge once before each round starts.">Edge Post</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row">
+          <span>Traps <span style="font-size:11px;color:var(--muted)">(hidden — auto scales with player count)</span>:</span>
+          <div class="mm-rounds-btns" id="cq-trap-count-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-cq-trap-count="auto">Auto</button>
+            <button class="mm-rounds-btn ghost" data-cq-trap-count="0">0</button>
+            <button class="mm-rounds-btn ghost" data-cq-trap-count="1">1</button>
+            <button class="mm-rounds-btn ghost" data-cq-trap-count="2">2</button>
+            <button class="mm-rounds-btn ghost" data-cq-trap-count="3">3</button>
+            <button class="mm-rounds-btn ghost" data-cq-trap-count="4">4</button>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.55;">
+          Traps look identical to a quiet, empty space — never marked on the map, even to whoever's standing on one. Capturing one starts a continuous vibe that only stops when you lose the tile.
+        </div>
+        <div class="mm-rounds-row" style="flex-direction:column;align-items:stretch;gap:6px;margin-top:8px;">
+          <span>Overall game forfeit <span style="font-size:11px;color:var(--muted)">(shown on the final match-end screen)</span>:</span>
+          <textarea id="cq-game-forfeit-input" rows="2"
+            placeholder="e.g. Loser does whatever the winner says for the rest of the night"
+            style="width:100%;box-sizing:border-box;resize:vertical;font-size:13px;line-height:1.5;padding:8px 10px;border-radius:8px;border:1px solid #2a3556;background:#0f1626;color:var(--ink);font-family:inherit;"></textarea>
         </div>
       </div>
       <div id="uno-config" style="display:none">
@@ -701,6 +746,11 @@ export function renderLobby(root) {
   const cqBotBtns = root.querySelector('#cq-bot-btns');
   const cqRoundsBtns = root.querySelector('#cq-rounds-btns');
   const cqReckoningBtns = root.querySelector('#cq-reckoning-btns');
+  const cqLocationsBtns = root.querySelector('#cq-locations-btns');
+  const cqTrapCountBtns = root.querySelector('#cq-trap-count-btns');
+  const cqReckoningForfeitInput = root.querySelector('#cq-reckoning-forfeit-input');
+  const cqReckoningNote = root.querySelector('#cq-reckoning-note');
+  const cqGameForfeitInput = root.querySelector('#cq-game-forfeit-input');
   const roundsBtns = root.querySelector('#rounds-btns');
   const modeBtns = root.querySelector('#mode-btns');
   const forfeitRow = root.querySelector('#forfeit-row');
@@ -897,6 +947,29 @@ export function renderLobby(root) {
       b.classList.toggle('ghost', !sel);
       b.disabled = state.role !== 'host';
     });
+    cqLocationsBtns.querySelectorAll('[data-cq-loc]').forEach(b => {
+      const sel = !selectedCqDisabledLocations.includes(b.dataset.cqLoc);
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+      b.disabled = state.role !== 'host';
+    });
+    cqTrapCountBtns.querySelectorAll('[data-cq-trap-count]').forEach(b => {
+      const sel = b.dataset.cqTrapCount === String(selectedCqTrapCount);
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+      b.disabled = state.role !== 'host';
+    });
+    cqReckoningForfeitInput.disabled = state.role !== 'host';
+    if (document.activeElement !== cqReckoningForfeitInput) {
+      cqReckoningForfeitInput.value = selectedCqReckoningForfeitText;
+    }
+    cqReckoningNote.textContent = selectedCqReckoningForfeitText
+      ? ''
+      : 'No forfeit set — Reckoning will not appear on the map, regardless of the setting above.';
+    cqGameForfeitInput.disabled = state.role !== 'host';
+    if (document.activeElement !== cqGameForfeitInput) {
+      cqGameForfeitInput.value = selectedCqGameForfeitText;
+    }
     wiConfig.style.display = selectedGame === 'wizardisland' ? 'block' : 'none';
     wiWinBtns.querySelectorAll('[data-wi-win]').forEach(b => {
       const sel = b.dataset.wiWin === selectedWiWinCondition;
@@ -1154,6 +1227,10 @@ export function renderLobby(root) {
     cqBotEnabled: selectedCqBotEnabled,
     cqRounds: selectedCqRounds,
     cqReckoning: selectedCqReckoning,
+    cqReckoningForfeitText: selectedCqReckoningForfeitText,
+    cqGameForfeitText: selectedCqGameForfeitText,
+    cqDisabledLocations: selectedCqDisabledLocations,
+    cqTrapCount: selectedCqTrapCount,
     btdForfeits: selectedBtdForfeits,
     btdMode: selectedBtdMode,
     btdGameMode: selectedBtdGameMode,
@@ -1238,6 +1315,10 @@ export function renderLobby(root) {
     if (ev.detail.cqBotEnabled !== undefined)   selectedCqBotEnabled = !!ev.detail.cqBotEnabled;
     if (ev.detail.cqRounds)                     selectedCqRounds = ev.detail.cqRounds;
     if (ev.detail.cqReckoning)                  selectedCqReckoning = ev.detail.cqReckoning;
+    if (ev.detail.cqReckoningForfeitText !== undefined) selectedCqReckoningForfeitText = ev.detail.cqReckoningForfeitText;
+    if (ev.detail.cqGameForfeitText !== undefined)      selectedCqGameForfeitText = ev.detail.cqGameForfeitText;
+    if (ev.detail.cqDisabledLocations)          selectedCqDisabledLocations = ev.detail.cqDisabledLocations;
+    if (ev.detail.cqTrapCount !== undefined)    selectedCqTrapCount = ev.detail.cqTrapCount;
     if (ev.detail.btdForfeits)                 selectedBtdForfeits = ev.detail.btdForfeits;
     if (ev.detail.btdMode)                     selectedBtdMode = ev.detail.btdMode;
     if (ev.detail.btdGameMode)                 selectedBtdGameMode = ev.detail.btdGameMode;
@@ -1493,6 +1574,21 @@ export function renderLobby(root) {
     sendConfig();
   });
 
+  cqReckoningForfeitInput.addEventListener('input', () => {
+    if (state.role !== 'host') return;
+    selectedCqReckoningForfeitText = cqReckoningForfeitInput.value.slice(0, 300);
+    cqReckoningNote.textContent = selectedCqReckoningForfeitText
+      ? ''
+      : 'No forfeit set — Reckoning will not appear on the map, regardless of the setting above.';
+    sendConfig();
+  });
+
+  cqGameForfeitInput.addEventListener('input', () => {
+    if (state.role !== 'host') return;
+    selectedCqGameForfeitText = cqGameForfeitInput.value.slice(0, 300);
+    sendConfig();
+  });
+
   forfeitBtns.addEventListener('click', (e) => {
     if (state.role !== 'host') return;
     const btn = e.target.closest('[data-forfeit]');
@@ -1521,7 +1617,7 @@ export function renderLobby(root) {
   });
 
   startBtn.addEventListener('click', () => {
-    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedGame === 'uno' ? selectedUnoRounds : selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives, hiloMode: selectedHiloMode, hiloCycles: selectedHiloCycles, hiloDeckSize: selectedHiloDeckSize, hiloVibeRamp: selectedHiloVibeRamp, hiloLives: selectedHiloLives, hiloVibeTarget: selectedHiloVibeTarget, stlDifficulty: selectedStlDifficulty, stlForfeitCards: selectedStlForfeitCards, soDifficulty: selectedSoDifficulty, cqBotEnabled: selectedCqBotEnabled, cqRounds: selectedCqRounds, cqReckoning: selectedCqReckoning, btdForfeits: selectedBtdForfeits, btdMode: selectedBtdMode, btdGameMode: selectedBtdGameMode, wiWinCondition: selectedWiWinCondition, wiSpellLimit: selectedWiSpellLimit, diceVibeRule: selectedDiceVibeRule, lcTimer: selectedLcTimer, lcMinutes: selectedLcMinutes, lcDeckSize: selectedLcDeckSize, lcReward: selectedLcReward, bsGridSize: selectedBsGridSize, bsVibeMultiplier: selectedBsVibeMultiplier, unoRounds: selectedUnoRounds, unoSpecialPacks: selectedUnoSpecialPacks, snlMode: selectedSnlMode, snlBoardSize: selectedSnlBoardSize, snlDensity: selectedSnlDensity, snlStakeMix: selectedSnlStakeMix, snlVibeScale: selectedSnlVibeScale, snlWinCondition: selectedSnlWinCondition, snlFinalRule: selectedSnlFinalRule, snlPowerups: selectedSnlPowerups, snlCoopBetray: selectedSnlCoopBetray, snlForfeitCards: selectedSnlForfeitCards, snlForfeitLines: selectedSnlForfeitLines, snlAmbient: selectedSnlAmbient, snlTapOut: selectedSnlTapOut, memMode: selectedMemMode, memForfeitLines: selectedMemForfeitLines, memVibeDurations: selectedMemVibeDurations, memGridSize: selectedMemGridSize });
+    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedGame === 'uno' ? selectedUnoRounds : selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives, hiloMode: selectedHiloMode, hiloCycles: selectedHiloCycles, hiloDeckSize: selectedHiloDeckSize, hiloVibeRamp: selectedHiloVibeRamp, hiloLives: selectedHiloLives, hiloVibeTarget: selectedHiloVibeTarget, stlDifficulty: selectedStlDifficulty, stlForfeitCards: selectedStlForfeitCards, soDifficulty: selectedSoDifficulty, cqBotEnabled: selectedCqBotEnabled, cqRounds: selectedCqRounds, cqReckoning: selectedCqReckoning, cqReckoningForfeitText: selectedCqReckoningForfeitText, cqGameForfeitText: selectedCqGameForfeitText, btdForfeits: selectedBtdForfeits, btdMode: selectedBtdMode, btdGameMode: selectedBtdGameMode, wiWinCondition: selectedWiWinCondition, wiSpellLimit: selectedWiSpellLimit, diceVibeRule: selectedDiceVibeRule, lcTimer: selectedLcTimer, lcMinutes: selectedLcMinutes, lcDeckSize: selectedLcDeckSize, lcReward: selectedLcReward, bsGridSize: selectedBsGridSize, bsVibeMultiplier: selectedBsVibeMultiplier, unoRounds: selectedUnoRounds, unoSpecialPacks: selectedUnoSpecialPacks, snlMode: selectedSnlMode, snlBoardSize: selectedSnlBoardSize, snlDensity: selectedSnlDensity, snlStakeMix: selectedSnlStakeMix, snlVibeScale: selectedSnlVibeScale, snlWinCondition: selectedSnlWinCondition, snlFinalRule: selectedSnlFinalRule, snlPowerups: selectedSnlPowerups, snlCoopBetray: selectedSnlCoopBetray, snlForfeitCards: selectedSnlForfeitCards, snlForfeitLines: selectedSnlForfeitLines, snlAmbient: selectedSnlAmbient, snlTapOut: selectedSnlTapOut, memMode: selectedMemMode, memForfeitLines: selectedMemForfeitLines, memVibeDurations: selectedMemVibeDurations, memGridSize: selectedMemGridSize });
   });
 
   wiWinBtns.addEventListener('click', (e) => {
@@ -1688,6 +1784,20 @@ export function renderLobby(root) {
     if (roundsBtn) { selectedCqRounds = parseInt(roundsBtn.dataset.cqRounds, 10); paintOptions(); sendConfig(); }
     const reckoningBtn = e.target.closest('[data-cq-reckoning]');
     if (reckoningBtn) { selectedCqReckoning = reckoningBtn.dataset.cqReckoning; paintOptions(); sendConfig(); }
+    const locBtn = e.target.closest('[data-cq-loc]');
+    if (locBtn) {
+      const loc = locBtn.dataset.cqLoc;
+      selectedCqDisabledLocations = selectedCqDisabledLocations.includes(loc)
+        ? selectedCqDisabledLocations.filter(l => l !== loc)
+        : [...selectedCqDisabledLocations, loc];
+      paintOptions(); sendConfig();
+    }
+    const trapCountBtn = e.target.closest('[data-cq-trap-count]');
+    if (trapCountBtn) {
+      const v = trapCountBtn.dataset.cqTrapCount;
+      selectedCqTrapCount = v === 'auto' ? 'auto' : parseInt(v, 10);
+      paintOptions(); sendConfig();
+    }
   });
 
   hiloModeBtns.addEventListener('click', (e) => {

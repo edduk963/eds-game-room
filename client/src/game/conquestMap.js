@@ -11,23 +11,29 @@ export const HEX_RADIUS = { 2: 2, 3: 2 }; // 19 tiles either way
 export const HEX_SIZE = 60; // center-to-vertex pixel radius of each hex tile
 const HEX_DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
 
-// Generic filler hazards/blessings — small fixed counts, kept sparse so the board reads mostly
-// as open ground with the occasional space worth caring about. Edge Post is guaranteed here too
-// (not part of the random landmark subset below) — every match always has one.
-const FIXED_SPACE_COUNTS = { trap: 1, sanctuary: 1, edgePost: 1 };
-// Secret Trap count scales with participant count (3p, or 2p + a computer player, both count
-// as 3) — never reduced even on a small map, regardless of count.
-const SECRET_TRAP_COUNT = { 2: 2, 3: 3 };
+// Generic filler hazards/blessings. Sanctuary and Edge Post default to exactly 1 each (every
+// match) but the host can toggle either off entirely via disabledLocations.
+const FIXED_SPACE_COUNTS = { sanctuary: 1, edgePost: 1 };
+// There is a single hidden trap type ('secretTrap') — it never appears on the map (not even to
+// its own holder, see redactHiddenSpaces) and its punishment is a continuous vibe that runs for
+// as long as you hold the tile, stopping only when you lose it. Its count scales with
+// participant count by default (3p, or 2p + a computer player, both count as 3) — never reduced
+// even on a small map — but the host can override via an explicit secretTrapCount instead.
+export const SECRET_TRAP_COUNT = { 2: 2, 3: 3 };
 
 // Unique named landmarks — each map only includes a random subset of these, not all of them, so
 // which claim abilities exist is itself part of a given match's variety. (Edge Post is guaranteed
-// every match — see FIXED_SPACE_COUNTS — so it's not part of this random subset.)
+// every match — see FIXED_SPACE_COUNTS — so it's not part of this random subset.) The host can
+// also disable individual landmarks (and Sanctuary/Edge Post) entirely via disabledLocations —
+// Reckoning is excluded from that list since it already has its own dedicated on/off/random mode.
 const UNIQUE_CLAIM_TYPES = ['dungeonGate', 'ironThrone', 'mirror', 'muster', 'ridgepath', 'reckoning'];
+export const TOGGLEABLE_LOCATIONS = ['dungeonGate', 'ironThrone', 'mirror', 'muster', 'ridgepath', 'sanctuary', 'edgePost'];
 const UNIQUE_CLAIM_SELECT_COUNT = 4;
 
 // If a map can't fit every selected type, drop counts in this order first. secretTrap and
-// edgePost are never touched (both guaranteed to appear every match).
-const DROP_PRIORITY = ['reckoning', 'ridgepath', 'mirror', 'muster', 'ironThrone', 'dungeonGate', 'sanctuary', 'trap'];
+// edgePost are never dropped for budget reasons (though edgePost's count may already be 0 if
+// the host disabled it outright).
+const DROP_PRIORITY = ['reckoning', 'ridgepath', 'mirror', 'muster', 'ironThrone', 'dungeonGate', 'sanctuary'];
 
 // Fisher-Yates shuffle (does not mutate input) — same pattern as standoffGame.js.
 function shuffle(arr, rng) {
@@ -118,13 +124,22 @@ function pickStartSlots(nodes, adj, playerCount, rng) {
 // reckoningMode: 'random' (default) leaves Reckoning in the normal random-subset pool like every
 // other landmark; 'on' guarantees it every match (pulled out of the pool, like Edge Post); 'off'
 // removes it from the pool entirely so it can never be generated.
-function assignSpaceTypes(nodes, startIds, playerCount, rng, reckoningMode) {
+// disabledLocations: a Set of location keys (from TOGGLEABLE_LOCATIONS) the host has turned off
+// entirely — for the 5 non-Reckoning landmarks this just removes them from the random-subset
+// pool; for sanctuary/edgePost it zeroes their otherwise-always-1 fixed count.
+// secretTrapCount: host-configurable count of the single hidden trap type.
+function assignSpaceTypes(nodes, startIds, playerCount, rng, { reckoningMode, disabledLocations, secretTrapCount }) {
   const nonStart = shuffle(nodes.filter(n => !startIds.includes(n.id)).map(n => n.id), rng);
   const budget = nonStart.length;
 
-  const randomPool = reckoningMode === 'random' ? UNIQUE_CLAIM_TYPES : UNIQUE_CLAIM_TYPES.filter(t => t !== 'reckoning');
+  const landmarkPool = UNIQUE_CLAIM_TYPES.filter(t => t === 'reckoning' || !disabledLocations.has(t));
+  const randomPool = reckoningMode === 'random' ? landmarkPool : landmarkPool.filter(t => t !== 'reckoning');
   const selectedUniques = shuffle(randomPool, rng).slice(0, UNIQUE_CLAIM_SELECT_COUNT);
-  const counts = { ...FIXED_SPACE_COUNTS, secretTrap: SECRET_TRAP_COUNT[playerCount] ?? SECRET_TRAP_COUNT[2] };
+  const counts = {
+    sanctuary: disabledLocations.has('sanctuary') ? 0 : FIXED_SPACE_COUNTS.sanctuary,
+    edgePost: disabledLocations.has('edgePost') ? 0 : FIXED_SPACE_COUNTS.edgePost,
+    secretTrap: Math.max(0, secretTrapCount),
+  };
   for (const type of selectedUniques) counts[type] = 1;
   if (reckoningMode === 'on') counts.reckoning = 1;
 
@@ -149,8 +164,16 @@ function assignSpaceTypes(nodes, startIds, playerCount, rng, reckoningMode) {
 
 // Generate a full map (including real Secret Trap tags) from a shared match seed.
 // Deterministic — the server is the only caller that should ever see the un-redacted result.
-// reckoningMode: 'random' (default) | 'on' | 'off' — see assignSpaceTypes.
-export function generateMap(seed, playerCount, reckoningMode = 'random') {
+// options.reckoningMode: 'random' (default) | 'on' | 'off' — see assignSpaceTypes.
+// options.disabledLocations: array of TOGGLEABLE_LOCATIONS keys to exclude entirely.
+// options.secretTrapCount: override the default hidden-trap count (defaults to the
+// player-count-scaled SECRET_TRAP_COUNT lookup when omitted/null).
+export function generateMap(seed, playerCount, options = {}) {
+  const {
+    reckoningMode = 'random',
+    disabledLocations = [],
+    secretTrapCount = null,
+  } = options;
   const radius = HEX_RADIUS[playerCount] ?? HEX_RADIUS[2];
   const rawNodes = generateHexTiles(radius);
   const adjacency = buildHexAdjacency(rawNodes);
@@ -161,7 +184,12 @@ export function generateMap(seed, playerCount, reckoningMode = 'random') {
 
   const typesRng = makeRng(seed ^ SEED_TYPES);
   const mode = ['on', 'off', 'random'].includes(reckoningMode) ? reckoningMode : 'random';
-  const typeById = assignSpaceTypes(rawNodes, startSlots, playerCount, typesRng, mode);
+  const resolvedSecretTrapCount = secretTrapCount != null ? secretTrapCount : (SECRET_TRAP_COUNT[playerCount] ?? SECRET_TRAP_COUNT[2]);
+  const typeById = assignSpaceTypes(rawNodes, startSlots, playerCount, typesRng, {
+    reckoningMode: mode,
+    disabledLocations: new Set(disabledLocations),
+    secretTrapCount: resolvedSecretTrapCount,
+  });
 
   const nodes = rawNodes.map(n => ({ id: n.id, x: n.x, y: n.y, type: typeById[n.id] }));
   const claimSpaceIds = nodes.filter(n => n.type !== 'start' && n.type !== 'safe').map(n => n.id);
@@ -170,16 +198,14 @@ export function generateMap(seed, playerCount, reckoningMode = 'random') {
   return { nodes, edges, adjacency, startSlots, claimSpaceIds, secretTrapNodeIds };
 }
 
-// Public view broadcast to clients: both Trap and Secret Trap nodes look identical to Safe
-// nodes to everyone — neither is ever labeled, iconed, or tooltipped on the map. Secret Trap
-// stays hidden even from its own holder's map view (only a private status push reveals it —
-// see conquestGame.js); Trap's trigger is instead announced publicly through the forfeit log
-// when it fires (via the server's `trapHitRoles`/`trapShielded` fields), never as a map label.
+// Public view broadcast to clients: Secret Trap nodes look identical to Safe nodes to everyone —
+// never labeled, iconed, or tooltipped on the map, and hidden even from its own holder's map view
+// (only a private status push reveals it — see conquestGame.js/applyPassiveEffects).
 export function redactHiddenSpaces(map) {
   const { secretTrapNodeIds, ...publicMap } = map;
   return {
     ...publicMap,
-    nodes: map.nodes.map(n => (n.type === 'secretTrap' || n.type === 'trap' ? { ...n, type: 'safe' } : n)),
+    nodes: map.nodes.map(n => (n.type === 'secretTrap' ? { ...n, type: 'safe' } : n)),
   };
 }
 

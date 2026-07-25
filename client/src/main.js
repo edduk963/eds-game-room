@@ -262,6 +262,8 @@ socket.addEventListener('begin', (ev) => {
   state.cqBaseDice = ev.detail.cqBaseDice || 8;
   state.cqPlayerRoles = ev.detail.cqPlayerRoles || null;
   state.cqBotRoles = ev.detail.cqBotRoles || [];
+  state.cqReckoningForfeitText = ev.detail.cqReckoningForfeitText || '';
+  state.cqGameForfeitText = ev.detail.cqGameForfeitText || '';
   const gt = state.gameType;
   if (gt === 'mastermind') navigate(state.playerCount === 3 ? '#/mastermind3' : state.playerCount === 1 ? '#/mastermind1p' : '#/mastermind');
   else if (gt === 'endurance') navigate('#/endurance');

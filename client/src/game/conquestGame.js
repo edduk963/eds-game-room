@@ -74,16 +74,14 @@ export function resolveRound(map, ownership, rollsByRole, roundIndex) {
   return { newOwnership, contested };
 }
 
-// Momentary (Trap/Sanctuary, only for nodes actually contested this round) and continuous
+// Momentary (Sanctuary, only for nodes actually contested this round) and continuous
 // (Edge Post/Mirror/Muster/Secret Trap, evaluated off current ownership regardless of contest) effects.
 export function applyPassiveEffects(map, prevOwnership, newOwnership, contested, secretTrapNodeIds) {
-  const trapHits = [];
   const sanctuaryGrants = [];
 
   for (const entry of contested) {
     if (entry.winnerRole === 'neutral') continue;
     const type = findNodeType(map, entry.nodeId);
-    if (type === 'trap') trapHits.push(entry.winnerRole);
     if (type === 'sanctuary') sanctuaryGrants.push(entry.winnerRole);
   }
 
@@ -99,7 +97,6 @@ export function applyPassiveEffects(map, prevOwnership, newOwnership, contested,
   }
 
   return {
-    trapHits,
     sanctuaryGrants,
     edgePostNodeId,
     mirrorNodeId,
@@ -170,7 +167,7 @@ export function resolveMatchEndPassives(map, ownership, playerRoles) {
 // ── Client-only: presentation helpers, never authoritative ─────────────────
 
 const TYPE_LABELS = {
-  safe: 'a quiet space', start: 'a start space', trap: 'a Trap', sanctuary: 'a Sanctuary',
+  safe: 'a quiet space', start: 'a start space', sanctuary: 'a Sanctuary',
   dungeonGate: 'Dungeon Gate', ironThrone: 'Iron Throne', edgePost: 'Edge Post',
   mirror: 'The Mirror', muster: 'The Muster', secretTrap: 'a quiet space',
   ridgepath: 'Ridgepath', reckoning: 'The Reckoning',

@@ -66,6 +66,8 @@ export const state = {
   cqBaseDice: 8,
   cqPlayerRoles: null,
   cqBotRoles: [],
+  cqReckoningForfeitText: '',
+  cqGameForfeitText: '',
   vibeModes: { host: 'random', guest: 'random', guest2: 'random' },
 };
 
@@ -135,5 +137,7 @@ export function reset() {
   state.cqBaseDice = 8;
   state.cqPlayerRoles = null;
   state.cqBotRoles = [];
+  state.cqReckoningForfeitText = '';
+  state.cqGameForfeitText = '';
   state.vibeModes = { host: 'random', guest: 'random', guest2: 'random' };
 }

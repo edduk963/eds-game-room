@@ -188,12 +188,24 @@ wss.on('connection', (ws) => {
       const cqBotEnabled = gameType === 'conquest' && !!msg.cqBotEnabled && !s.guest2;
       const cqRounds = [5, 10].includes(msg.cqRounds) ? msg.cqRounds : 10;
       const cqReckoning = ['on', 'off', 'random'].includes(msg.cqReckoning) ? msg.cqReckoning : 'random';
+      const cqReckoningForfeitText = typeof msg.cqReckoningForfeitText === 'string' ? msg.cqReckoningForfeitText.trim().slice(0, 300) : '';
+      const cqGameForfeitText = typeof msg.cqGameForfeitText === 'string' ? msg.cqGameForfeitText.trim().slice(0, 300) : '';
+      const VALID_CQ_LOCATIONS = ['dungeonGate', 'ironThrone', 'mirror', 'muster', 'ridgepath', 'sanctuary', 'edgePost'];
+      const cqDisabledLocations = Array.isArray(msg.cqDisabledLocations) ? [...new Set(msg.cqDisabledLocations.filter(l => VALID_CQ_LOCATIONS.includes(l)))] : [];
+      const cqTrapCount = msg.cqTrapCount === 'auto' ? 'auto'
+        : (Number.isInteger(msg.cqTrapCount) && msg.cqTrapCount >= 0 && msg.cqTrapCount <= 4 ? msg.cqTrapCount : 'auto');
       const playerCount = !s.guest ? 1 : (s.guest2 || cqBotEnabled) ? 3 : 2;
       if (gameType === 'conquest') {
         const cqPlayerRoles = playerCount === 3 ? ['host', 'guest', 'guest2'] : ['host', 'guest'];
         s.cqPlayerRoles = cqPlayerRoles;
         s.cqBotRoles = cqBotEnabled ? ['guest2'] : [];
-        s.cqMap = cqGenerateMap(s.seed, cqPlayerRoles.length, cqReckoning);
+        s.cqMap = cqGenerateMap(s.seed, cqPlayerRoles.length, {
+          // Reckoning only ever appears once a forfeit is actually set for it — without one,
+          // it's forced off regardless of the on/off/random mode picked in the lobby.
+          reckoningMode: cqReckoningForfeitText ? cqReckoning : 'off',
+          disabledLocations: cqDisabledLocations,
+          secretTrapCount: cqTrapCount === 'auto' ? null : cqTrapCount,
+        });
         s.cqPublicMap = cqRedactHiddenSpaces(s.cqMap);
         s.cqOwnership = cqInitialOwnership(s.cqMap, cqPlayerRoles);
         s.cqNodeIds = {
@@ -273,7 +285,7 @@ wss.on('connection', (ws) => {
       const memGridSize = validMemGridSizes.includes(msg.memGridSize) ? msg.memGridSize : '6x6';
       s.edgeMode = edgeMode;
       const guest2Name = s.guest2?.name ?? (cqBotEnabled ? 'Computer' : null);
-      broadcast(s, { type: 'begin', seed: s.seed, startAt: null, gameType, rounds, mode, forfeitDuration, edgeMode, edgeLives, hiloMode, hiloCycles, hiloDeckSize, hiloVibeRamp, hiloLives, hiloVibeTarget, playerCount, guest2Name, stlDifficulty, stlForfeitCards, soDifficulty, btdForfeits, btdMode, btdGameMode, wiWinCondition, wiSpellLimit, diceVibeRule, lcTimer, lcMinutes, lcDeckSize, lcReward, bsGridSize, bsVibeMultiplier, unoSpecialPacks, snlMode, snlBoardSize, snlDensity, snlStakeMix, snlVibeScale, snlWinCondition, snlFinalRule, snlPowerups, snlCoopBetray, snlForfeitCards, snlForfeitLines, snlAmbient, snlTapOut, memMode, memForfeitLines, memVibeDurations, memGridSize, cqPublicMap: s.cqPublicMap ?? null, cqOwnership: s.cqOwnership ?? null, cqDicePool: s.cqDicePool ?? null, cqRoundCap: s.cqRoundCap ?? CQ_DEFAULT_ROUND_CAP, cqBaseDice: s.cqBaseDice ?? CQ_DEFAULT_BASE_DICE, cqPlayerRoles: s.cqPlayerRoles ?? null, cqBotRoles: s.cqBotRoles ?? [] });
+      broadcast(s, { type: 'begin', seed: s.seed, startAt: null, gameType, rounds, mode, forfeitDuration, edgeMode, edgeLives, hiloMode, hiloCycles, hiloDeckSize, hiloVibeRamp, hiloLives, hiloVibeTarget, playerCount, guest2Name, stlDifficulty, stlForfeitCards, soDifficulty, btdForfeits, btdMode, btdGameMode, wiWinCondition, wiSpellLimit, diceVibeRule, lcTimer, lcMinutes, lcDeckSize, lcReward, bsGridSize, bsVibeMultiplier, unoSpecialPacks, snlMode, snlBoardSize, snlDensity, snlStakeMix, snlVibeScale, snlWinCondition, snlFinalRule, snlPowerups, snlCoopBetray, snlForfeitCards, snlForfeitLines, snlAmbient, snlTapOut, memMode, memForfeitLines, memVibeDurations, memGridSize, cqPublicMap: s.cqPublicMap ?? null, cqOwnership: s.cqOwnership ?? null, cqDicePool: s.cqDicePool ?? null, cqRoundCap: s.cqRoundCap ?? CQ_DEFAULT_ROUND_CAP, cqBaseDice: s.cqBaseDice ?? CQ_DEFAULT_BASE_DICE, cqPlayerRoles: s.cqPlayerRoles ?? null, cqBotRoles: s.cqBotRoles ?? [], cqReckoningForfeitText, cqGameForfeitText });
       return;
     }
 
@@ -330,6 +342,11 @@ wss.on('connection', (ws) => {
         soDifficulty: ['beginner', 'experienced'].includes(msg.soDifficulty) ? msg.soDifficulty : 'beginner',
         cqRounds: [5, 10].includes(msg.cqRounds) ? msg.cqRounds : 10,
         cqReckoning: ['on', 'off', 'random'].includes(msg.cqReckoning) ? msg.cqReckoning : 'random',
+        cqReckoningForfeitText: typeof msg.cqReckoningForfeitText === 'string' ? msg.cqReckoningForfeitText.trim().slice(0, 300) : '',
+        cqGameForfeitText: typeof msg.cqGameForfeitText === 'string' ? msg.cqGameForfeitText.trim().slice(0, 300) : '',
+        cqDisabledLocations: Array.isArray(msg.cqDisabledLocations) ? [...new Set(msg.cqDisabledLocations.filter(l => ['dungeonGate', 'ironThrone', 'mirror', 'muster', 'ridgepath', 'sanctuary', 'edgePost'].includes(l)))] : [],
+        cqTrapCount: msg.cqTrapCount === 'auto' ? 'auto'
+          : (Number.isInteger(msg.cqTrapCount) && msg.cqTrapCount >= 0 && msg.cqTrapCount <= 4 ? msg.cqTrapCount : 'auto'),
         btdForfeits: Array.isArray(msg.btdForfeits) ? msg.btdForfeits.filter(c => typeof c === 'string').map(c => c.slice(0, 200)).slice(0, 100) : [],
         btdMode: msg.btdMode === 'reveal' ? 'reveal' : 'draw',
         btdGameMode: msg.btdGameMode === 'h2h' ? 'h2h' : 'dealer',
@@ -1000,7 +1017,7 @@ wss.on('connection', (ws) => {
       // Hidden dev/testing shortcut (Alt+R) — answered directly to the requesting socket only,
       // never broadcast, so it can't leak trap locations to the other player.
       if (!s.cqPlayerRoles?.includes(role) || !s.cqMap) return;
-      const nodeIds = s.cqMap.nodes.filter(n => n.type === 'trap' || n.type === 'secretTrap').map(n => n.id);
+      const nodeIds = s.cqMap.nodes.filter(n => n.type === 'secretTrap').map(n => n.id);
       ws.send(JSON.stringify({ type: 'cq_debug_reveal_traps', nodeIds }));
       return;
     }
@@ -1402,27 +1419,6 @@ function cqTryReveal(s) {
   const effects = cqApplyPassiveEffects(s.cqMap, prevOwnership, newOwnership, contested, s.cqSecretTrapNodeIds);
   s.cqOwnership = newOwnership;
 
-  // Sanctuary skip tokens shield a Trap hit before it's assigned (existing tokens only —
-  // a token granted by this same round's Sanctuary win doesn't retroactively self-shield).
-  const trapShielded = [];
-  for (const r of effects.trapHits) {
-    if ((s.cqSkipTokens[r] || 0) > 0) {
-      s.cqSkipTokens[r]--;
-      trapShielded.push(r);
-    } else {
-      s.cqLastForfeit[r] = { kind: 'trap', durationSec: 30, appliedAt: Date.now() };
-    }
-  }
-  // Trap's node type is redacted from the public map, so clients can't identify a hit by
-  // looking up a node's type themselves. Per design, opponents are never told a Trap fired at
-  // all (same secrecy bar as Secret Trap) — so this goes out as a private message to the
-  // affected role's own socket only, never as a field on the general cq_reveal broadcast.
-  for (const r of effects.trapHits) {
-    const sock = s[r]?.socket;
-    if (sock?.readyState === 1) {
-      sock.send(JSON.stringify({ type: 'cq_trap_hit', shielded: trapShielded.includes(r) }));
-    }
-  }
   for (const r of effects.sanctuaryGrants) {
     s.cqSkipTokens[r] = (s.cqSkipTokens[r] || 0) + 1;
   }

@@ -9,21 +9,20 @@ import { initVibeModeBar } from '../vibeModeBar.js';
 const ROLE_COLOR = { host: '#4aaeff', guest: '#ff5a7a', guest2: '#ffd633' };
 
 const TYPE_ICON = {
-  start: '⌂', safe: '', trap: '☠', sanctuary: '⛪', dungeonGate: '⛓',
+  start: '⌂', safe: '', sanctuary: '⛪', dungeonGate: '⛓',
   ironThrone: '👑', edgePost: '📍', mirror: '🪞', muster: '⚔', ridgepath: '🛤', reckoning: '💥',
 };
 const TYPE_LABEL = {
-  start: 'Start', safe: 'Quiet ground', trap: 'Trap', sanctuary: 'Sanctuary',
+  start: 'Start', safe: 'Quiet ground', sanctuary: 'Sanctuary',
   dungeonGate: 'Dungeon Gate', ironThrone: 'Iron Throne',
   edgePost: 'Edge Post', mirror: 'The Mirror', muster: 'The Muster',
   ridgepath: 'Ridgepath', reckoning: 'The Reckoning',
 };
 // Hover text for special spaces. Deliberately has no entry for 'safe'/'start' (nothing to
 // explain) and none for 'secretTrap' either — that type never reaches the client at all, it's
-// redacted to 'safe' before the map is ever sent (see conquestMap.js's redactSecretTraps), so
+// redacted to 'safe' before the map is ever sent (see conquestMap.js's redactHiddenSpaces), so
 // there is nothing here that could leak it even by omission.
 const TYPE_DESC = {
-  trap: 'Vibe forfeit for whoever wins or holds this space each round.',
   sanctuary: 'Grants a skip token — cancels one future forfeit.',
   dungeonGate: 'Invoke once per session to assign your opponent a 5-minute punishment forfeit.',
   ironThrone: 'Invoke once per session to double one forfeit assigned to your opponent.',
@@ -31,8 +30,18 @@ const TYPE_DESC = {
   mirror: 'While held, any forfeit you owe is also owed by every other player.',
   muster: '+2 dice per round for as long as you control this space.',
   ridgepath: 'Whoever does not control this at match end owes a 10-minute edging session before the next match.',
-  reckoning: "Whoever isn't in control of this space at the end will have to cum, and get 3 min postcum.",
 };
+
+const RECKONING_DEFAULT_FORFEIT = 'will have to cum, and get 3 min postcum.';
+
+function reckoningForfeitPhrase() {
+  return state.cqReckoningForfeitText ? `owe: ${state.cqReckoningForfeitText}` : RECKONING_DEFAULT_FORFEIT;
+}
+
+function descFor(type) {
+  if (type === 'reckoning') return `Whoever isn't in control of this space at the end ${reckoningForfeitPhrase()}`;
+  return TYPE_DESC[type];
+}
 
 export function renderConquest(root) {
   root.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#4aaeff;font-size:2rem;font-family:monospace;">Conquest…</div>`;
@@ -104,7 +113,7 @@ export function renderConquest(root) {
     });
   }
 
-  // Hidden dev/testing shortcut: Alt+R asks the server (privately) for the true trap/secretTrap
+  // Hidden dev/testing shortcut: Alt+R asks the server (privately) for the true secretTrap
   // node ids and overlays them on whichever map is currently drawn. Never shown to the opponent.
   let debugTrapNodeIds = null;
   let lastMapRenderOpts = null;
@@ -131,7 +140,6 @@ export function renderConquest(root) {
   let onReveal = (ev) => {};
   let onClaimResult = (ev) => {};
   let onSecretStatus = (ev) => {};
-  let onTrapHit = (ev) => {};
   let onDebugRevealTraps = (ev) => { debugTrapNodeIds = new Set(ev.detail.nodeIds || []); refreshMap(); };
   let onMatchEnd = (ev) => {};
   let onMatchEndIntensity = (ev) => {};
@@ -141,7 +149,6 @@ export function renderConquest(root) {
   const revealWrapper = (ev) => onReveal(ev);
   const claimResultWrapper = (ev) => onClaimResult(ev);
   const secretStatusWrapper = (ev) => onSecretStatus(ev);
-  const trapHitWrapper = (ev) => onTrapHit(ev);
   const debugRevealTrapsWrapper = (ev) => onDebugRevealTraps(ev);
   const matchEndWrapper = (ev) => onMatchEnd(ev);
   const matchEndIntensityWrapper = (ev) => onMatchEndIntensity(ev);
@@ -151,7 +158,6 @@ export function renderConquest(root) {
   socket.addEventListener(MSG.CQ_REVEAL, revealWrapper);
   socket.addEventListener(MSG.CQ_CLAIM_RESULT, claimResultWrapper);
   socket.addEventListener(MSG.CQ_SECRET_STATUS, secretStatusWrapper);
-  socket.addEventListener(MSG.CQ_TRAP_HIT, trapHitWrapper);
   socket.addEventListener(MSG.CQ_DEBUG_REVEAL_TRAPS, debugRevealTrapsWrapper);
   socket.addEventListener(MSG.CQ_MATCH_END, matchEndWrapper);
   socket.addEventListener(MSG.CQ_MATCH_END_INTENSITY, matchEndIntensityWrapper);
@@ -162,7 +168,6 @@ export function renderConquest(root) {
     socket.removeEventListener(MSG.CQ_REVEAL, revealWrapper);
     socket.removeEventListener(MSG.CQ_CLAIM_RESULT, claimResultWrapper);
     socket.removeEventListener(MSG.CQ_SECRET_STATUS, secretStatusWrapper);
-    socket.removeEventListener(MSG.CQ_TRAP_HIT, trapHitWrapper);
     socket.removeEventListener(MSG.CQ_DEBUG_REVEAL_TRAPS, debugRevealTrapsWrapper);
     socket.removeEventListener(MSG.CQ_MATCH_END, matchEndWrapper);
     socket.removeEventListener(MSG.CQ_MATCH_END_INTENSITY, matchEndIntensityWrapper);
@@ -197,19 +202,6 @@ export function renderConquest(root) {
       logEvent('The hidden trap released you.');
     }
     refreshSecretWarning();
-  };
-
-  // Trap is only ever reported to the role who actually triggered it — the server never puts
-  // this on the general reveal broadcast, so the opponent has no way to learn a trap fired at all.
-  onTrapHit = (ev) => {
-    if (ev.detail.shielded) {
-      logEvent('Your skip token absorbed a hidden trap hit.');
-      return;
-    }
-    logEvent("You stepped into a hidden trap — 30s vibe. Say nothing.");
-    haptics.setWaveVibeMode(true);
-    haptics.setForfeitIntensity(1.0);
-    haptics.startForfeitVibe(30);
   };
 
   onMatchEnd = (ev) => showMatchEnd(ev.detail);
@@ -283,7 +275,8 @@ export function renderConquest(root) {
         lines.push(`<text x="${n.x}" y="${n.y + HEX_SIZE * 0.6}" text-anchor="middle" font-size="9" fill="${colorFor(owner)}" style="pointer-events:none;">${nameFor(owner)}</text>`);
       }
 
-      const tooltip = TYPE_DESC[n.type] ? `<title>${TYPE_LABEL[n.type]} — ${TYPE_DESC[n.type]}</title>` : '';
+      const desc = descFor(n.type);
+      const tooltip = desc ? `<title>${TYPE_LABEL[n.type]} — ${desc}</title>` : '';
 
       return `
         <g>
@@ -566,10 +559,11 @@ export function renderConquest(root) {
     renderMapInto(root.querySelector('#cq-map-area'), { results: resultsMap });
 
     // Only forfeit-relevant events are logged here — territory outcomes are already visible
-    // directly on the map (fill color + per-role dice totals on each contested hex). Trap hits
-    // never appear here as broadcast data — they arrive earlier via the private cq_trap_hit
-    // message (see onTrapHit above), which already pushed its own line into eventLog for
-    // whichever single player actually triggered it, so this stays public-safe by construction.
+    // directly on the map (fill color + per-role dice totals on each contested hex). Secret Trap
+    // hits never appear here as broadcast data — they arrive earlier via the private
+    // cq_secret_status message (see onSecretStatus above), which already pushed its own line into
+    // eventLog for whichever single player actually triggered it, so this stays public-safe by
+    // construction.
     const log = root.querySelector('#cq-reveal-log');
 
     if (eventLog.length === 0) {
@@ -640,7 +634,14 @@ export function renderConquest(root) {
     if (detail.reckoning) {
       const line = document.createElement('div');
       line.style.cssText = 'color:#f88;font-size:0.8rem;text-align:center;';
-      line.textContent = `The Reckoning held by ${nameFor(detail.reckoning.controllerRole) ?? 'no one'} — ${detail.reckoning.oweRoles.map(nameFor).join(', ') || 'no one'} will have to cum, and get 3 min postcum.`;
+      const owers = `${detail.reckoning.oweRoles.map(nameFor).join(', ') || 'no one'}`;
+      line.textContent = `The Reckoning held by ${nameFor(detail.reckoning.controllerRole) ?? 'no one'} — ${owers} ${reckoningForfeitPhrase()}`;
+      passivesEl.appendChild(line);
+    }
+    if (state.cqGameForfeitText) {
+      const line = document.createElement('div');
+      line.style.cssText = 'color:#ffcc44;font-size:0.8rem;text-align:center;margin-top:6px;';
+      line.textContent = `Game forfeit: ${state.cqGameForfeitText}`;
       passivesEl.appendChild(line);
     }
 
