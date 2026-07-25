@@ -583,6 +583,7 @@ export function renderMastermind3(root) {
     continueBtn.addEventListener('click', () => { if (!continueBtn.disabled) onReady(); });
 
     if (mySeconds > 0) {
+      haptics.setWaveVibeMode(true);
       haptics.startForfeitVibe(mySeconds);
       let remaining = mySeconds;
       const ctr = forfeitContent.querySelector('#mm-my-vibe-ctr');

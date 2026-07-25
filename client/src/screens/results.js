@@ -122,6 +122,7 @@ export function renderResults(root) {
       if (running) {
         if ((iAmLoser || isTie) && myRemaining > 0) {
           myRunStartTime = now;
+          haptics.setWaveVibeMode(true);
           haptics.startForfeitVibe(myRemaining);
         }
         if (oppTotalDuration > 0) oppRunStartTime = now;

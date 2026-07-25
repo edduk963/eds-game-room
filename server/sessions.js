@@ -15,6 +15,7 @@ export function createSession(hostName) {
     seed: null,
     createdAt: Date.now(),
     vibeModes: { host: 'random', guest: 'random', guest2: 'random' },
+    vibeTempo: { host: 1, guest: 1, guest2: 1 },
   });
   return id;
 }
@@ -55,6 +56,7 @@ export function lobbySnapshot(s) {
     guest: s.guest ? { name: s.guest.name } : null,
     guest2: s.guest2 ? { name: s.guest2.name } : null,
     vibeModes: s.vibeModes,
+    vibeTempo: s.vibeTempo,
   };
 }
 

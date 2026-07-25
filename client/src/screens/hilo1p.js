@@ -48,6 +48,7 @@ export function renderHilo1P(root) {
   function addVibeSeconds(secs) {
     vibeCountdown += secs;
     if (haptics.isConnected()) {
+      if (!vibeTimer) haptics.setWaveVibeMode(true);
       haptics.setForfeitIntensity(vibeIntensity);
       haptics.addForfeitSeconds(secs);
     }
@@ -124,6 +125,7 @@ export function renderHilo1P(root) {
         pauseInterval = null;
         // Resume haptics if vibe is still running
         if (vibeCountdown > 0 && haptics.isConnected()) {
+          haptics.setWaveVibeMode(true);
           haptics.setForfeitIntensity(vibeIntensity);
           haptics.addForfeitSeconds(vibeCountdown);
         }

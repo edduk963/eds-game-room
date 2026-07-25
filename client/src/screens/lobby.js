@@ -1996,6 +1996,7 @@ function openTestVibeOverlay(state, socket, haptics) {
     <div class="instructions-box tv-box${is3 ? ' tv-box-3' : ''}">
       <h2>Test Vibe</h2>
       <p class="instructions-meta">Confirm all devices are working before the game starts.</p>
+      <div class="tv-vibe-bar-slot"></div>
       <div class="tv-panels${is3 ? ' tv-panels-3' : ''}">
         ${myPanel}${otherPanels}
       </div>
@@ -2007,12 +2008,16 @@ function openTestVibeOverlay(state, socket, haptics) {
   `;
   document.body.appendChild(overlay);
 
+  // Pattern + tempo selectors — the base intensity sliders below preview whichever
+  // pattern/tempo is picked here via haptics.startTestPreview.
+  const vibeModeBarInstance = initVibeModeBar(overlay.querySelector('.tv-vibe-bar-slot'), { prepend: false });
+
   const mySlider  = overlay.querySelector('#tv-my-slider');
   const myLevelEl = overlay.querySelector('#tv-my-level');
 
   mySlider.addEventListener('input', () => {
     myLevelEl.textContent = `${mySlider.value}%`;
-    haptics.testVibe(mySlider.value / 100);
+    haptics.startTestPreview(mySlider.value / 100);
   });
 
   overlay.querySelectorAll('[data-target]').forEach(slider => {
@@ -2024,19 +2029,21 @@ function openTestVibeOverlay(state, socket, haptics) {
     });
   });
 
-  // Another player testing my device — apply and reflect in my slider
+  // Another player testing my device — apply (previewing my own pattern/tempo pick) and
+  // reflect in my slider
   const onVibeTest = (ev) => {
     const level = ev.detail.level;
-    haptics.testVibe(level);
+    haptics.startTestPreview(level);
     mySlider.value = Math.round(level * 100);
     myLevelEl.textContent = `${mySlider.value}%`;
   };
   socket.addEventListener(MSG.VIBE_TEST, onVibeTest);
 
   const close = () => {
-    haptics.testVibe(0);
+    haptics.stopTestPreview();
     others.forEach(p => socket.send({ type: MSG.VIBE_TEST, level: 0, target: p.role }));
     socket.removeEventListener(MSG.VIBE_TEST, onVibeTest);
+    vibeModeBarInstance.destroy();
     overlay.remove();
   };
 

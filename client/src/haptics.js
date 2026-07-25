@@ -132,15 +132,25 @@ let forfeitIntensity = 1.0;
 let forfeitTickInterval = null;
 let _waveVibeMode = false;
 let _modeDriver = null;
+let _vibeTempo = 1;
 
 export function setWaveVibeMode(enabled) {
   _waveVibeMode = enabled;
   _modeDriver = enabled ? createVibeModeDriver(_getVibeMode()) : null;
 }
 
+// Global speed multiplier applied to every pattern's internal clock — 1 = normal
+// speed, <1 slows patterns down, >1 speeds them up. Synced across all players via
+// MSG.VIBE_TEMPO_SET (see main.js), so it's not tied to setVibeMode's per-role scoping.
+export function setVibeTempo(mult) {
+  _vibeTempo = Math.max(0.5, Math.min(10, mult));
+}
+
+export const getVibeTempo = () => _vibeTempo;
+
 function waveIntensity(base) {
   if (!_modeDriver) _modeDriver = createVibeModeDriver(_getVibeMode());
-  return Math.max(0, Math.min(1, _modeDriver.sample(100, base)));
+  return Math.max(0, Math.min(1, _modeDriver.sample(100 * _vibeTempo, base)));
 }
 
 export function startForfeitVibe(seconds) {
@@ -257,6 +267,31 @@ export function testVibe(level) {
       if (_testLevel === 0) stopAllDevices();
     });
   });
+}
+
+let _testPreviewInterval = null;
+let _testPreviewBase = 0;
+
+// Like testVibe, but loops the currently selected pattern (at the currently selected
+// tempo) instead of a flat level — used by the lobby's Test Vibe overlay so the
+// pattern/tempo selectors there have something to preview.
+export function startTestPreview(base) {
+  _testPreviewBase = Math.max(0, Math.min(1, base));
+  if (_testPreviewBase === 0) { stopTestPreview(); return; }
+  setWaveVibeMode(true);
+  if (!_testPreviewInterval) {
+    vibe(waveIntensity(_testPreviewBase));
+    _testPreviewInterval = setInterval(() => {
+      vibe(waveIntensity(_testPreviewBase));
+    }, 100);
+  }
+}
+
+export function stopTestPreview() {
+  if (_testPreviewInterval) { clearInterval(_testPreviewInterval); _testPreviewInterval = null; }
+  _testPreviewBase = 0;
+  _waveVibeMode = false;
+  stopAllDevices();
 }
 
 export function pauseHaptics() {

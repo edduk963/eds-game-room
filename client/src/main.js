@@ -194,6 +194,13 @@ socket.addEventListener(MSG.LOBBY, (ev) => {
     state.vibeModes = ev.detail.vibeModes;
     window.dispatchEvent(new CustomEvent('vibe-modes-updated'));
   }
+  if (ev.detail.vibeTempo) {
+    state.vibeTempo = ev.detail.vibeTempo;
+    if (state.role && Number.isFinite(state.vibeTempo[state.role])) {
+      haptics.setVibeTempo(state.vibeTempo[state.role]);
+    }
+    window.dispatchEvent(new CustomEvent('vibe-modes-updated'));
+  }
 });
 
 socket.addEventListener(MSG.VIBE_MODE_SET, (ev) => {
@@ -201,6 +208,15 @@ socket.addEventListener(MSG.VIBE_MODE_SET, (ev) => {
   if (!target || !mode) return;
   state.vibeModes[target] = mode;
   if (target === state.role) haptics.setVibeMode(mode);
+  window.dispatchEvent(new CustomEvent('vibe-modes-updated'));
+});
+
+// Tempo is per-role like vibeModes — only the target's own client applies it locally.
+socket.addEventListener(MSG.VIBE_TEMPO_SET, (ev) => {
+  const { target, tempo } = ev.detail;
+  if (!target || !Number.isFinite(tempo)) return;
+  state.vibeTempo[target] = tempo;
+  if (target === state.role) haptics.setVibeTempo(tempo);
   window.dispatchEvent(new CustomEvent('vibe-modes-updated'));
 });
 

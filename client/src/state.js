@@ -69,6 +69,7 @@ export const state = {
   cqReckoningForfeitText: '',
   cqGameForfeitText: '',
   vibeModes: { host: 'random', guest: 'random', guest2: 'random' },
+  vibeTempo: { host: 1, guest: 1, guest2: 1 },
 };
 
 export function reset() {
@@ -140,4 +141,5 @@ export function reset() {
   state.cqReckoningForfeitText = '';
   state.cqGameForfeitText = '';
   state.vibeModes = { host: 'random', guest: 'random', guest2: 'random' };
+  state.vibeTempo = { host: 1, guest: 1, guest2: 1 };
 }

@@ -67,7 +67,8 @@ app.get(/^\/(?!session|ws).*/, (_req, res) => {
 });
 
 const VALID_SPELL_IDS = new Set(['gust','bolt','mirror','confiscate','mend','rust','veil','fog','smite','recall','leap','shield','doubleedge','summon','ironskin','curse','drain','hex','blink','overload']);
-const VALID_VIBE_MODES = new Set(['random','low','medium','high','ultra','wave','pulse','tease','ramp','tempo']);
+const VALID_VIBE_MODES = new Set(['random','vibrate','pulse','wave','massage','tease','chacha','step','ramp','tempo','heartbeat']);
+const VALID_VIBE_TEMPOS = new Set([0.5, 1, 2, 5, 10]);
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024 });
@@ -679,6 +680,16 @@ wss.on('connection', (ws) => {
       if (!s.vibeModes) s.vibeModes = { host: 'random', guest: 'random', guest2: 'random' };
       s.vibeModes[target] = mode;
       broadcast(s, { type: 'vibe_mode_set', target, mode });
+      return;
+    }
+
+    if (msg.type === 'vibe_tempo_set') {
+      const target = ['host', 'guest', 'guest2'].includes(msg.target) ? msg.target : null;
+      const tempo = VALID_VIBE_TEMPOS.has(msg.tempo) ? msg.tempo : null;
+      if (!target || !tempo) return;
+      if (!s.vibeTempo) s.vibeTempo = { host: 1, guest: 1, guest2: 1 };
+      s.vibeTempo[target] = tempo;
+      broadcast(s, { type: 'vibe_tempo_set', target, tempo });
       return;
     }
 

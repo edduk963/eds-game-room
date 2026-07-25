@@ -886,6 +886,7 @@ button.ghost {
   color: var(--ink);
   border: 1px solid #25304d;
 }
+.vmb-tempo-select { width: 60px; }
 
 /* ── Edge mode ── */
 
