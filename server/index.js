@@ -141,6 +141,36 @@ wss.on('connection', (ws) => {
       // stuck forever even though messages from this role work again immediately.
       if (filledVacantSlot && s.status === 'playing') {
         broadcast(s, { type: 'peer_reconnected', role }, ws);
+        // Conquest is the only mode with enough server-held, multi-round state that a
+        // reconnecting client's screen would otherwise be frozen on stale data — resend it
+        // privately (never broadcast) so only the rejoining socket gets its own resync.
+        if (s.cqPlayerRoles?.includes(role) && !s.cqMatchEnded) {
+          const holderOf = (key) => {
+            const nodeId = s.cqNodeIds?.[key];
+            if (!nodeId) return null;
+            const holder = s.cqOwnership?.[nodeId];
+            return holder && holder !== 'neutral' ? holder : null;
+          };
+          ws.send(JSON.stringify({
+            type: 'cq_resync',
+            map: s.cqPublicMap ?? null,
+            ownership: s.cqOwnership ?? null,
+            dicePool: s.cqDicePool ?? null,
+            roundCap: s.cqRoundCap ?? CQ_DEFAULT_ROUND_CAP,
+            baseDice: s.cqBaseDice ?? CQ_DEFAULT_BASE_DICE,
+            playerRoles: s.cqPlayerRoles,
+            botRoles: s.cqBotRoles ?? [],
+            roundIndex: s.cqRoundIndex ?? 0,
+            controlStreakHolder: s.cqControlStreakHolder ?? null,
+            controlStreak: s.cqControlStreak ?? 0,
+            skipTokens: s.cqSkipTokens ?? {},
+            dungeonGateUsed: !!s.cqDungeonGateUsed?.[role],
+            ironThroneUsed: !!s.cqIronThroneUsed?.[role],
+            edgePostHolder: holderOf('edgePost'),
+            mirrorHolder: holderOf('mirror'),
+            musterHolder: holderOf('muster'),
+          }));
+        }
       }
       broadcast(s, lobbySnapshot(s));
       return;
@@ -1463,6 +1493,9 @@ function cqUsedMapFor(s, claimKey) {
 // node and not have used it yet this session. `applyFn` performs the ability's effect and
 // returns the extra fields for `cq_claim_result`, or null if there's nothing to apply
 // (e.g. Iron Throne with no pending forfeit to double) — in which case nothing is marked used.
+// A null result is a legitimate no-op, not an error, so we still answer the invoking player
+// directly (never broadcast) so their client can un-hide the ability instead of it silently
+// vanishing. Bots have no socket (s[role] is null), so this naturally no-ops for bot claims.
 function cqHandleClaim(s, role, claimKey, applyFn) {
   if (!s.cqPlayerRoles?.includes(role)) return;
   const nodeId = s.cqNodeIds?.[claimKey];
@@ -1470,9 +1503,15 @@ function cqHandleClaim(s, role, claimKey, applyFn) {
   const used = cqUsedMapFor(s, claimKey);
   if (!used || used[role]) return;
   const result = applyFn();
-  if (!result) return;
+  if (!result) {
+    const ownSocket = s[role]?.socket;
+    if (ownSocket?.readyState === 1) {
+      ownSocket.send(JSON.stringify({ type: 'cq_claim_result', claim: claimKey, byRole: role, ok: false }));
+    }
+    return;
+  }
   used[role] = true;
-  broadcast(s, { type: 'cq_claim_result', claim: claimKey, byRole: role, ...result });
+  broadcast(s, { type: 'cq_claim_result', claim: claimKey, byRole: role, ok: true, ...result });
 }
 
 function cqTryReveal(s) {

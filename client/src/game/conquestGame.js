@@ -136,8 +136,8 @@ export function checkDomination(ownership, claimSpaceIds, playerRoles, streakHol
 }
 
 // Fallback so a match always ends: at/after the round cap, whoever controls the most claim
-// spaces wins. If still tied, `tied: true` — caller should keep playing sudden-death rounds
-// with a doubled dice pool (via computeDicePool's baseSize) until it breaks.
+// spaces wins. If still tied, `tied: true` — caller should treat this as a genuine draw
+// (no single winner), not extend the match further.
 export function checkRoundCap(roundIndex, cap, ownership, claimSpaceIds, playerRoles) {
   if (roundIndex < cap) return { reached: false, winner: null, tied: false };
 

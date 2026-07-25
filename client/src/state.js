@@ -66,7 +66,7 @@ export const state = {
   cqPublicMap: null,
   cqOwnership: null,
   cqDicePool: null,
-  cqRoundCap: 20,
+  cqRoundCap: 10,
   cqBaseDice: 8,
   cqPlayerRoles: null,
   cqBotRoles: [],
@@ -139,7 +139,7 @@ export function reset() {
   state.cqPublicMap = null;
   state.cqOwnership = null;
   state.cqDicePool = null;
-  state.cqRoundCap = 20;
+  state.cqRoundCap = 10;
   state.cqBaseDice = 8;
   state.cqPlayerRoles = null;
   state.cqBotRoles = [];

@@ -33,6 +33,10 @@ const UNIQUE_CLAIM_SELECT_COUNT = 4;
 // If a map can't fit every selected type, drop counts in this order first. secretTrap and
 // edgePost are never dropped for budget reasons (though edgePost's count may already be 0 if
 // the host disabled it outright).
+// Not currently reachable: the board is fixed at 19 tiles (HEX_RADIUS 2 for both player counts)
+// and the worst-case non-start demand today (sanctuary 1 + edgePost 1 + secretTrap up to 4 +
+// landmarks up to 5) is 11, well under the smallest budget of 16 (3-player, 16 non-start tiles)
+// — kept as headroom for a larger board or more landmark types later.
 const DROP_PRIORITY = ['reckoning', 'ridgepath', 'mirror', 'muster', 'ironThrone', 'dungeonGate', 'sanctuary'];
 
 // Fisher-Yates shuffle (does not mutate input) — same pattern as standoffGame.js.

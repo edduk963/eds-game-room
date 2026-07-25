@@ -62,6 +62,11 @@ export function renderConquest(root) {
   let edgeOwed = false;
   let edgeAcked = false;
   let usedClaims = { dungeonGate: false, ironThrone: false };
+  // Set the instant a claim message is sent, cleared once the server responds (success or
+  // no-op) — prevents double-invoking while awaiting cq_claim_result, without prematurely
+  // hiding the hex the way immediately setting usedClaims used to.
+  let pendingClaims = { dungeonGate: false, ironThrone: false };
+  let claimFailureMsg = '';
   let myAlloc = {};
 
   const NODE_IDS = {};
@@ -144,6 +149,11 @@ export function renderConquest(root) {
   let onMatchEnd = (ev) => {};
   let onMatchEndIntensity = (ev) => {};
   let onMatchEndReady = (ev) => {};
+  // Fires when this socket reconnects mid-match into a still-live Conquest session — the
+  // server resends everything needed to rebuild round state (see server/index.js's 'join'
+  // handler). Deliberately lands on the Ready gate rather than reconstructing whatever
+  // allocate/reveal UI was mid-flight; see onResync below.
+  let onResync = (ev) => {};
 
   const goWrapper = (ev) => onGo(ev);
   const revealWrapper = (ev) => onReveal(ev);
@@ -153,6 +163,7 @@ export function renderConquest(root) {
   const matchEndWrapper = (ev) => onMatchEnd(ev);
   const matchEndIntensityWrapper = (ev) => onMatchEndIntensity(ev);
   const matchEndReadyWrapper = (ev) => onMatchEndReady(ev);
+  const resyncWrapper = (ev) => onResync(ev);
 
   socket.addEventListener(MSG.CQ_GO, goWrapper);
   socket.addEventListener(MSG.CQ_REVEAL, revealWrapper);
@@ -162,6 +173,7 @@ export function renderConquest(root) {
   socket.addEventListener(MSG.CQ_MATCH_END, matchEndWrapper);
   socket.addEventListener(MSG.CQ_MATCH_END_INTENSITY, matchEndIntensityWrapper);
   socket.addEventListener(MSG.CQ_MATCH_END_READY, matchEndReadyWrapper);
+  socket.addEventListener(MSG.CQ_RESYNC, resyncWrapper);
 
   window.addEventListener('hashchange', () => {
     socket.removeEventListener(MSG.CQ_GO, goWrapper);
@@ -172,6 +184,7 @@ export function renderConquest(root) {
     socket.removeEventListener(MSG.CQ_MATCH_END, matchEndWrapper);
     socket.removeEventListener(MSG.CQ_MATCH_END_INTENSITY, matchEndIntensityWrapper);
     socket.removeEventListener(MSG.CQ_MATCH_END_READY, matchEndReadyWrapper);
+    socket.removeEventListener(MSG.CQ_RESYNC, resyncWrapper);
     window.removeEventListener('keydown', onKeyDown);
     if (vibeModeBarInstance) { vibeModeBarInstance.destroy(); vibeModeBarInstance = null; }
     haptics.stopContinuousVibe();
@@ -179,7 +192,21 @@ export function renderConquest(root) {
   }, { once: true });
 
   onClaimResult = (ev) => {
-    const { claim, byRole, targetRole, durationSec, newDurationSec, shielded } = ev.detail;
+    const { claim, byRole, targetRole, durationSec, newDurationSec, shielded, ok } = ev.detail;
+    if (byRole === myRole && ok === false) {
+      // A private no-op answer to our own claim attempt (e.g. Iron Throne with nothing fresh
+      // to double) — not a broadcast, so no haptics/log entry, just un-hide the ability again.
+      pendingClaims[claim] = false;
+      claimFailureMsg = 'Nothing to claim yet.';
+      refreshClaimUI();
+      setTimeout(() => { claimFailureMsg = ''; refreshClaimUI(); }, 3000);
+      return;
+    }
+    if (byRole === myRole) {
+      pendingClaims[claim] = false;
+      usedClaims[claim] = true;
+      refreshClaimUI();
+    }
     if (claim === 'dungeonGate' && targetRole === myRole && !shielded) {
       haptics.setWaveVibeMode(true);
       haptics.setForfeitIntensity(1.0);
@@ -206,8 +233,31 @@ export function renderConquest(root) {
 
   onMatchEnd = (ev) => showMatchEnd(ev.detail);
 
+  // Reconnect mid-match: overwrite whatever round state we hold locally with the server's
+  // authoritative snapshot, then land on the Ready gate. This deliberately does not try to
+  // resume mid-allocate or mid-reveal UI — Ready is a safe landing point the player can just
+  // re-confirm from (see cq_ready's server-side handling, which tolerates being sent again
+  // for a round already in flight without ever leaving a client permanently stuck).
+  onResync = (ev) => {
+    const d = ev.detail;
+    if (d.ownership) ownership = d.ownership;
+    if (d.dicePool) dicePool = d.dicePool;
+    if (Number.isInteger(d.roundIndex)) roundIndex = d.roundIndex;
+    controlStreakHolder = d.controlStreakHolder ?? null;
+    controlStreak = d.controlStreak ?? 0;
+    edgePostHolder = d.edgePostHolder ?? null;
+    mirrorHolder = d.mirrorHolder ?? null;
+    musterHolder = d.musterHolder ?? null;
+    usedClaims = { dungeonGate: !!d.dungeonGateUsed, ironThrone: !!d.ironThroneUsed };
+    pendingClaims = { dungeonGate: false, ironThrone: false };
+    showReady();
+  };
+
+  // Cap raised from the original 6 now that territory-change lines (see showReveal) are pushed
+  // here too, not just forfeits — a single 10-round match can otherwise blow past 6 entries
+  // almost immediately.
   let eventLog = [];
-  function logEvent(text) { eventLog.unshift(text); eventLog = eventLog.slice(0, 6); }
+  function logEvent(text) { eventLog.unshift(text); eventLog = eventLog.slice(0, 18); }
   function claimDescription(claim, byRole, targetRole) {
     const label = { dungeonGate: 'Dungeon Gate', ironThrone: 'Iron Throne' }[claim] || claim;
     return `${nameFor(byRole)} invokes ${label} against ${nameFor(targetRole)}`;
@@ -302,21 +352,34 @@ export function renderConquest(root) {
     const claimable = {};
     CLAIM_ABILITIES.forEach(a => {
       const nodeId = NODE_IDS[a.type];
-      if (nodeId && ownership[nodeId] === myRole && !usedClaims[a.key]) claimable[nodeId] = a;
+      if (nodeId && ownership[nodeId] === myRole && !usedClaims[a.key] && !pendingClaims[a.key]) claimable[nodeId] = a;
     });
     return claimable;
   }
 
+  // Re-renders the claimable-hex highlighting and hint text if the ready screen's map is
+  // currently mounted. Safe to call from any phase (e.g. from the cq_claim_result handler,
+  // which can fire while a different screen is showing) — it's a no-op otherwise.
+  function refreshClaimUI() {
+    const mapArea = root.querySelector('#cq-map-area');
+    const claimHint = root.querySelector('#cq-claim-hint');
+    if (!mapArea || !claimHint) return;
+    const claimable = claimableAbilities();
+    renderMapInto(mapArea, { highlightIds: Object.keys(claimable), highlightColor: '#ffcc44' });
+    claimHint.textContent = claimFailureMsg || (Object.keys(claimable).length ? 'Gold hex: an ability you control — tap to invoke it.' : '');
+  }
+
   function invokeClaim(ability) {
     const others = playerRoles.filter(r => r !== myRole);
+    claimFailureMsg = '';
     if (!ability.needsTarget) {
+      pendingClaims[ability.key] = true;
       socket.send({ type: ability.msgType });
-      usedClaims[ability.key] = true;
       return;
     }
     if (others.length <= 1) {
+      pendingClaims[ability.key] = true;
       socket.send({ type: ability.msgType, targetRole: others[0] });
-      usedClaims[ability.key] = true;
       return;
     }
     const sel = document.createElement('div');
@@ -331,9 +394,10 @@ export function renderConquest(root) {
     document.body.appendChild(sel);
     sel.querySelectorAll('[data-target]').forEach(btn => {
       btn.addEventListener('click', () => {
+        pendingClaims[ability.key] = true;
         socket.send({ type: ability.msgType, targetRole: btn.dataset.target });
-        usedClaims[ability.key] = true;
         sel.remove();
+        refreshClaimUI();
       });
     });
     sel.querySelector('#cq-claim-cancel').addEventListener('click', () => sel.remove());
@@ -379,6 +443,10 @@ export function renderConquest(root) {
           <div id="cq-map-area" style="width:100%;margin:12px 0;"></div>
           <div id="cq-claim-hint" style="width:100%;text-align:center;color:#ffcc44;font-size:0.72rem;min-height:1em;"></div>
           <div id="cq-edge-banner" style="width:100%;"></div>
+          <div style="width:100%;display:flex;justify-content:center;">
+            <button id="cq-history-toggle" style="background:transparent;border:1px solid #333;color:#666;border-radius:6px;padding:4px 10px;font-size:0.68rem;cursor:pointer;font-family:monospace;">History ▾</button>
+          </div>
+          <div id="cq-history-panel" style="width:100%;display:none;flex-direction:column;gap:4px;font-size:0.75rem;background:#0d0d17;border:1px solid #22223a;border-radius:8px;padding:8px 10px;margin-top:6px;box-sizing:border-box;"></div>
           <button id="cq-ready-btn" style="margin-top:16px;background:#4aaeff;color:#000;border:none;border-radius:8px;padding:14px 32px;font-size:1rem;cursor:pointer;font-family:monospace;font-weight:bold;">READY</button>
           <div id="cq-ready-status" style="margin-top:10px;color:#444;font-size:0.75rem;"></div>
         </div>
@@ -386,20 +454,44 @@ export function renderConquest(root) {
     mountVibeModeBar();
 
     const mapArea = root.querySelector('#cq-map-area');
-    const claimHint = root.querySelector('#cq-claim-hint');
 
-    function refreshClaimableMap() {
-      const claimable = claimableAbilities();
-      renderMapInto(mapArea, { highlightIds: Object.keys(claimable), highlightColor: '#ffcc44' });
-      claimHint.textContent = Object.keys(claimable).length ? 'Gold hex: an ability you control — tap to invoke it.' : '';
-    }
-    refreshClaimableMap();
+    refreshClaimUI();
     mapArea.addEventListener('click', (e) => {
       const el = e.target.closest('[data-node]');
       if (!el) return;
       const claimable = claimableAbilities();
       const ability = claimable[el.dataset.node];
-      if (ability) { invokeClaim(ability); refreshClaimableMap(); }
+      if (ability) { invokeClaim(ability); refreshClaimUI(); }
+    });
+
+    // History panel: collapsed by default so it doesn't clutter the primary Ready flow — this
+    // is where players spend most of their time waiting, so the round-history log (forfeits +
+    // territory changes, see logEvent/showReveal) needs a place to be checked without having to
+    // wait for the next reveal screen.
+    const historyToggle = root.querySelector('#cq-history-toggle');
+    const historyPanel = root.querySelector('#cq-history-panel');
+    let historyOpen = false;
+    function renderHistoryPanel() {
+      historyPanel.innerHTML = '';
+      if (eventLog.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'color:#444;text-align:center;';
+        empty.textContent = 'No history yet.';
+        historyPanel.appendChild(empty);
+        return;
+      }
+      eventLog.forEach(text => {
+        const line = document.createElement('div');
+        line.style.color = '#4aaeff';
+        line.textContent = text;
+        historyPanel.appendChild(line);
+      });
+    }
+    historyToggle.addEventListener('click', () => {
+      historyOpen = !historyOpen;
+      historyPanel.style.display = historyOpen ? 'flex' : 'none';
+      historyToggle.textContent = historyOpen ? 'History ▴' : 'History ▾';
+      if (historyOpen) renderHistoryPanel();
     });
 
     const readyBtn = root.querySelector('#cq-ready-btn');
@@ -558,16 +650,38 @@ export function renderConquest(root) {
     });
     renderMapInto(root.querySelector('#cq-map-area'), { results: resultsMap });
 
-    // Only forfeit-relevant events are logged here — territory outcomes are already visible
-    // directly on the map (fill color + per-role dice totals on each contested hex). Secret Trap
-    // hits never appear here as broadcast data — they arrive earlier via the private
-    // cq_secret_status message (see onSecretStatus above), which already pushed its own line into
-    // eventLog for whichever single player actually triggered it, so this stays public-safe by
-    // construction.
+    // Push a persistent history line for each named hex that actually changed hands this round
+    // (entry.previousOwner !== entry.winnerRole). Plain 'safe'/'start' spaces are skipped — same
+    // "nothing worth calling out" treatment they already get everywhere else in this file (see
+    // the icon/label skip at the top of renderMapInto) — otherwise a land-grab round could push a
+    // dozen uninteresting "quiet ground" lines. Uses entry.roundIndex (the round that was just
+    // resolved, pre-increment) rather than the outer `roundIndex` (already reassigned above to
+    // detail.roundIndex, the *next* round's index) so the tag matches what was on screen when it happened.
+    detail.contested.forEach(entry => {
+      if (entry.winnerRole === entry.previousOwner) return;
+      const node = map.nodes.find(n => n.id === entry.nodeId);
+      if (!node || node.type === 'safe' || node.type === 'start') return;
+      const label = TYPE_LABEL[node.type] || node.id;
+      const tag = `R${entry.roundIndex + 1}`;
+      if (entry.winnerRole === 'neutral') {
+        logEvent(`${tag}: ${label} slips from ${nameFor(entry.previousOwner)} to neutral ground.`);
+      } else if (!entry.previousOwner || entry.previousOwner === 'neutral') {
+        logEvent(`${tag}: ${nameFor(entry.winnerRole)} claims ${label}.`);
+      } else {
+        logEvent(`${tag}: ${nameFor(entry.winnerRole)} takes ${label} from ${nameFor(entry.previousOwner)}.`);
+      }
+    });
+
+    // Only forfeit- and territory-change events are logged here — full round-by-round dice
+    // totals are already visible directly on the map (fill color + per-role dice totals on each
+    // contested hex), we only add a line for hexes that changed hands. Secret Trap hits never
+    // appear here as broadcast data — they arrive earlier via the private cq_secret_status
+    // message (see onSecretStatus above), which already pushed its own line into eventLog for
+    // whichever single player actually triggered it, so this stays public-safe by construction.
     const log = root.querySelector('#cq-reveal-log');
 
     if (eventLog.length === 0) {
-      log.innerHTML = `<div style="color:#444;text-align:center;">No forfeits this round.</div>`;
+      log.innerHTML = `<div style="color:#444;text-align:center;">Nothing notable yet.</div>`;
     } else {
       eventLog.forEach(text => {
         const line = document.createElement('div');

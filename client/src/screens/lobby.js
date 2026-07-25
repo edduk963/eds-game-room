@@ -86,6 +86,10 @@ export function renderLobby(root) {
     { key: 'snakes', name: 'Vipers & Vines' },
     { key: 'conquest', name: 'Conquest' },
   ];
+  // Games with a solo mode — used by the "1P" quick filter below.
+  const SOLO_CAPABLE_GAMES = new Set(['hilo', 'beatdealer', 'mastermind', 'lastcall', 'memory', 'snakes']);
+  // Games built around a 3rd player, with no solo mode — excluded by the "2P" quick filter.
+  const THREE_P_ONLY_GAMES = new Set(['dice', 'uno', 'conquest']);
 
   root.innerHTML = `
     <div class="card">
@@ -112,6 +116,13 @@ export function renderLobby(root) {
         <p class="subtitle">Tap a game to exclude it from the draw, then randomize — its rules come pre-set.</p>
         <div class="random-picker-grid" id="random-picker-grid">
           ${RANDOM_GAME_POOL.map(g => `<button type="button" class="mm-rounds-btn mm-rounds-selected random-picker-btn" data-random-game="${g.key}">${g.name}</button>`).join('')}
+        </div>
+        <div class="mm-rounds-row" style="margin-top:8px;">
+          <span style="font-size:12px;color:var(--muted);">Quick filter:</span>
+          <div class="mm-rounds-btns">
+            <button type="button" class="mm-rounds-btn ghost" id="random-filter-1p" title="Only include games with a solo mode">1P</button>
+            <button type="button" class="mm-rounds-btn ghost" id="random-filter-2p" title="Exclude games built around a 3rd player">2P</button>
+          </div>
         </div>
         <button id="randomize-btn">🎲 Randomize</button>
         <div class="random-picker-grid" id="random-picker-force-grid" style="display:none;margin-top:10px;">
@@ -755,6 +766,8 @@ export function renderLobby(root) {
   const randomPickerGrid = root.querySelector('#random-picker-grid');
   const randomizeBtn = root.querySelector('#randomize-btn');
   const randomPickerForceGrid = root.querySelector('#random-picker-force-grid');
+  const randomFilter1pBtn = root.querySelector('#random-filter-1p');
+  const randomFilter2pBtn = root.querySelector('#random-filter-2p');
   const unoConfig = root.querySelector('#uno-config');
   const unoRoundsBtns = root.querySelector('#uno-rounds-btns');
   const unoPacksBtns = root.querySelector('#uno-packs-btns');
@@ -874,6 +887,8 @@ export function renderLobby(root) {
 
   function paintOptions() {
     if (randomizeBtn) randomizeBtn.disabled = state.role !== 'host';
+    if (randomFilter1pBtn) randomFilter1pBtn.disabled = state.role !== 'host';
+    if (randomFilter2pBtn) randomFilter2pBtn.disabled = state.role !== 'host';
     if (randomPickerGrid) {
       randomPickerGrid.querySelectorAll('[data-random-game]').forEach(b => {
         b.disabled = state.role !== 'host';
@@ -1264,12 +1279,14 @@ export function renderLobby(root) {
       : 'Waiting for host…';
   }
 
-  const sendConfig = () => socket.send({
-    type: MSG.LOBBY_CONFIG,
-    devMode: state.devMode,
+  // Shared by sendConfig() (live lobby-config broadcast) and the Start button's
+  // click handler (actual game start) -- every per-game-mode config field that
+  // both messages must carry lives here so a new field only needs to be added
+  // once. Fields whose value or presence legitimately differs between the two
+  // call sites (devMode, randomPick, rounds) are intentionally left out and
+  // set explicitly at each call site instead -- see the comments there.
+  const buildGameConfigPayload = () => ({
     gameType: selectedGame,
-    randomPick: randomDrawGame,
-    rounds: selectedRounds,
     mode: selectedMode,
     mmVariant: selectedMmVariant,
     mmContinueUntilSolved: selectedMmContinueUntilSolved,
@@ -1323,6 +1340,15 @@ export function renderLobby(root) {
     memForfeitLines: selectedMemForfeitLines,
     memVibeDurations: selectedMemVibeDurations,
     memGridSize: selectedMemGridSize,
+  });
+
+  const sendConfig = () => socket.send({
+    type: MSG.LOBBY_CONFIG,
+    devMode: state.devMode,
+    gameType: selectedGame,
+    randomPick: randomDrawGame,
+    rounds: selectedRounds,
+    ...buildGameConfigPayload(),
   });
 
   socket.connect();
@@ -1454,6 +1480,21 @@ export function renderLobby(root) {
     });
   }
 
+  function applyRandomPoolFilter(shouldInclude) {
+    if (state.role !== 'host' || !randomPickerGrid) return;
+    randomPickerGrid.querySelectorAll('[data-random-game]').forEach(b => {
+      const included = shouldInclude(b.dataset.randomGame);
+      b.classList.toggle('mm-rounds-selected', included);
+      b.classList.toggle('ghost', !included);
+    });
+  }
+  if (randomFilter1pBtn) {
+    randomFilter1pBtn.addEventListener('click', () => applyRandomPoolFilter(key => SOLO_CAPABLE_GAMES.has(key)));
+  }
+  if (randomFilter2pBtn) {
+    randomFilter2pBtn.addEventListener('click', () => applyRandomPoolFilter(key => !THREE_P_ONLY_GAMES.has(key)));
+  }
+
   function applyRandomPreset(key) {
     selectedGame = key;
     randomDrawGame = key;
@@ -1491,7 +1532,7 @@ export function renderLobby(root) {
         selectedUnoSpecialPacks = [...ALL_UNO_PACKS];
         break;
       case 'memory':
-        selectedMemMode = 'versus';
+        selectedMemMode = state.guestName ? 'versus' : 'solo';
         selectedMemGridSize = '6x6';
         selectedMemForfeitLines = [];
         selectedMemVibeDurations = [];
@@ -1504,7 +1545,7 @@ export function renderLobby(root) {
         selectedSoDifficulty = 'experienced';
         break;
       case 'snakes':
-        selectedSnlMode = 'versus';
+        selectedSnlMode = state.guestName ? 'versus' : 'solo';
         selectedSnlBoardSize = 'standard';
         selectedSnlDensity = 'even';
         selectedSnlStakeMix = 'mixed';
@@ -1725,7 +1766,14 @@ export function renderLobby(root) {
   });
 
   startBtn.addEventListener('click', () => {
-    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedGame === 'uno' ? selectedUnoRounds : selectedRounds, mode: selectedMode, mmVariant: selectedMmVariant, mmContinueUntilSolved: selectedMmContinueUntilSolved, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives, hiloMode: selectedHiloMode, hiloCycles: selectedHiloCycles, hiloDeckSize: selectedHiloDeckSize, hiloVibeRamp: selectedHiloVibeRamp, hiloLives: selectedHiloLives, hiloVibeTarget: selectedHiloVibeTarget, stlDifficulty: selectedStlDifficulty, stlForfeitCards: selectedStlForfeitCards, soDifficulty: selectedSoDifficulty, cqBotEnabled: selectedCqBotEnabled, cqRounds: selectedCqRounds, cqReckoning: selectedCqReckoning, cqReckoningForfeitText: selectedCqReckoningForfeitText, cqGameForfeitText: selectedCqGameForfeitText, cqDisabledLocations: selectedCqDisabledLocations, cqTrapCount: selectedCqTrapCount, btdForfeits: selectedBtdForfeits, btdMode: selectedBtdMode, btdGameMode: selectedBtdGameMode, wiWinCondition: selectedWiWinCondition, wiSpellLimit: selectedWiSpellLimit, diceVibeRule: selectedDiceVibeRule, lcTimer: selectedLcTimer, lcMinutes: selectedLcMinutes, lcDeckSize: selectedLcDeckSize, lcReward: selectedLcReward, bsGridSize: selectedBsGridSize, bsVibeMultiplier: selectedBsVibeMultiplier, unoRounds: selectedUnoRounds, unoSpecialPacks: selectedUnoSpecialPacks, snlMode: selectedSnlMode, snlBoardSize: selectedSnlBoardSize, snlDensity: selectedSnlDensity, snlStakeMix: selectedSnlStakeMix, snlVibeScale: selectedSnlVibeScale, snlWinCondition: selectedSnlWinCondition, snlFinalRule: selectedSnlFinalRule, snlPowerups: selectedSnlPowerups, snlCoopBetray: selectedSnlCoopBetray, snlForfeitCards: selectedSnlForfeitCards, snlForfeitLines: selectedSnlForfeitLines, snlAmbient: selectedSnlAmbient, snlTapOut: selectedSnlTapOut, memMode: selectedMemMode, memForfeitLines: selectedMemForfeitLines, memVibeDurations: selectedMemVibeDurations, memGridSize: selectedMemGridSize });
+    socket.send({
+      type: MSG.START,
+      gameType: selectedGame,
+      // Uno's round count is edited via a separate control (selectedUnoRounds)
+      // from every other game's (selectedRounds); pick the right one here.
+      rounds: selectedGame === 'uno' ? selectedUnoRounds : selectedRounds,
+      ...buildGameConfigPayload(),
+    });
   });
 
   wiWinBtns.addEventListener('click', (e) => {

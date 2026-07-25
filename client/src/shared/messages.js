@@ -116,6 +116,7 @@ export const MSG = {
   CQ_MATCH_END:          'cq_match_end',
   CQ_MATCH_END_INTENSITY: 'cq_match_end_intensity',
   CQ_MATCH_END_READY:    'cq_match_end_ready',
+  CQ_RESYNC:             'cq_resync',
   LC_GUESS:      'lc_guess',
   LC_RESOLVE:    'lc_resolve',
   LC_RUN_LEVEL:  'lc_run_level',
