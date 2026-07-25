@@ -25,7 +25,7 @@ const TYPE_LABEL = {
 const TYPE_DESC = {
   sanctuary: 'Grants a skip token — cancels one future forfeit.',
   dungeonGate: 'Invoke once per session to assign your opponent a 5-minute punishment forfeit.',
-  ironThrone: 'Invoke once per session to double one forfeit assigned to your opponent.',
+  ironThrone: "Invoke once per session to double your opponent's still-active Dungeon Gate punishment.",
   edgePost: 'While held, every other player must edge once before each round starts.',
   mirror: 'While held, any forfeit you owe is also owed by every other player.',
   muster: '+2 dice per round for as long as you control this space.',

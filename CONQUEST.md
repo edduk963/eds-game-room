@@ -53,7 +53,7 @@ Space types fall into three activation styles: **momentary** (resolves the insta
 | Safe | — | — | No effect. Connective tissue between meaningful spaces. |
 | Sanctuary | Momentary | Round-winner | Grants a skip token (cancels one future forfeit). |
 | Dungeon Gate | Manual invoke | Once per session | Assign opponent a 5-minute punishment forfeit. |
-| Iron Throne | Manual invoke | Once per session | Double one forfeit assigned to opponent. |
+| Iron Throne | Manual invoke | Once per session | Double the opponent's still-active Dungeon Gate punishment (no-ops if they haven't been hit by one, or if it's already run its course — nothing else in the space pool feeds into this). |
 | Edge Post | Continuous passive | While held | Opponent must edge once before every round starts. Guaranteed on every map (see density note below). |
 | The Mirror | Continuous passive | While held | Any forfeit the holder owes is duplicated onto every other player, the moment it's assigned. |
 | The Muster | Continuous passive | While held | +2 dice per round for the controller. |

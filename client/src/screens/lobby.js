@@ -374,7 +374,7 @@ export function renderLobby(root) {
           <span>Special locations <span style="font-size:11px;color:var(--muted)">(tap to turn off — hover a button for what it does. Normally only 4 of these 5 landmarks appear per match anyway; Sanctuary &amp; Edge Post are otherwise always on)</span>:</span>
           <div class="mm-rounds-btns" id="cq-locations-btns" style="flex-wrap:wrap;">
             <button class="mm-rounds-btn mm-rounds-selected" data-cq-loc="dungeonGate" title="Invoke once per session to assign your opponent a 5-minute punishment forfeit.">Dungeon Gate</button>
-            <button class="mm-rounds-btn mm-rounds-selected" data-cq-loc="ironThrone" title="Invoke once per session to double one forfeit assigned to your opponent.">Iron Throne</button>
+            <button class="mm-rounds-btn mm-rounds-selected" data-cq-loc="ironThrone" title="Invoke once per session to double your opponent's still-active Dungeon Gate punishment.">Iron Throne</button>
             <button class="mm-rounds-btn mm-rounds-selected" data-cq-loc="mirror" title="While held, any forfeit you owe is also owed by every other player.">Mirror</button>
             <button class="mm-rounds-btn mm-rounds-selected" data-cq-loc="muster" title="+2 dice per round for as long as you control this space.">Muster</button>
             <button class="mm-rounds-btn mm-rounds-selected" data-cq-loc="ridgepath" title="Whoever does not control this at match end owes a 10-minute edging session before the next match.">Ridgepath</button>

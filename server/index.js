@@ -1515,6 +1515,10 @@ function cqDungeonGateEffect(s, targetRole) {
 function cqIronThroneEffect(s, targetRole) {
   const forfeit = s.cqLastForfeit[targetRole];
   if (!forfeit) return null;
+  // Only double a forfeit that's still within its originally-assigned window — nothing clears
+  // cqLastForfeit once set, so without this a forfeit from long ago (already finished) could be
+  // "doubled" and restart a fresh vibe out of nowhere.
+  if (Date.now() - forfeit.appliedAt >= forfeit.durationSec * 1000) return null;
   forfeit.durationSec *= 2;
   return { targetRole, newDurationSec: forfeit.durationSec };
 }
