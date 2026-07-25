@@ -154,6 +154,11 @@ export function renderConquest(root) {
   // handler). Deliberately lands on the Ready gate rather than reconstructing whatever
   // allocate/reveal UI was mid-flight; see onResync below.
   let onResync = (ev) => {};
+  // Fires when the server silently would have dropped our cq_ready because it thinks we still
+  // owe an Edge Post ack we don't know about (our local edgePostHolder was stale) — without
+  // this, both players are left on "Waiting for other players..." forever with no way to
+  // recover. Re-sync the holder and re-render the Ready gate so the banner we missed shows up.
+  let onReadyRejected = (ev) => {};
 
   const goWrapper = (ev) => onGo(ev);
   const revealWrapper = (ev) => onReveal(ev);
@@ -164,6 +169,7 @@ export function renderConquest(root) {
   const matchEndIntensityWrapper = (ev) => onMatchEndIntensity(ev);
   const matchEndReadyWrapper = (ev) => onMatchEndReady(ev);
   const resyncWrapper = (ev) => onResync(ev);
+  const readyRejectedWrapper = (ev) => onReadyRejected(ev);
 
   socket.addEventListener(MSG.CQ_GO, goWrapper);
   socket.addEventListener(MSG.CQ_REVEAL, revealWrapper);
@@ -174,6 +180,7 @@ export function renderConquest(root) {
   socket.addEventListener(MSG.CQ_MATCH_END_INTENSITY, matchEndIntensityWrapper);
   socket.addEventListener(MSG.CQ_MATCH_END_READY, matchEndReadyWrapper);
   socket.addEventListener(MSG.CQ_RESYNC, resyncWrapper);
+  socket.addEventListener(MSG.CQ_READY_REJECTED, readyRejectedWrapper);
 
   window.addEventListener('hashchange', () => {
     socket.removeEventListener(MSG.CQ_GO, goWrapper);
@@ -185,6 +192,7 @@ export function renderConquest(root) {
     socket.removeEventListener(MSG.CQ_MATCH_END_INTENSITY, matchEndIntensityWrapper);
     socket.removeEventListener(MSG.CQ_MATCH_END_READY, matchEndReadyWrapper);
     socket.removeEventListener(MSG.CQ_RESYNC, resyncWrapper);
+    socket.removeEventListener(MSG.CQ_READY_REJECTED, readyRejectedWrapper);
     window.removeEventListener('keydown', onKeyDown);
     if (vibeModeBarInstance) { vibeModeBarInstance.destroy(); vibeModeBarInstance = null; }
     haptics.stopContinuousVibe();
@@ -250,6 +258,16 @@ export function renderConquest(root) {
     musterHolder = d.musterHolder ?? null;
     usedClaims = { dungeonGate: !!d.dungeonGateUsed, ironThrone: !!d.ironThroneUsed };
     pendingClaims = { dungeonGate: false, ironThrone: false };
+    showReady();
+  };
+
+  // The server silently dropped our cq_ready because it still thinks we owe an Edge Post ack —
+  // correct our local holder from its answer and re-render the Ready gate so the ack banner
+  // (which our stale state skipped) actually shows up, instead of leaving the Ready button
+  // stuck on "Waiting for other players..." with no way for the player to ever unblock it.
+  onReadyRejected = (ev) => {
+    if (ev.detail.reason !== 'edge_ack_required') return;
+    edgePostHolder = ev.detail.edgePostHolder ?? edgePostHolder;
     showReady();
   };
 

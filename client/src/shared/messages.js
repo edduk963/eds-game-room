@@ -104,6 +104,7 @@ export const MSG = {
   SO_SPY_FIELD_UPDATE:   'so_spy_field_update',
   SO_SPY_PICK_ACK:       'so_spy_pick_ack',
   CQ_READY:              'cq_ready',
+  CQ_READY_REJECTED:     'cq_ready_rejected',
   CQ_EDGE_ACK:           'cq_edge_ack',
   CQ_GO:                 'cq_go',
   CQ_ALLOCATE:           'cq_allocate',

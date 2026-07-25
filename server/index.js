@@ -1042,7 +1042,17 @@ wss.on('connection', (ws) => {
       const edgePostNodeId = s.cqNodeIds?.edgePost;
       const edgePostHolder = edgePostNodeId ? s.cqOwnership[edgePostNodeId] : null;
       const oweEdge = edgePostHolder && edgePostHolder !== 'neutral' && edgePostHolder !== role;
-      if (oweEdge && !s.cqEdgeAck[role]) return; // must confirm the edge before readying up
+      if (oweEdge && !s.cqEdgeAck[role]) {
+        // Must confirm the edge before readying up. This used to be a silent drop: if the
+        // client's own idea of who holds Edge Post is ever stale (e.g. it missed an update
+        // across a reconnect), the player's Ready click vanishes with zero feedback and both
+        // sides sit on "Waiting for other players..." forever. Answer privately so the client
+        // can re-sync its edge-post state and re-show the ack banner instead of hanging.
+        if (ws.readyState === 1) {
+          ws.send(JSON.stringify({ type: 'cq_ready_rejected', reason: 'edge_ack_required', edgePostHolder }));
+        }
+        return;
+      }
       s.cqReady[role] = true;
       // Bot roles have no socket to send cq_ready themselves — they're trivially ready always,
       // and exempt from the edge-post gate (nothing to physically edge).
