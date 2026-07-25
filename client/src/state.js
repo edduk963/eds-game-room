@@ -12,6 +12,10 @@ export const state = {
   oppFinal: null,
   myVibeResidual: 0,
   oppVibeResidual: 0,
+  // Set by games with their own self-contained forfeit screen (currently Mastermind)
+  // right before navigating to #/results, so that screen's generic forfeit panel
+  // doesn't stack a second forfeit on top of the one already delivered in-game.
+  forfeitAlreadyResolved: false,
   devMode: false,
   devPreselect: 'splitloot',
   gameType: 'galactic',
@@ -85,6 +89,7 @@ export function reset() {
   state.oppFinal = null;
   state.myVibeResidual = 0;
   state.oppVibeResidual = 0;
+  state.forfeitAlreadyResolved = false;
   state.devMode = false;
   state.devPreselect = 'splitloot';
   state.gameType = 'galactic';

@@ -10,6 +10,7 @@ import { renderResults } from './screens/results.js';
 import { renderMastermind } from './screens/mastermind.js';
 import { renderMastermind3 } from './screens/mastermind3.js';
 import { renderMastermind1P } from './screens/mastermind1p.js';
+import { renderMastermindH2H } from './screens/mastermindH2H.js';
 import { renderEndurance } from './screens/endurance.js';
 import { renderTugOfWar } from './screens/tugofwar.js';
 import { renderDice } from './screens/dice.js';
@@ -76,6 +77,12 @@ function route() {
   if (hash === '#/mastermind1p') {
     if (!state.seed) { navigate('#/'); return; }
     renderMastermind1P(app);
+    return;
+  }
+
+  if (hash === '#/mastermind-h2h') {
+    if (!state.seed) { navigate('#/'); return; }
+    renderMastermindH2H(app);
     return;
   }
 
@@ -223,9 +230,12 @@ socket.addEventListener(MSG.VIBE_TEMPO_SET, (ev) => {
 socket.addEventListener('begin', (ev) => {
   state.seed = ev.detail.seed;
   state.startAt = ev.detail.startAt;
+  state.forfeitAlreadyResolved = false;
   state.gameType = ev.detail.gameType || 'galactic';
   state.gameRounds = ev.detail.rounds || 3;
   state.gameMode = ev.detail.mode || 'easy';
+  state.mmVariant = ev.detail.mmVariant || 'turns';
+  state.mmContinueUntilSolved = !!ev.detail.mmContinueUntilSolved;
   state.forfeitDuration = ev.detail.forfeitDuration || 30;
   state.edgeMode = !!ev.detail.edgeMode;
   state.edgeLives = ev.detail.edgeLives || 3;
@@ -281,7 +291,11 @@ socket.addEventListener('begin', (ev) => {
   state.cqReckoningForfeitText = ev.detail.cqReckoningForfeitText || '';
   state.cqGameForfeitText = ev.detail.cqGameForfeitText || '';
   const gt = state.gameType;
-  if (gt === 'mastermind') navigate(state.playerCount === 3 ? '#/mastermind3' : state.playerCount === 1 ? '#/mastermind1p' : '#/mastermind');
+  if (gt === 'mastermind') navigate(
+    state.playerCount === 3 ? '#/mastermind3' :
+    state.playerCount === 1 ? '#/mastermind1p' :
+    state.mmVariant === 'h2h' ? '#/mastermind-h2h' : '#/mastermind'
+  );
   else if (gt === 'endurance') navigate('#/endurance');
   else if (gt === 'tugofwar') navigate('#/tugofwar');
   else if (gt === 'dice') navigate('#/dice');

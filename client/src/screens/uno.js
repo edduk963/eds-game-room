@@ -807,6 +807,7 @@ export function renderUno(root) {
       if (forwardDone) return;
       forwardDone = true;
       if (hapticInterval) { clearInterval(hapticInterval); hapticInterval = null; }
+      state.forfeitAlreadyResolved = true;
       navigate('#/results');
     }
 

@@ -3,8 +3,7 @@ import { state } from '../state.js';
 import { navigate } from '../main.js';
 import { MSG } from '../shared/messages.js';
 import * as haptics from '../haptics.js';
-import { initEdgeMode } from '../game/edgeMode.js';
-import { showEdgeReadyOverlay } from '../game/edgeAssignment.js';
+import { renderEdgeGate } from '../game/mastermindEdgeGate.js';
 import { initVibeBattery } from '../vibeBattery.js';
 import { initVibeModeBar } from '../vibeModeBar.js';
 import { makeRng } from '../game/seededRng.js';
@@ -59,11 +58,8 @@ export function renderMastermind(root) {
   let oppRoundsSolved = 0;
   let gameEndReadySent = false;
   let gameEndOppReady = false;
-  let edgeModeInstance = null;
   let vibeBatteryInstance = initVibeBattery(root);
   let vibeModeBarInstance = null;
-  let edgePaused = false;
-  let savedHaptics = null;
 
   const myName = state.myName || 'You';
   const oppName = (state.role === 'host' ? state.guestName : state.hostName) || 'Opponent';
@@ -563,13 +559,14 @@ export function renderMastermind(root) {
       </div>
       <div class="mm-forfeit-result mm-solved">✓ You cracked it!</div>
       ${vibeSection}
-      <button id="mm-continue" class="mm-continue-btn">Continue</button>`;
-
-    forfeitContent.querySelector('#mm-continue').addEventListener('click', onContinueClick);
+      <div id="mm-continue-slot"></div>`;
 
     if (oppVibeSeconds > 0) {
       setupForfeitVibeUI(0, oppVibeSeconds, true);
     }
+
+    // The winner never edges, regardless of edge mode.
+    renderEdgeGate({ containerEl: forfeitContent.querySelector('#mm-continue-slot'), amLoser: false, onReady: onContinueClick });
   }
 
   function enterLostPhase() {
@@ -618,14 +615,15 @@ export function renderMastermind(root) {
           <button id="mm-vibe-toggle">Start</button>
         </div>
       </div>
-      <button id="mm-continue" class="mm-continue-btn">Continue</button>`;
+      <div id="mm-continue-slot"></div>`;
 
     forfeitOverlay.style.display = 'flex';
-    forfeitContent.querySelector('#mm-continue').addEventListener('click', onContinueClick);
     if (myVibe > 0) {
       haptics.setWaveVibeMode(true);
       setupForfeitVibeUI(myVibe, 0);
     }
+    // Nobody solved it — both players lost this round.
+    renderEdgeGate({ containerEl: forfeitContent.querySelector('#mm-continue-slot'), amLoser: state.edgeMode, onReady: onContinueClick });
   }
 
   function setupForfeitVibeUI(myVibeSeconds, oppVibeSeconds, autoStart = false) {
@@ -733,14 +731,7 @@ export function renderMastermind(root) {
     } else {
       roundConfig = nextRoundConfig(roundConfig, gameMode);
       code = generateCode(rng, roundConfig.slots);
-      if (state.edgeMode) {
-        showEdgeReadyOverlay({ role: state.role, seed: state.seed, roundIndex, onReady: (assignment) => {
-          if (edgeModeInstance) edgeModeInstance.setAssignment(assignment);
-          startRound();
-        }});
-      } else {
-        startRound();
-      }
+      startRound();
     }
   }
 
@@ -814,6 +805,7 @@ export function renderMastermind(root) {
     forfeitInterval = null;
     if (window._mmRoundForfeitCleanup) { window._mmRoundForfeitCleanup(); window._mmRoundForfeitCleanup = null; }
     state.myVibeResidual = 0;
+    state.forfeitAlreadyResolved = true;
     socket.send({ type: MSG.FINAL, value: myRoundsSolved, vibeSeconds: 0 });
     state.myFinal = myRoundsSolved;
     navigate('#/results');
@@ -861,7 +853,6 @@ export function renderMastermind(root) {
   // --- Input ---
 
   function onKeyDown(e) {
-    if (edgePaused) return;
     if (phase !== 'playing' || currentTurn !== 'mine') return;
     const k = e.key.toUpperCase();
     if (COLORS.includes(k)) { e.preventDefault(); addColor(k); return; }
@@ -997,7 +988,7 @@ export function renderMastermind(root) {
             <button id="mm-vibe-toggle" style="min-width:100px;">Stop</button>
           </div>
         </div>
-        <button id="mm-continue" class="mm-continue-btn">Continue</button>`;
+        <div id="mm-continue-slot"></div>`;
 
       setupForfeitVibeUI(myVibe, 0);
     } else {
@@ -1012,10 +1003,11 @@ export function renderMastermind(root) {
         </div>
         <div class="mm-forfeit-result mm-failed">✗ You didn't crack it</div>
         <div class="mm-no-vibe">${safeMsg}</div>
-        <button id="mm-continue" class="mm-continue-btn">Continue</button>`;
+        <div id="mm-continue-slot"></div>`;
     }
 
-    forfeitContent.querySelector('#mm-continue').addEventListener('click', onContinueClick);
+    // This handler only fires for the round loser (the winner made the bank/use choice).
+    renderEdgeGate({ containerEl: forfeitContent.querySelector('#mm-continue-slot'), amLoser: state.edgeMode, onReady: onContinueClick });
   }
 
   function onMmRoundReady() {
@@ -1054,32 +1046,13 @@ export function renderMastermind(root) {
     socket.removeEventListener(MSG.MM_GAME_END_VIBE, onMmGameEndVibe);
     socket.removeEventListener(MSG.MM_GAME_END_READY, onMmGameEndReady);
     socket.removeEventListener(MSG.PEER_LEFT, onPeerLeft);
-    if (edgeModeInstance) { edgeModeInstance.destroy(); edgeModeInstance = null; }
     if (vibeBatteryInstance) { vibeBatteryInstance.destroy(); vibeBatteryInstance = null; }
     if (vibeModeBarInstance) { vibeModeBarInstance.destroy(); vibeModeBarInstance = null; }
     haptics.stopAll();
   };
   window.addEventListener('hashchange', cleanup, { once: true });
 
-  function _initEdgeModeInstance(assignment) {
-    edgeModeInstance = initEdgeMode({
-      role: state.role,
-      myLives: state.edgeLives,
-      assignment,
-      containerEl: root,
-      onPause: () => { edgePaused = true; savedHaptics = haptics.pauseHaptics(); },
-      onResume: () => { edgePaused = false; haptics.resumeHaptics(savedHaptics); },
-    });
-  }
-
-  if (state.edgeMode) {
-    showEdgeReadyOverlay({ role: state.role, seed: state.seed, roundIndex: 0, onReady: (assignment) => {
-      _initEdgeModeInstance(assignment);
-      _showMastermindInstructions(state, startCountdown);
-    }});
-  } else {
-    _showMastermindInstructions(state, startCountdown);
-  }
+  _showMastermindInstructions(state, startCountdown);
 }
 
 function escapeHtml(s) {
@@ -1129,6 +1102,15 @@ function _showMastermindInstructions(state, onReady) {
           <li>Both fail to crack it → both get a vibe penalty.</li>
         </ul>
       </div>
+      ${state.edgeMode ? `
+      <div class="instructions-section">
+        <div class="instructions-heading">Edge Mode</div>
+        <ul class="instructions-list">
+          <li>Lose a round → you edge before the next one starts.</li>
+          <li>Nobody cracks it → both players edge.</li>
+          <li>Self-paced — continue whenever you're ready.</li>
+        </ul>
+      </div>` : ''}
       <button id="inst-ready">Got it — I'm ready!</button>
       <p class="instructions-waiting" id="inst-wait" style="visibility:hidden">Waiting for opponent…</p>
     </div>

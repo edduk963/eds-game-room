@@ -29,7 +29,10 @@ export function renderResults(root) {
                          : iAmLoser ? forfeitSecs + (state.oppVibeResidual || 0) : 0;
   const oppTotalDuration = isTie ? forfeitSecs + bothVTime
                          : (!iAmLoser && resultKnown) ? forfeitSecs + (state.myVibeResidual || 0) : 0;
-  const hasForfeit       = resultKnown && (myTotalDuration > 0 || oppTotalDuration > 0);
+  // Games with their own self-contained forfeit screen (Mastermind, UNO, Snakes'
+  // endurance mode) already delivered the forfeit before landing here — don't stack
+  // a second one on top of it.
+  const hasForfeit       = !state.forfeitAlreadyResolved && resultKnown && (myTotalDuration > 0 || oppTotalDuration > 0);
 
   root.innerHTML = `
     <div class="card">

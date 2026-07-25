@@ -6,32 +6,38 @@ import * as haptics from '../haptics.js';
 import { makeRng, rngInt } from '../game/seededRng.js';
 import {
   ISLANDS, WIZARD_POS, SPELL_CARDS,
-  createGameState, resolveDestinations, moveWizardAfterTurn,
+  createGameState, resolveDestinations, moveWizardAfterTurn, planTowerFight,
   collectIslandCard, addCardToPlayer, discardFromInventory,
-  startBattle, doBattleRound, reduceWizardStat, retreatFromBattle,
+  startBattle, startGroupWizardBattle, doBattleRound, reduceWizardStat, retreatFromBattle,
   drawWizardSpell, checkWinCondition, redealIslands,
   getAttack, getDefence, getMaxStamina, getArmourCount,
 } from '../game/wizardIslandGame.js';
 import { initVibeModeBar } from '../vibeModeBar.js';
 
 export function renderWizardIsland(root) {
-  const myKey = state.role === 'host' ? 'A' : 'B';
-  const oppKey = myKey === 'A' ? 'B' : 'A';
+  const has3 = state.playerCount === 3 && !!state.guest2Name;
+  const myKey = state.role === 'host' ? 'A' : state.role === 'guest' ? 'B' : 'C';
+  const ALL_KEYS = has3 ? ['A', 'B', 'C'] : ['A', 'B'];
+  const otherKeys = ALL_KEYS.filter(k => k !== myKey);
+  // oppKey: "the" other player — exactly correct for 2-player games (the only opponent),
+  // and used as a reasonable single stand-in wherever 3-player code hasn't been fully
+  // generalized to address both other players individually.
+  const oppKey = otherKeys[0];
 
   const rng = makeRng(state.seed);
-  const gs = createGameState(state.seed, rng, state.hostName, state.guestName);
+  const gs = createGameState(state.seed, rng, state.hostName, state.guestName, has3 ? state.guest2Name : undefined);
 
   // ── Layout ───────────────────────────────────────────────────────────────
   root.innerHTML = `
     <div id="wi-root" style="position:fixed;inset:0;display:flex;flex-direction:column;background:#0a0a14;color:#e8dfc8;font-family:inherit;overflow:hidden;z-index:50;">
-      <div id="wi-hud" style="display:flex;gap:6px;padding:6px 10px;background:#111;border-bottom:1px solid #2a2a3a;flex-shrink:0;align-items:stretch;flex-wrap:wrap;min-height:56px;"></div>
+      <div id="wi-hud" style="display:flex;gap:6px;padding:6px 10px;background:#111;border-bottom:1px solid #2a2a3a;flex-shrink:0;align-items:stretch;flex-wrap:wrap;min-height:fit-content;"></div>
       <div id="wi-board-wrap" style="position:relative;flex:1;min-height:0;overflow:hidden;">
         <canvas id="wi-canvas" style="position:absolute;inset:0;display:block;"></canvas>
         <div id="wi-rules" style="position:absolute;left:6px;top:6px;width:128px;max-height:calc(100% - 12px);overflow:hidden;display:flex;flex-direction:column;gap:4px;pointer-events:none;z-index:6;"></div>
         <div id="wi-status" style="position:absolute;top:8px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.75);padding:5px 14px;border-radius:20px;font-size:13px;pointer-events:none;white-space:nowrap;max-width:90%;text-align:center;"></div>
       </div>
-      <div id="wi-hand" style="flex-shrink:0;background:#0d0d18;border-top:1px solid #2a2a3a;padding:6px 8px;display:flex;gap:6px;align-items:center;overflow-x:auto;min-height:74px;"></div>
-      <div id="wi-actions" style="padding:8px;display:flex;gap:6px;justify-content:center;background:#111;border-top:1px solid #2a2a3a;flex-shrink:0;flex-wrap:wrap;min-height:52px;align-items:center;"></div>
+      <div id="wi-hand" style="flex-shrink:0;background:#0d0d18;border-top:1px solid #2a2a3a;padding:6px 8px;display:flex;gap:6px;align-items:center;overflow-x:auto;min-height:fit-content;"></div>
+      <div id="wi-actions" style="padding:8px;display:flex;gap:6px;justify-content:center;background:#111;border-top:1px solid #2a2a3a;flex-shrink:0;flex-wrap:wrap;min-height:fit-content;align-items:center;"></div>
       <div id="wi-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:100;align-items:center;justify-content:center;"></div>
     </div>`;
 
@@ -54,6 +60,10 @@ export function renderWizardIsland(root) {
   ];
 
   const ISLAND_ICONS = ['🏖', '🌋', '🏜', '🌑', '🌲', '🌿', '🌸', '⛰'];
+
+  // Per-player token/HUD color — A and B keep their original colors; C (only present
+  // in 3-player sessions) gets its own so all three read distinctly on the board.
+  const TOKEN_COLOR = { A: '#4a9eff', B: '#ff6b4a', C: '#7ee08a' };
 
   const CARD_TYPE_ICON  = { attack: '⚔', defence: '🛡', stamina: '❤', armour: '🧥', spell: '🔮' };
   const CARD_TYPE_COLOR = { attack: '#ff6060', defence: '#60aaff', stamina: '#ff9060', armour: '#cfcfcf', spell: '#d080ff' };
@@ -83,35 +93,42 @@ export function renderWizardIsland(root) {
   const tok = {
     A: { fx: 0.44, fy: 0.56 },
     B: { fx: 0.56, fy: 0.56 },
+    ...(has3 ? { C: { fx: 0.50, fy: 0.44 } } : {}),
   };
   let pendingDest = null;   // island/wizard I've picked but opp hasn't yet
   let animRafId = null;
 
+  // Per-key offset so 2 or 3 tokens sharing a space don't fully overlap.
+  const TOKEN_OFFSET = has3
+    ? { A: [-0.038, 0.022], B: [0.038, 0.022], C: [0, -0.032] }
+    : { A: [-0.035, -0.028], B: [0.035, 0.028] };
+
   function destFrac(key, dest) {
     // Returns [fx, fy] for a player token at a given destination
-    const offset = key === 'A' ? -0.035 : 0.035;
-    if (dest === 'wizard' || dest === null) return [0.50 + offset, 0.565];
+    const [ox, oy] = TOKEN_OFFSET[key];
+    if (dest === 'wizard' || dest === null) return [0.50 + ox, 0.565 + (has3 ? oy * 0.3 : 0)];
     const [fx, fy] = BOARD_ISLAND_POS[dest];
-    return [fx + offset, fy + (key === 'A' ? -0.028 : 0.028)];
+    return [fx + ox, fy + oy];
   }
 
   function snapTokens() {
-    ['A', 'B'].forEach(k => {
+    ALL_KEYS.forEach(k => {
       const [fx, fy] = destFrac(k, gs.players[k].island);
       tok[k].fx = fx; tok[k].fy = fy;
     });
   }
 
-  function animateTokens(destA, destB, onDone) {
+  function animateTokens(destA, destB, destC, onDone) {
     if (animRafId) { cancelAnimationFrame(animRafId); animRafId = null; }
-    const targets = { A: destFrac('A', destA), B: destFrac('B', destB) };
-    const starts  = { A: [tok.A.fx, tok.A.fy], B: [tok.B.fx, tok.B.fy] };
+    const dests = { A: destA, B: destB, C: destC };
+    const targets = {}; const starts = {};
+    ALL_KEYS.forEach(k => { targets[k] = destFrac(k, dests[k]); starts[k] = [tok[k].fx, tok[k].fy]; });
     const t0 = performance.now();
     const dur = 650;
     function step(now) {
       const p = Math.min(1, (now - t0) / dur);
       const e = 1 - Math.pow(1 - p, 3);  // cubic ease-out
-      ['A','B'].forEach(k => {
+      ALL_KEYS.forEach(k => {
         tok[k].fx = starts[k][0] + (targets[k][0] - starts[k][0]) * e;
         tok[k].fy = starts[k][1] + (targets[k][1] - starts[k][1]) * e;
       });
@@ -337,10 +354,8 @@ export function renderWizardIsland(root) {
 
     // My pending destination ghost (semi-transparent preview)
     if (pendingDest !== null) {
-      const color = myKey === 'A' ? '#4a9eff' : '#ff6b4a';
-      let pfx, pfy;
-      if (pendingDest === 'wizard') { pfx = myKey === 'A' ? 0.405 : 0.595; pfy = 0.565; }
-      else { [pfx, pfy] = BOARD_ISLAND_POS[pendingDest]; pfx += myKey === 'A' ? -0.035 : 0.035; pfy += myKey === 'A' ? -0.028 : 0.028; }
+      const color = TOKEN_COLOR[myKey];
+      const [pfx, pfy] = destFrac(myKey, pendingDest);
       const [gx, gy] = boardPx(pfx, pfy);
       const tr = sz * 0.028;
       ctx.save();
@@ -352,10 +367,7 @@ export function renderWizardIsland(root) {
     }
 
     // Player tokens (animated positions)
-    const TOKEN_CFG = [
-      { key: 'A', color: '#4a9eff' },
-      { key: 'B', color: '#ff6b4a' },
-    ];
+    const TOKEN_CFG = ALL_KEYS.map(key => ({ key, color: TOKEN_COLOR[key] }));
     TOKEN_CFG.forEach(({ key, color }) => {
       const [px, py] = boardPx(tok[key].fx, tok[key].fy);
       const isMe = key === myKey;
@@ -549,6 +561,8 @@ export function renderWizardIsland(root) {
       closeOverlay();
       renderHand();
       if (isRuleSpell(spell)) addActiveRule(spell.name, spell.description, gs.players[myKey].name);
+      // Held spells that "wear the vibe" target the OTHER player, same as immediate spells.
+      triggerVibeCard(spell, myKey, false);
       socket.send({ type: MSG.WI_SPELL_PLAY, spellName: spell.name });
       setStatus(`Played: ${spell.name} — ${spell.description}`);
     });
@@ -638,12 +652,17 @@ export function renderWizardIsland(root) {
       if (card.type === 'spell' && card.timing === 'immediate' && isRuleSpell(card)) {
         addActiveRule(card.name, card.description, gs.players[ev.player].name);
       }
+      // "Wear the vibe" automation fires on pickup for stamina cards (self-targeted) and
+      // immediate spells (targets the OTHER player) — held spells wait until they're played.
+      if (!(card.type === 'spell' && card.timing === 'held')) {
+        triggerVibeCard(card, ev.player, card.type !== 'spell');
+      }
       const result = addCardToPlayer(gs.players[ev.player], card);
       if (ev.player === myKey) {
         handleCardResult(card, result, next);
       } else {
         // Opponent picks up card — show brief notification
-        setStatus(`${gs.players[oppKey].name} collects a card from Island ${ev.island+1}.`);
+        setStatus(`${esc(gs.players[ev.player].name)} collects a card from Island ${ev.island+1}.`);
         updateHud();
         drawBoard();
         // For full cards: opponent also resolves on their side; we just wait for them to ack
@@ -666,8 +685,11 @@ export function renderWizardIsland(root) {
     }
 
     if (ev.type === 'pvp_battle') {
-      setStatus('⚔ You both chose the same island — battle!');
-      startBattle(gs, 'pvp', myKey, ev.island);
+      const others = ev.players.filter(k => k !== myKey).map(k => gs.players[k].name).join(' and ');
+      setStatus(ev.players.includes(myKey)
+        ? `⚔ You landed with ${others} — battle!`
+        : `⚔ ${ev.players.map(k => gs.players[k].name).join(' and ')} battle over the island card!`);
+      startBattle(gs, 'pvp', myKey, ev.island, ev.players);
       updateHud(); drawBoard();
       setTimeout(() => showBattleOverlay(next), 600);
       return;
@@ -675,7 +697,7 @@ export function renderWizardIsland(root) {
 
     if (ev.type === 'wizard_battle') {
       const isMyBattle = ev.player === myKey;
-      setStatus(isMyBattle ? '💀 You attack the Dark Wizard!' : `💀 ${gs.players[oppKey].name} attacks the Dark Wizard!`);
+      setStatus(isMyBattle ? '💀 You attack the Dark Wizard!' : `💀 ${esc(gs.players[ev.player].name)} attacks the Dark Wizard!`);
       startBattle(gs, 'wizard', ev.player, null);
       updateHud(); drawBoard();
       setTimeout(() => showBattleOverlay(next), 600);
@@ -683,8 +705,8 @@ export function renderWizardIsland(root) {
     }
 
     if (ev.type === 'cooperate_or_betray') {
-      setStatus('Both of you approach the Dark Wizard…');
-      setTimeout(() => showCooperateBetrayUI(next), 600);
+      setStatus('Approaching the Dark Wizard…');
+      setTimeout(() => showCooperateBetrayUI(ev, next), 600);
       return;
     }
 
@@ -693,34 +715,37 @@ export function renderWizardIsland(root) {
 
   // ── Wizard move phase (after player events) ───────────────────────────────
   function wizardMovePhase() {
-    const { island, attacksPlayer } = moveWizardAfterTurn(gs, rng);
+    const { island, attacksPlayers } = moveWizardAfterTurn(gs, rng);
     snapTokens(); updateHud(); drawBoard();
     setStatus(`💀 The Dark Wizard moves to Island ${island+1} — ${ISLANDS[island].name}.`);
 
     const win = checkWinCondition(gs);
     if (win) { setTimeout(() => showEndScreen(win.winner, win.reason), 800); return; }
 
-    if (attacksPlayer) {
+    function finishTurn() {
+      redealIslands(gs);
+      drawBoard();
+      const w2 = checkWinCondition(gs);
+      if (w2) showEndScreen(w2.winner, w2.reason);
+      else proceedToChoosing();
+    }
+
+    // Every player found sharing the wizard's landing island gets attacked, one battle
+    // at a time (only possible for more than one at once with a 3rd player on the board).
+    function runAttack(idx) {
+      if (idx >= attacksPlayers.length) { setTimeout(finishTurn, 1200); return; }
+      if (checkWinCondition(gs)) { setTimeout(finishTurn, 400); return; }
+      const attacksPlayer = attacksPlayers[idx];
       setTimeout(() => {
         const isMe = attacksPlayer === myKey;
         setStatus(isMe ? '💀 The Dark Wizard attacks you!' : `💀 The Dark Wizard attacks ${gs.players[attacksPlayer].name}!`);
         startBattle(gs, 'wizard', attacksPlayer, null);
         updateHud(); drawBoard();
-        setTimeout(() => showBattleOverlay(() => {
-          redealIslands(gs);
-          drawBoard();
-          const w2 = checkWinCondition(gs);
-          if (w2) showEndScreen(w2.winner, w2.reason);
-          else proceedToChoosing();
-        }), 600);
-      }, 1200);
-    } else {
-      setTimeout(() => {
-        redealIslands(gs);
-        drawBoard();
-        proceedToChoosing();
+        setTimeout(() => showBattleOverlay(() => runAttack(idx + 1)), 600);
       }, 1200);
     }
+
+    runAttack(0);
   }
 
   // ── Card handling overlay ─────────────────────────────────────────────────
@@ -835,42 +860,73 @@ export function renderWizardIsland(root) {
   function showBattleOverlay(onDone) {
     if (activeBattleCleanup) activeBattleCleanup();
     const bs = gs.battleState;
-    const isMyBattle = bs.type === 'pvp' || bs.playerKey === myKey;
+    // The keys actually contesting this battle — for pvp it's bs.combatants (2, or 3 for
+    // a free-for-all); for a merged tower fight it's bs.groupKeys; for a classic solo
+    // wizard battle it's just bs.playerKey. Anyone else on the board is a bystander who
+    // still needs to watch (see attachBattleActions) to stay in rng lockstep.
+    const battleKeys = bs.combatants || bs.groupKeys || (bs.playerKey ? [bs.playerKey] : ALL_KEYS);
+    const isParticipant = battleKeys.includes(myKey);
     const me = gs.players[myKey];
-    const opp = gs.players[oppKey];
     const wiz = gs.wizard;
 
     const box = makeBox('border-color:#8b0000;');
     box.id = 'battle-box';
 
     function buildBattleHTML() {
-      const title = bs.type === 'pvp' ? '⚔ Battle!' : bs.playerKey === myKey ? '💀 You vs the Dark Wizard' : `💀 ${esc(gs.players[bs.playerKey].name)} vs the Dark Wizard`;
-      const aStats = `⚔${getAttack(me)} 🛡${getDefence(me)} 🧥${getArmourCount(me)} ❤${bs.staminaLeft[myKey]}`;
-      const bStats = bs.type === 'pvp' ? `⚔${getAttack(opp)} 🛡${getDefence(opp)} 🧥${getArmourCount(opp)} ❤${bs.staminaLeft[oppKey]}` : '';
+      const isGroup = !!bs.groupKeys;
+      const isFFA = bs.mode === 'ffa';
+      const fighterKey = bs.type === 'wizard' && !isGroup ? bs.playerKey : myKey;
+      const fighter = gs.players[fighterKey] || me;
+      const title = isGroup ? `🤝 ${esc(battleKeys.map(k => gs.players[k].name).join(' & '))} vs the Dark Wizard`
+        : bs.type === 'pvp' ? '⚔ Battle!'
+        : bs.playerKey === myKey ? '💀 You vs the Dark Wizard'
+        : `💀 ${esc(gs.players[bs.playerKey].name)} vs the Dark Wizard`;
       const wStats = `⚔${wiz.attack} 🛡${wiz.defence} 🧥${wiz.armour}`;
 
-      return `
-        <div style="font-size:15px;font-weight:bold;color:#ff4040;text-align:center;margin-bottom:10px;">${title}</div>
-        ${bs.type === 'pvp' && bs.islandIdx !== null ? `<div style="font-size:11px;color:#f0c040;text-align:center;margin-bottom:6px;">🏝 Island ${bs.islandIdx+1} card at stake (first hit wins)</div>` : ''}
-        ${bs.cardWinner ? `<div style="font-size:11px;color:#40cc80;text-align:center;margin-bottom:6px;">🏆 ${esc(gs.players[bs.cardWinner].name)} has the island card</div>` : ''}
-        <div style="display:flex;gap:8px;margin-bottom:10px;font-size:11px;">
+      let combatantsHTML;
+      if (isGroup) {
+        const groupAtk = battleKeys.reduce((s, k) => s + getAttack(gs.players[k]), 0);
+        const groupDef = battleKeys.reduce((s, k) => s + getDefence(gs.players[k]), 0);
+        combatantsHTML = `
           <div style="flex:1;background:#0a1530;padding:6px;border-radius:6px;">
-            <div style="color:#4a9eff;font-weight:bold;">${esc(me.name)}</div>
-            <div>${aStats}</div>
+            <div style="color:#4a9eff;font-weight:bold;">${esc(battleKeys.map(k => gs.players[k].name).join(' & '))}</div>
+            <div>⚔${groupAtk} 🛡${groupDef} ❤${bs.staminaLeft.GROUP}</div>
           </div>
-          ${bs.type === 'pvp' ? `
-          <div style="align-self:center;font-size:18px;">⚔</div>
-          <div style="flex:1;background:#300a0a;padding:6px;border-radius:6px;">
-            <div style="color:#ff6b4a;font-weight:bold;">${esc(opp.name)}</div>
-            <div>${bStats}</div>
-          </div>` : `
           <div style="align-self:center;font-size:18px;">💀</div>
           <div style="flex:1;background:#300020;padding:6px;border-radius:6px;">
             <div style="color:#c4a0e0;font-weight:bold;">Dark Wizard</div>
             <div>${wStats}</div>
             ${wiz.armourZero ? '<div style="color:#ff4040;font-size:10px;">⚠ Armour broken — next hit kills!</div>' : ''}
-          </div>`}
-        </div>
+          </div>`;
+      } else if (bs.type === 'pvp') {
+        combatantsHTML = battleKeys.map(k => {
+          const p = gs.players[k];
+          const isTurnMarker = isFFA && (k === bs.attackerKey ? ' ⚔' : k === bs.targetKey ? ' 🎯' : '');
+          return `
+          <div style="flex:1;background:${k === myKey ? '#0a1530' : '#300a0a'};padding:6px;border-radius:6px;">
+            <div style="color:${k === myKey ? '#4a9eff' : '#ff6b4a'};font-weight:bold;">${esc(p.name)}${isTurnMarker || ''}</div>
+            <div>⚔${getAttack(p)} 🛡${getDefence(p)} 🧥${getArmourCount(p)}${bs.staminaLeft ? ` ❤${bs.staminaLeft[k]}` : ''}</div>
+          </div>`;
+        }).join('<div style="align-self:center;font-size:14px;">⚔</div>');
+      } else {
+        combatantsHTML = `
+          <div style="flex:1;background:#0a1530;padding:6px;border-radius:6px;">
+            <div style="color:#4a9eff;font-weight:bold;">${esc(fighter.name)}</div>
+            <div>⚔${getAttack(fighter)} 🛡${getDefence(fighter)} 🧥${getArmourCount(fighter)} ❤${bs.staminaLeft[fighterKey]}</div>
+          </div>
+          <div style="align-self:center;font-size:18px;">💀</div>
+          <div style="flex:1;background:#300020;padding:6px;border-radius:6px;">
+            <div style="color:#c4a0e0;font-weight:bold;">Dark Wizard</div>
+            <div>${wStats}</div>
+            ${wiz.armourZero ? '<div style="color:#ff4040;font-size:10px;">⚠ Armour broken — next hit kills!</div>' : ''}
+          </div>`;
+      }
+
+      return `
+        <div style="font-size:15px;font-weight:bold;color:#ff4040;text-align:center;margin-bottom:10px;">${title}</div>
+        ${bs.type === 'pvp' && bs.islandIdx !== null ? `<div style="font-size:11px;color:#f0c040;text-align:center;margin-bottom:6px;">🏝 Island ${bs.islandIdx+1} card at stake (first hit wins)</div>` : ''}
+        ${bs.cardWinner ? `<div style="font-size:11px;color:#40cc80;text-align:center;margin-bottom:6px;">🏆 ${esc(gs.players[bs.cardWinner].name)} has the island card</div>` : ''}
+        <div style="display:flex;gap:8px;margin-bottom:10px;font-size:11px;">${combatantsHTML}</div>
         <div id="b-log" style="max-height:100px;overflow-y:auto;font-size:10px;color:#888;background:#0a0a14;border-radius:6px;padding:4px 8px;margin-bottom:10px;"></div>
         <div id="b-actions" style="text-align:center;"></div>`;
     }
@@ -894,21 +950,40 @@ export function renderWizardIsland(root) {
       log.scrollTop = log.scrollHeight;
     }
 
+    // Am I expected to actively click Roll this round myself (vs. auto-echoing
+    // readiness so the server's all-active-roles gate still completes)? Bystanders
+    // (not in battleKeys) and, for a solo/FFA turn, whoever isn't currently acting,
+    // never see a Roll button — they just watch and auto-echo (see onBattleRollReady).
+    function iActThisRound() {
+      if (!isParticipant) return false;
+      if (bs.mode === 'ffa') return bs.attackerKey === myKey;
+      if (bs.type === 'wizard' && !bs.groupKeys) return bs.playerKey === myKey;
+      return true; // classic pvp duo and merged group-wizard battle: every participant acts
+    }
+
     function attachBattleActions() {
       const bActions = box.querySelector('#b-actions');
       if (!bActions) return;
 
       if (bs.ended) {
+        const winners = Array.isArray(bs.winner) ? bs.winner : bs.winner ? [bs.winner] : [];
         let msg = '';
-        if (bs.winner === myKey) msg = '<div style="color:#40cc80;font-size:14px;">🏆 You win this battle!</div>';
-        else if (bs.winner === oppKey) msg = '<div style="color:#ff4040;font-size:14px;">💀 You lost this battle.</div>';
+        if (winners.includes(myKey)) msg = '<div style="color:#40cc80;font-size:14px;">🏆 You win this battle!</div>';
         else if (bs.winner === 'wizard') msg = '<div style="color:#ff4040;font-size:14px;">💀 The Dark Wizard overpowers you.</div>';
+        else if (winners.length) msg = `<div style="color:#ff4040;font-size:14px;">💀 ${esc(winners.map(k => gs.players[k].name).join(' & '))} won this battle.</div>`;
         else msg = '<div style="color:#888;font-size:13px;">Battle ended — no winner.</div>';
         bActions.innerHTML = msg;
         return;
       }
 
-      if (bs.pendingWizardHit && bs.playerKey === myKey) {
+      // Only one designated member (the first in groupKeys, or the sole playerKey)
+      // picks which wizard stat to reduce, so a merged fight doesn't double-fire this.
+      const statChooser = bs.groupKeys ? bs.groupKeys[0] : bs.playerKey;
+      if (bs.pendingWizardHit) {
+        if (statChooser !== myKey) {
+          bActions.innerHTML = `<div style="font-size:11px;color:#888;">Waiting for ${esc(gs.players[statChooser]?.name || '…')} to choose a stat…</div>`;
+          return;
+        }
         bActions.innerHTML = `
           <div style="font-size:12px;color:#40cc80;margin-bottom:8px;">You hit the wizard! Choose which stat to reduce:</div>
           <div style="display:flex;gap:6px;justify-content:center;">
@@ -933,26 +1008,49 @@ export function renderWizardIsland(root) {
         return;
       }
 
-      if (!isMyBattle) {
-        bActions.innerHTML = `<div style="font-size:11px;color:#888;">Waiting for ${esc(gs.players[bs.playerKey].name)}…</div>`;
+      // Free-for-all: the current attacker picks a target among the other combatants
+      // before rolling is available.
+      if (bs.mode === 'ffa' && bs.attackerKey === myKey && !bs.targetKey) {
+        const targets = bs.combatants.filter(k => k !== myKey);
+        bActions.innerHTML = `<div style="font-size:12px;margin-bottom:8px;">Choose your target:</div>` +
+          targets.map(k => `<button class="ffa-target" data-k="${k}" style="margin:0 3px;">${esc(gs.players[k].name)}</button>`).join('');
+        box.querySelectorAll('.ffa-target').forEach(btn => btn.addEventListener('click', () => {
+          bs.targetKey = btn.dataset.k;
+          refreshBox();
+        }));
+        return;
+      }
+
+      if (!isParticipant) {
+        const waitingNames = bs.mode === 'ffa' ? gs.players[bs.attackerKey].name
+          : bs.type === 'wizard' && !bs.groupKeys ? (gs.players[bs.playerKey]?.name || '…')
+          : battleKeys.map(k => gs.players[k].name).join(' & ');
+        bActions.innerHTML = `<div style="font-size:11px;color:#888;">Waiting for ${esc(waitingNames)}…</div>`;
+        return;
+      }
+
+      if (!iActThisRound()) {
+        const waitingNames = bs.mode === 'ffa' ? `${esc(gs.players[bs.attackerKey].name)} to pick a target and roll`
+          : battleKeys.filter(k => k !== myKey).map(k => gs.players[k].name).join(' & ');
+        bActions.innerHTML = `<div style="font-size:11px;color:#888;">Waiting for ${bs.mode === 'ffa' ? waitingNames : esc(waitingNames) + '…'}</div>`;
         return;
       }
 
       if (gs._myBattleRollReady) {
-        bActions.innerHTML = `<div style="font-size:11px;color:#888;">Waiting for opponent…</div>`;
+        bActions.innerHTML = `<div style="font-size:11px;color:#888;">Waiting for ${esc(battleKeys.filter(k => k !== myKey).map(k => gs.players[k].name).join(' & ') || 'opponent')}…</div>`;
         return;
       }
 
-      // Show roll button + optional retreat (for wizard battles after first round)
+      // Show roll button + optional retreat (for solo wizard battles after first round)
       let html = `<button id="b-roll">🎲 Roll</button>`;
-      if (bs.type === 'wizard' && bs.round > 0 && !bs.pendingWizardHit) {
+      if (bs.type === 'wizard' && !bs.groupKeys && bs.round > 0 && !bs.pendingWizardHit) {
         html += ` <button class="ghost" id="b-retreat" style="color:#f0a040;border-color:#f0a040;">↩ Retreat</button>`;
       }
       bActions.innerHTML = html;
 
       box.querySelector('#b-roll')?.addEventListener('click', () => {
         gs._myBattleRollReady = true;
-        socket.send({ type: MSG.WI_BATTLE_ROLL_READY });
+        socket.send({ type: MSG.WI_BATTLE_ROLL_READY, ...(bs.mode === 'ffa' ? { target: bs.targetKey } : {}) });
         refreshBox();
       });
 
@@ -1010,9 +1108,10 @@ export function renderWizardIsland(root) {
       // Handle wizard spells drawn this round
       result.events.forEach(ev => {
         if (ev.type === 'wizard_spell_draw') {
-          const text = drawWizardSpell(gs, ev.player);
+          const spell = drawWizardSpell(gs, ev.player);
+          triggerVibeCard(spell, ev.player, true);
           if (ev.player === myKey) {
-            pendingForfeits.push({ text, onDone: null });
+            pendingForfeits.push({ text: spell.text, onDone: null });
           }
         }
         if (ev.type === 'wizard_killed') {
@@ -1039,9 +1138,13 @@ export function renderWizardIsland(root) {
       }
     };
 
-    const onBattleRollReady = () => {
-      // Opponent signalled ready — for wizard battles, auto-echo if observer
-      if (bs.type === 'wizard' && bs.playerKey !== myKey && !gs._myBattleRollReady) {
+    const onBattleRollReady = (ev) => {
+      const { target } = ev.detail || {};
+      if (bs.mode === 'ffa' && typeof target === 'string' && !bs.targetKey) bs.targetKey = target;
+      // Someone else signalled ready — anyone who isn't expected to click Roll
+      // themselves this round (bystanders, and the non-acting side of a solo/FFA turn)
+      // auto-echoes readiness so the server's all-active-roles gate still completes.
+      if (!iActThisRound() && !gs._myBattleRollReady) {
         gs._myBattleRollReady = true;
         socket.send({ type: MSG.WI_BATTLE_ROLL_READY });
       }
@@ -1056,9 +1159,10 @@ export function renderWizardIsland(root) {
     };
 
     const onOppRetreat = (ev) => {
-      // Opponent retreated — end battle
+      // The fighter retreated — end battle. Retreat is only ever offered on a solo
+      // wizard battle (see attachBattleActions), so bs.playerKey is always who retreated.
       const { island } = ev.detail;
-      if (island !== undefined) gs.players[oppKey].island = island;
+      if (island !== undefined && bs.playerKey) gs.players[bs.playerKey].island = island;
       retreatFromBattle(gs);
       refreshBox();
       setTimeout(() => checkAndEndBattle(onDone), 800);
@@ -1079,90 +1183,113 @@ export function renderWizardIsland(root) {
   }
 
   // ── Cooperate / betray ────────────────────────────────────────────────────
-  function showCooperateBetrayUI(onDone) {
+  // ev.players is the 2 or 3 keys actually at the tower this round. Only those
+  // players choose — everyone else (only possible with a 3rd player on the board)
+  // just watches for the reveal, since they still need to run the resulting battle
+  // locally to stay in rng lockstep with everyone else.
+  function showCooperateBetrayUI(ev, onDone) {
+    const participants = ev.players;
+    const amParticipant = participants.includes(myKey);
     const box = makeBox();
-    box.innerHTML = `
-      <div style="font-size:15px;font-weight:bold;color:#c4a0e0;text-align:center;margin-bottom:8px;">⚔ Both at the Dark Wizard's Tower</div>
-      <div style="font-size:11px;color:#aaa;text-align:center;margin-bottom:14px;line-height:1.5;">Choose secretly. Both choices will be revealed simultaneously.<br><br>
-        <strong>Cooperate + Cooperate:</strong> Fight together — combine your attack or defence.<br>
-        <strong>One Betrays:</strong> The betrayer sides with the wizard against you.<br>
-        <strong>Both Betray:</strong> Fight the wizard separately, both draw a dark wizard spell.
-      </div>
-      <div style="display:flex;gap:10px;justify-content:center;">
-        <button id="cb-coop" style="background:#0a2e14;border-color:#40cc80;color:#40cc80;">🤝 Cooperate</button>
-        <button id="cb-bet" style="background:#2e0a0a;border-color:#ff4040;color:#ff4040;">🗡 Betray</button>
-      </div>
-      <div id="cb-wait" style="display:none;text-align:center;color:#888;font-size:12px;margin-top:12px;">Waiting for ${esc(gs.players[oppKey].name)}…</div>`;
-    showOverlay(box);
 
-    let myChoice = null;
-    box.querySelector('#cb-coop').addEventListener('click', () => { submitCoopChoice('cooperate'); });
-    box.querySelector('#cb-bet').addEventListener('click', () => { submitCoopChoice('betray'); });
+    if (!amParticipant) {
+      box.innerHTML = `
+        <div style="font-size:15px;font-weight:bold;color:#c4a0e0;text-align:center;margin-bottom:8px;">⚔ At the Dark Wizard's Tower</div>
+        <div style="font-size:12px;color:#aaa;text-align:center;">${esc(participants.map(k => gs.players[k].name).join(' & '))} are deciding whether to cooperate…</div>`;
+      showOverlay(box);
+    } else {
+      box.innerHTML = `
+        <div style="font-size:15px;font-weight:bold;color:#c4a0e0;text-align:center;margin-bottom:8px;">⚔ ${participants.length > 2 ? 'All Three' : 'Both'} at the Dark Wizard's Tower</div>
+        <div style="font-size:11px;color:#aaa;text-align:center;margin-bottom:14px;line-height:1.5;">Choose secretly. Choices are revealed simultaneously.<br><br>
+          <strong>Cooperate:</strong> Fight together with everyone else who cooperates.<br>
+          <strong>Betray:</strong> Side with the wizard against the cooperators.<br>
+          ${participants.length > 2 ? 'Majority rules when choices split.' : '<strong>Both Betray:</strong> Fight the wizard separately, both draw a dark wizard spell.'}
+        </div>
+        <div style="display:flex;gap:10px;justify-content:center;">
+          <button id="cb-coop" style="background:#0a2e14;border-color:#40cc80;color:#40cc80;">🤝 Cooperate</button>
+          <button id="cb-bet" style="background:#2e0a0a;border-color:#ff4040;color:#ff4040;">🗡 Betray</button>
+        </div>
+        <div id="cb-wait" style="display:none;text-align:center;color:#888;font-size:12px;margin-top:12px;">Waiting for the others…</div>`;
+      showOverlay(box);
 
-    function submitCoopChoice(choice) {
-      myChoice = choice;
-      box.querySelector('#cb-coop').disabled = true;
-      box.querySelector('#cb-bet').disabled = true;
-      box.querySelector('#cb-wait').style.display = 'block';
-      socket.send({ type: MSG.WI_COOPERATE_CHOICE, choice });
+      const submitCoopChoice = (choice) => {
+        box.querySelector('#cb-coop').disabled = true;
+        box.querySelector('#cb-bet').disabled = true;
+        box.querySelector('#cb-wait').style.display = 'block';
+        socket.send({ type: MSG.WI_COOPERATE_CHOICE, choice });
+      };
+      box.querySelector('#cb-coop').addEventListener('click', () => submitCoopChoice('cooperate'));
+      box.querySelector('#cb-bet').addEventListener('click', () => submitCoopChoice('betray'));
     }
 
-    const onReveal = (ev) => {
+    const onReveal = (revEv) => {
       socket.removeEventListener(MSG.WI_COOPERATE_REVEAL, onReveal);
-      const { choiceA, choiceB } = ev.detail;
-      const myChoice2 = myKey === 'A' ? choiceA : choiceB;
-      const oppChoice = myKey === 'A' ? choiceB : choiceA;
       closeOverlay();
-      resolveCooperateBetray(myChoice2, oppChoice, onDone);
+      const { choiceA, choiceB, choiceC } = revEv.detail;
+      const choicesAll = { A: choiceA, B: choiceB, C: choiceC };
+
+      if (!has3) {
+        // Untouched original 2-player mechanic.
+        const myChoice2 = myKey === 'A' ? choiceA : choiceB;
+        const oppChoice = myKey === 'A' ? choiceB : choiceA;
+        resolveCooperateBetray(myKey, myChoice2, oppKey, oppChoice, onDone);
+        return;
+      }
+
+      if (participants.length === 2) {
+        const [k1, k2] = participants;
+        resolveCooperateBetray(k1, choicesAll[k1], k2, choicesAll[k2], onDone);
+        return;
+      }
+
+      const choices = {};
+      participants.forEach(k => { choices[k] = choicesAll[k]; });
+      resolveTowerPlan(planTowerFight(choices), onDone);
     };
     socket.addEventListener(MSG.WI_COOPERATE_REVEAL, onReveal);
   }
 
-  function resolveCooperateBetray(myChoice, oppChoice, onDone) {
+  // Classic 2-participant outcomes (cooperate+cooperate / betray+betray / one betrays) —
+  // generalized from the original A/B-only version to any pair of keys, so it works
+  // whether it's a true 2-player game or exactly 2 of 3 players reaching the tower.
+  function resolveCooperateBetray(k1, choice1, k2, choice2, onDone) {
     const box = makeBox();
-    const me = gs.players[myKey];
-    const opp = gs.players[oppKey];
+    const p1 = gs.players[k1], p2 = gs.players[k2];
 
-    if (myChoice === 'cooperate' && oppChoice === 'cooperate') {
+    if (choice1 === 'cooperate' && choice2 === 'cooperate') {
       box.innerHTML = `
-        <div style="font-size:14px;font-weight:bold;color:#40cc80;text-align:center;margin-bottom:8px;">🤝 Both Cooperate!</div>
-        <div style="font-size:11px;color:#aaa;text-align:center;margin-bottom:12px;">Fight together — choose how to combine your strength:</div>
+        <div style="font-size:14px;font-weight:bold;color:#40cc80;text-align:center;margin-bottom:8px;">🤝 ${esc(p1.name)} & ${esc(p2.name)} Cooperate!</div>
+        <div style="font-size:11px;color:#aaa;text-align:center;margin-bottom:12px;">Fight together — choose how to combine strength:</div>
         <div style="display:flex;gap:8px;justify-content:center;">
-          <button id="c-atk">Combine Attack (${getAttack(me)+getAttack(opp)})</button>
-          <button id="c-def">Combine Defence (${getDefence(me)+getDefence(opp)})</button>
+          <button id="c-atk">Combine Attack (${getAttack(p1)+getAttack(p2)})</button>
+          <button id="c-def">Combine Defence (${getDefence(p1)+getDefence(p2)})</button>
         </div>`;
       showOverlay(box);
       const fight = (combineStat) => {
         closeOverlay();
-        // Apply boost temporarily then fight
-        setStatus(`Cooperating! Combined ${combineStat} active for this battle.`);
-        startBattle(gs, 'wizard', myKey, null);
-        if (combineStat === 'attack') gs.battleState._coopAtkBoost = getAttack(opp);
-        else gs.battleState._coopDefBoost = getDefence(opp);
+        setStatus(`${esc(p1.name)} & ${esc(p2.name)} cooperating! Combined ${combineStat} active for this battle.`);
+        startBattle(gs, 'wizard', k1, null);
+        if (combineStat === 'attack') gs.battleState._coopAtkBoost = getAttack(p2);
+        else gs.battleState._coopDefBoost = getDefence(p2);
         setTimeout(() => showBattleOverlay(onDone), 500);
       };
       box.querySelector('#c-atk').addEventListener('click', () => fight('attack'));
       box.querySelector('#c-def').addEventListener('click', () => fight('defence'));
 
-    } else if (myChoice === 'betray' && oppChoice === 'betray') {
+    } else if (choice1 === 'betray' && choice2 === 'betray') {
       box.innerHTML = `
         <div style="font-size:14px;font-weight:bold;color:#ff4040;text-align:center;margin-bottom:8px;">🗡 Both Betray!</div>
-        <div style="font-size:11px;color:#aaa;text-align:center;margin-bottom:12px;">You each fight the wizard separately and both draw a dark wizard spell regardless.</div>
-        <button id="bb-ok" style="display:block;margin:0 auto;">Begin your battle</button>`;
+        <div style="font-size:11px;color:#aaa;text-align:center;margin-bottom:12px;">${esc(p1.name)} & ${esc(p2.name)} each fight the wizard separately and both draw a dark wizard spell regardless.</div>
+        <button id="bb-ok" style="display:block;margin:0 auto;">Begin battle</button>`;
       showOverlay(box);
       box.querySelector('#bb-ok').addEventListener('click', () => {
         closeOverlay();
-        // Both draw a spell immediately
-        const spell = drawWizardSpell(gs, myKey);
-        pendingForfeits.push({ text: spell, onDone: null });
-        startBattle(gs, 'wizard', myKey, null);
-        showBattleOverlay(onDone);
+        fightSoloChain([k1, k2], true, onDone);
       });
 
     } else {
-      // One betrays
-      const betrayer = myChoice === 'betray' ? myKey : oppKey;
-      const cooperator = betrayer === 'A' ? 'B' : 'A';
+      const betrayer = choice1 === 'betray' ? k1 : k2;
+      const cooperator = betrayer === k1 ? k2 : k1;
       box.innerHTML = `
         <div style="font-size:14px;font-weight:bold;color:#ff4040;text-align:center;margin-bottom:8px;">🗡 ${esc(gs.players[betrayer].name)} Betrays!</div>
         <div style="font-size:11px;color:#aaa;text-align:center;margin-bottom:12px;">${esc(gs.players[betrayer].name)}'s attack and defence are added to the Dark Wizard for this battle.<br>${esc(gs.players[cooperator].name)} must fight alone against a boosted wizard.</div>
@@ -1171,13 +1298,11 @@ export function renderWizardIsland(root) {
       box.querySelector('#bt-ok').addEventListener('click', () => {
         closeOverlay();
         const betrayerPlayer = gs.players[betrayer];
-        // Temporarily boost wizard
         const origAtk = gs.wizard.attack, origDef = gs.wizard.defence;
         gs.wizard.attack += getAttack(betrayerPlayer);
         gs.wizard.defence += getDefence(betrayerPlayer);
         startBattle(gs, 'wizard', cooperator, null);
         showBattleOverlay(() => {
-          // Restore wizard
           gs.wizard.attack = origAtk;
           gs.wizard.defence = origDef;
           onDone();
@@ -1185,6 +1310,258 @@ export function renderWizardIsland(root) {
       });
     }
   }
+
+  // 3-participant majority-rule outcomes (see planTowerFight in wizardIslandGame.js).
+  // No manual "begin" click here — unlike the classic 2-participant flow above, these
+  // paths must run identically (and without any local-only choice) on every client,
+  // including the one player who *isn't* at the tower, so battle rng stays in lockstep.
+  function resolveTowerPlan(plan, onDone) {
+    const namesOf = keys => keys.map(k => gs.players[k].name).join(' & ');
+
+    if (plan.type === 'coop_duo' || plan.type === 'coop_group') {
+      setStatus(`🤝 ${esc(namesOf(plan.cooperators))} cooperate! Fighting the Dark Wizard together.`);
+      setTimeout(() => {
+        startGroupWizardBattle(gs, plan.cooperators);
+        updateHud(); drawBoard();
+        showBattleOverlay(onDone);
+      }, 600);
+      return;
+    }
+
+    if (plan.type === 'coop_duo_plus_betrayer') {
+      setStatus(`🤝 ${esc(namesOf(plan.cooperators))} cooperate — 🗡 ${esc(gs.players[plan.betrayer].name)} betrays and boosts the wizard!`);
+      setTimeout(() => {
+        const b = gs.players[plan.betrayer];
+        const origAtk = gs.wizard.attack, origDef = gs.wizard.defence;
+        gs.wizard.attack += getAttack(b);
+        gs.wizard.defence += getDefence(b);
+        startGroupWizardBattle(gs, plan.cooperators);
+        updateHud(); drawBoard();
+        showBattleOverlay(() => {
+          gs.wizard.attack = origAtk; gs.wizard.defence = origDef;
+          onDone();
+        });
+      }, 600);
+      return;
+    }
+
+    if (plan.type === 'betray_all') {
+      setStatus('🗡 Everyone betrays! Each fights the wizard alone, drawing a dark wizard spell first.');
+      setTimeout(() => fightSoloChain(plan.betrayers, true, onDone), 600);
+      return;
+    }
+
+    if (plan.type === 'betray_duo_plus_cooperator') {
+      setStatus(`🗡 ${esc(namesOf(plan.betrayers))} betray! Each draws a dark wizard spell and fights solo — then ${esc(gs.players[plan.cooperator].name)} fights alone, unboosted.`);
+      setTimeout(() => fightSoloChain(plan.betrayers, true, () => fightSoloChain([plan.cooperator], false, onDone)), 600);
+      return;
+    }
+
+    // one_betrays (2-of-3 case reached via planTowerFight, not the classic 2p path above)
+    setStatus(`🗡 ${esc(gs.players[plan.betrayer].name)} betrays! ${esc(gs.players[plan.cooperator].name)} must fight alone against a boosted wizard.`);
+    setTimeout(() => {
+      const b = gs.players[plan.betrayer];
+      const origAtk = gs.wizard.attack, origDef = gs.wizard.defence;
+      gs.wizard.attack += getAttack(b);
+      gs.wizard.defence += getDefence(b);
+      startBattle(gs, 'wizard', plan.cooperator, null);
+      updateHud(); drawBoard();
+      showBattleOverlay(() => {
+        gs.wizard.attack = origAtk; gs.wizard.defence = origDef;
+        onDone();
+      });
+    }, 600);
+  }
+
+  // Sequential solo wizard fights for a list of keys — every client runs every fight in
+  // the same order (rng lockstep); showBattleOverlay itself handles participant vs
+  // bystander display for whoever isn't the current fighter.
+  function fightSoloChain(keys, drawSpellFirst, onDone) {
+    if (keys.length === 0) { onDone(); return; }
+    const [k, ...rest] = keys;
+    if (drawSpellFirst) {
+      const spell = drawWizardSpell(gs, k);
+      triggerVibeCard(spell, k, true);
+      if (k === myKey) pendingForfeits.push({ text: spell.text, onDone: null });
+    }
+    startBattle(gs, 'wizard', k, null);
+    updateHud(); drawBoard();
+    showBattleOverlay(() => fightSoloChain(rest, drawSpellFirst, onDone));
+  }
+
+  // ── "Wear the vibe" forfeit automation ──────────────────────────────────────
+  // Cards tagged with vibeDurationMs/vibeController (see wizardIslandGame.js) get a
+  // real timed haptics session instead of being left as honor-system text. Both clients
+  // simulate the shared game state identically (same seed), so a card object drawn or
+  // played anywhere is already known — identically — on both clients; only the *live*
+  // intensity/pattern a controller dials in needs to travel over the wire (WI_VIBE_CTRL).
+  let vibeCountdownInt = null;
+  let vibeEndTimeout = null;
+  let vibeCtrlCleanup = null;   // sends a final "stop" ctrl message when a controller session ends
+  let receivingVibeCtrl = false; // true while I'm wearing a vibe someone ELSE is live-driving
+
+  function vibeWidget() {
+    let el = root.querySelector('#wi-vibe-widget');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'wi-vibe-widget';
+      el.style.cssText = 'position:fixed;right:10px;bottom:78px;z-index:200;max-width:220px;background:#1a0a1e;border:1px solid #8b0044;border-radius:10px;padding:10px;box-shadow:0 4px 16px rgba(0,0,0,0.5);font-size:11px;color:#e8dfc8;line-height:1.5;';
+      root.querySelector('#wi-root').appendChild(el);
+    }
+    return el;
+  }
+
+  // Ends whatever vibe-forfeit session (mine or one I'm driving) is currently active and
+  // stops the vibration — called on natural expiry, early stop, or screen teardown, so no
+  // timer or vibration channel is ever left running after this screen goes away.
+  function clearVibeSession() {
+    if (vibeCountdownInt) { clearInterval(vibeCountdownInt); vibeCountdownInt = null; }
+    if (vibeEndTimeout) { clearTimeout(vibeEndTimeout); vibeEndTimeout = null; }
+    receivingVibeCtrl = false;
+    root.querySelector('#wi-vibe-widget')?.remove();
+    if (vibeCtrlCleanup) { const fn = vibeCtrlCleanup; vibeCtrlCleanup = null; fn(); }
+    haptics.pauseForfeitVibe();
+  }
+
+  function fmtMs(ms) {
+    const s = Math.max(0, Math.ceil(ms / 1000));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  // I wear it, on my own currently-selected pattern + tempo (shared mode bar) — the
+  // ambient _modeDriver.sample() baseline in haptics.js. vibeController null/'self'.
+  function startSelfVibeSession(card) {
+    clearVibeSession();
+    const label = card.name || card.label || 'Vibe';
+    const dur = card.vibeDurationMs;
+    haptics.setWaveVibeMode(true);
+    haptics.setForfeitIntensity(1.0);
+    haptics.startForfeitVibe(dur / 1000);
+    const el = vibeWidget();
+    const t0 = performance.now();
+    const tick = () => {
+      const left = dur - (performance.now() - t0);
+      el.innerHTML = `🌀 <strong>${esc(label)}</strong><br>${fmtMs(left)} remaining`;
+      if (left <= 0) clearVibeSession();
+    };
+    tick();
+    vibeCountdownInt = setInterval(tick, 250);
+    vibeEndTimeout = setTimeout(clearVibeSession, dur);
+  }
+
+  // I wear it, but the OTHER player is live-driving the intensity/pattern over the wire.
+  function startReceivingVibeSession(card, controllerName) {
+    clearVibeSession();
+    const label = card.name || card.label || 'Vibe';
+    const dur = card.vibeDurationMs;
+    receivingVibeCtrl = true;
+    haptics.setForfeitIntensity(1.0);
+    haptics.startForfeitVibe(dur / 1000);
+    const el = vibeWidget();
+    const t0 = performance.now();
+    const tick = () => {
+      const left = dur - (performance.now() - t0);
+      el.innerHTML = `🌀 <strong>${esc(label)}</strong><br>${esc(controllerName)} is driving your vibe<br>${fmtMs(left)} remaining`;
+      if (left <= 0) clearVibeSession();
+    };
+    tick();
+    vibeCountdownInt = setInterval(tick, 250);
+    vibeEndTimeout = setTimeout(clearVibeSession, dur);
+  }
+
+  // I'm driving the OTHER player's device live for the card's duration — a floating,
+  // non-blocking panel (mirrors battleships.js's post-match vibe-control panel) so it
+  // doesn't stall the rest of the game while the timer runs.
+  function startControllerVibeSession(card, targetKey, targetName) {
+    clearVibeSession();
+    const label = card.name || card.label || 'Vibe';
+    const dur = card.vibeDurationMs;
+    const el = vibeWidget();
+    el.innerHTML = `
+      <div style="font-weight:bold;color:#ff6b9c;margin-bottom:4px;">🌀 Driving ${esc(targetName)}'s Vibe</div>
+      <div style="color:#999;margin-bottom:6px;">${esc(label)} — <span id="wi-vc-rem"></span></div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+        <input type="range" id="wi-vc-intensity" min="0" max="100" value="80" style="flex:1;">
+        <span id="wi-vc-pct">80%</span>
+      </div>
+      <div style="display:flex;gap:4px;margin-bottom:6px;">
+        <button class="ghost wi-vc-pat" data-pat="steady" style="flex:1;font-size:10px;padding:3px;">Steady</button>
+        <button class="ghost wi-vc-pat" data-pat="wave" style="flex:1;font-size:10px;padding:3px;">Wave</button>
+        <button class="ghost wi-vc-pat" data-pat="pulse" style="flex:1;font-size:10px;padding:3px;">Pulse</button>
+      </div>
+      <button class="ghost" id="wi-vc-stop" style="width:100%;font-size:10px;">Stop early</button>`;
+
+    let curPattern = 'steady';
+    const slider  = el.querySelector('#wi-vc-intensity');
+    const pctEl   = el.querySelector('#wi-vc-pct');
+    const remEl   = el.querySelector('#wi-vc-rem');
+    const patBtns = [...el.querySelectorAll('.wi-vc-pat')];
+
+    function markPattern() {
+      patBtns.forEach(b => b.style.background = b.dataset.pat === curPattern ? '#3a1466' : '');
+    }
+    markPattern();
+
+    const send = (active) => socket.send({
+      type: MSG.WI_VIBE_CTRL, active, target: targetKey,
+      intensity: active ? Number(slider.value) / 100 : 0,
+      pattern: curPattern, durationMs: dur, label,
+    });
+    send(true);
+
+    slider.addEventListener('input', () => { pctEl.textContent = `${slider.value}%`; send(true); });
+    patBtns.forEach(btn => btn.addEventListener('click', () => { curPattern = btn.dataset.pat; markPattern(); send(true); }));
+    el.querySelector('#wi-vc-stop').addEventListener('click', () => clearVibeSession());
+
+    const t0 = performance.now();
+    const tick = () => {
+      const left = dur - (performance.now() - t0);
+      if (remEl) remEl.textContent = fmtMs(left);
+      if (left <= 0) clearVibeSession();
+    };
+    tick();
+    vibeCountdownInt = setInterval(tick, 250);
+    vibeEndTimeout = setTimeout(clearVibeSession, dur);
+    vibeCtrlCleanup = () => send(false);
+  }
+
+  // Works out my role (wearer / controller / bystander) for a drawn/played vibe card and
+  // starts the matching side locally. selfTargeted: the wearer IS the drawer/victim
+  // themselves (stamina pickups, dark wizard forfeits — "you wear..."); false: the
+  // wearer is the OTHER player (spell cards phrased "make the other player wear...").
+  function triggerVibeCard(card, drawerKey, selfTargeted) {
+    if (!card || !card.vibeDurationMs) return;
+    // otherOf: single-player "other" stand-in for a given key — same simplification
+    // convention as oppKey above (documented at file top): for 3 players, picks the
+    // first remaining key in ALL_KEYS order. Applied at most ONCE per role below (never
+    // double-applied), so the caster's own role is always preserved even with a 3rd
+    // player on the board.
+    const otherOf = k => ALL_KEYS.find(x => x !== k) ?? k;
+    const targetKey = selfTargeted ? drawerKey : otherOf(drawerKey);
+    const controllerKey = card.vibeController === 'other'
+      ? (selfTargeted ? otherOf(drawerKey) : drawerKey)
+      : targetKey;
+    if (targetKey === myKey && controllerKey === myKey) {
+      startSelfVibeSession(card);
+    } else if (targetKey === myKey) {
+      startReceivingVibeSession(card, gs.players[controllerKey].name);
+    } else if (controllerKey === myKey) {
+      startControllerVibeSession(card, targetKey, gs.players[targetKey].name);
+    }
+  }
+
+  const onWiVibeCtrl = (ev) => {
+    if (!receivingVibeCtrl) return;
+    const { active, intensity, pattern, target } = ev.detail;
+    // In a 3-player game broadcast() reaches two other clients — only apply this if
+    // it's actually addressed to me (older/untargeted messages have no target field
+    // and are accepted as before, since that only ever happens in a 2-player game).
+    if (target && target !== myKey) return;
+    if (!active) { clearVibeSession(); return; }
+    haptics.setForfeitIntensity(typeof intensity === 'number' ? intensity : 1);
+    haptics.setWaveVibeMode(pattern === 'wave' || pattern === 'pulse');
+  };
+  socket.addEventListener(MSG.WI_VIBE_CTRL, onWiVibeCtrl);
 
   // ── Forfeit queue ─────────────────────────────────────────────────────────
   const pendingForfeits = [];
@@ -1251,7 +1628,10 @@ export function renderWizardIsland(root) {
     gs.phase = 'ended';
     setActions('');
     if (activeBattleCleanup) activeBattleCleanup();
-    const iWon = winnerKey === myKey;
+    // winnerKey is a single player key for a solo kill, or an array of keys for a
+    // merged group-battle kill (only reachable in a 3-player game — see
+    // startGroupWizardBattle/doBattleRoundGroup in wizardIslandGame.js).
+    const iWon = Array.isArray(winnerKey) ? winnerKey.includes(myKey) : winnerKey === myKey;
     const box = makeBox();
     const myForfeits = gs.players[myKey].forfeitLog;
     const oppForfeits = gs.players[oppKey].forfeitLog;
@@ -1277,41 +1657,75 @@ export function renderWizardIsland(root) {
 
   // ── Socket message handlers ───────────────────────────────────────────────
   const onDestGo = (ev) => {
-    const { destA, destB } = ev.detail;
-    processDestGo(destA, destB);
+    const { destA, destB, destC } = ev.detail;
+    processDestGo(destA, destB, destC);
   };
 
   // Note: defined earlier as inline function; expose via socket listener
-  function processDestGo(destA, destB) {
+  function processDestGo(destA, destB, destC) {
     pendingDest = null;
-    const myDest = myKey === 'A' ? destA : destB;
-    const oppDest = myKey === 'A' ? destB : destA;
+    const dests = { A: destA, B: destB, C: destC };
     const fmt = d => d === 'wizard' ? 'Wizard Tower' : `Island ${d+1}`;
-    setStatus(`${esc(gs.players[myKey].name)} → ${fmt(myDest)} · ${esc(gs.players[oppKey].name)} → ${fmt(oppDest)}`);
+    const order = [myKey, ...otherKeys];
+    setStatus(order.map(k => `${esc(gs.players[k].name)} → ${fmt(dests[k])}`).join(' · '));
     setActions('');
-    // Animate both tokens moving simultaneously, then process events
-    animateTokens(destA, destB, () => {
-      const events = resolveDestinations(gs, destA, destB);
+    // Animate all tokens moving simultaneously, then process events
+    animateTokens(destA, destB, destC, () => {
+      const events = resolveDestinations(gs, destA, destB, destC);
       updateHud(); drawBoard();
       setTimeout(() => processEvents(events, 0, () => wizardMovePhase()), 300);
     });
   }
 
   const onSpellPlayOpp = (ev) => {
-    const { spellName } = ev.detail;
-    setStatus(`${esc(gs.players[oppKey].name)} played spell: ${esc(spellName)}`);
+    const { spellName, role } = ev.detail;
+    const casterKey = role ? keyForRole(role) : oppKey;
+    const caster = gs.players[casterKey] || gs.players[oppKey];
+    setStatus(`${esc(caster.name)} played spell: ${esc(spellName)}`);
     const spell = SPELL_CARDS.find(s => s.name === spellName);
-    if (isRuleSpell(spell)) addActiveRule(spell.name, spell.description, gs.players[oppKey].name);
+    if (isRuleSpell(spell)) addActiveRule(spell.name, spell.description, caster.name);
+    triggerVibeCard(spell, casterKey, false);
   };
 
-  const onPeerLeft = () => {
-    setStatus('Opponent disconnected — you win by default.');
-    setActions('');
+  // Non-destructive: the server only fires peer_left after a 5s grace window, and a
+  // reconnect (peer_reconnected) can still land after that — even a genuine-looking drop
+  // may just be a network blip, so don't end the match or wipe local state on it. Just
+  // cover the screen with a "reconnecting" overlay and put things back if they return.
+  // role → player key, matching the server/wire convention (host→A, guest→B, guest2→C).
+  function keyForRole(role) {
+    return role === 'host' ? 'A' : role === 'guest' ? 'B' : role === 'guest2' ? 'C' : oppKey;
+  }
+  let preDisconnectStatus = null;
+  const onPeerLeft = (ev) => {
+    if (document.getElementById('wi-reconn-overlay')) return;
+    const who = gs.players[keyForRole(ev?.detail?.role)] || gs.players[oppKey];
+    const statusEl = root.querySelector('#wi-status');
+    preDisconnectStatus = statusEl ? statusEl.textContent : null;
+    const name = esc(who.name);
+    setStatus(`${name} disconnected — waiting for them to reconnect…`);
+    const reconnOverlay = document.createElement('div');
+    reconnOverlay.id = 'wi-reconn-overlay';
+    reconnOverlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.78);display:flex;align-items:center;justify-content:center;z-index:500;';
+    reconnOverlay.innerHTML = `<div style="color:#e8dfc8;font-size:18px;text-align:center;line-height:1.6;">⚡ Connection lost<br><span style="font-size:14px;opacity:0.7;">${name} disconnected — Reconnecting…</span></div>`;
+    document.body.appendChild(reconnOverlay);
+  };
+
+  const onPeerReconnected = (ev) => {
+    document.getElementById('wi-reconn-overlay')?.remove();
+    if (preDisconnectStatus !== null) { setStatus(preDisconnectStatus); preDisconnectStatus = null; }
+    const who = gs.players[keyForRole(ev?.detail?.role)] || gs.players[oppKey];
+    const name = esc(who.name);
+    const toast = document.createElement('div');
+    toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#2a7a4f;color:#fff;padding:8px 20px;border-radius:8px;z-index:500;font-size:14px;';
+    toast.textContent = `${name} reconnected`;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
   };
 
   socket.addEventListener(MSG.WI_DEST_GO, onDestGo);
   socket.addEventListener(MSG.WI_SPELL_PLAY, onSpellPlayOpp);
   socket.addEventListener(MSG.PEER_LEFT, onPeerLeft);
+  socket.addEventListener(MSG.PEER_RECONNECTED, onPeerReconnected);
 
   const cleanup = () => {
     window.removeEventListener('resize', resizeCanvas);
@@ -1320,7 +1734,11 @@ export function renderWizardIsland(root) {
     canvas.removeEventListener('mousemove', onBoardHover);
     socket.removeEventListener(MSG.WI_DEST_GO, onDestGo);
     socket.removeEventListener(MSG.WI_SPELL_PLAY, onSpellPlayOpp);
+    socket.removeEventListener(MSG.WI_VIBE_CTRL, onWiVibeCtrl);
     socket.removeEventListener(MSG.PEER_LEFT, onPeerLeft);
+    socket.removeEventListener(MSG.PEER_RECONNECTED, onPeerReconnected);
+    document.getElementById('wi-reconn-overlay')?.remove();
+    clearVibeSession();
     if (activeBattleCleanup) activeBattleCleanup();
     if (animRafId) { cancelAnimationFrame(animRafId); animRafId = null; }
     vibeModeBarInstance.destroy();

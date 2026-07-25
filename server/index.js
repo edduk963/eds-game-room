@@ -70,6 +70,18 @@ const VALID_SPELL_IDS = new Set(['gust','bolt','mirror','confiscate','mend','rus
 const VALID_VIBE_MODES = new Set(['random','vibrate','pulse','wave','massage','tease','chacha','step','ramp','tempo','heartbeat']);
 const VALID_VIBE_TEMPOS = new Set([0.5, 1, 2, 5, 10]);
 
+// Wizard Island: which roles are actually seated at the table right now — used to
+// gate every wi_*_ready aggregation (roll/battle/forfeit/dest/coop) so a 3-player
+// session waits for guest2 too, same as the host+guest-only 2-player wire shape.
+function wiActiveRoles(s) {
+  return s.guest2 ? ['host', 'guest', 'guest2'] : ['host', 'guest'];
+}
+// host→A, guest→B, guest2→C — the fixed player-key mapping used throughout the
+// Wizard Island client game state (gs.players.A/B/C).
+function wiRoleKey(role) {
+  return role === 'host' ? 'A' : role === 'guest' ? 'B' : 'C';
+}
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024 });
 
@@ -151,15 +163,12 @@ wss.on('connection', (ws) => {
       s.hostInstReady = false;
       s.guestInstReady = false;
       s.guest2InstReady = false;
-      s.hostWiRollReady = false;
-      s.guestWiRollReady = false;
-      s.hostWiBattleReady = false;
-      s.guestWiBattleReady = false;
-      s.hostWiForfeitAck = false;
-      s.guestWiForfeitAck = false;
-      s.hostWiDestReady = false; s.guestWiDestReady = false;
-      s.hostWiDest = null; s.guestWiDest = null;
-      s.hostWiCoopChoice = null; s.guestWiCoopChoice = null;
+      s.wiRollReady = {};
+      s.wiBattleReady = {};
+      s.wiForfeitAck = {};
+      s.wiDestReady = {}; s.wiDest = {};
+      s.wiCoopChoice = {};
+      s.wiTowerRoles = null;
       s.soHostCommit = null; s.soGuestCommit = null;
       s.soAutoCommitTimer = null; s.soPowerTimer = null;
       s.soPowerPlays = {}; s.soChickenStop = null; s.soChickenTimer = null;
@@ -173,6 +182,8 @@ wss.on('connection', (ws) => {
       const gameType = validGameTypes.includes(msg.gameType) ? msg.gameType : 'galactic';
       const rounds = Number.isInteger(msg.rounds) && msg.rounds >= 1 && msg.rounds <= 5 ? msg.rounds : 3;
       const mode = msg.mode === 'hard' ? 'hard' : 'easy';
+      const mmVariant = msg.mmVariant === 'h2h' ? 'h2h' : 'turns';
+      const mmContinueUntilSolved = !!msg.mmContinueUntilSolved;
       const validDurations = [15, 30, 60, 120, 300, 600];
       const forfeitDuration = validDurations.includes(msg.forfeitDuration) ? msg.forfeitDuration : 30;
       const edgeMode = !!msg.edgeMode;
@@ -286,12 +297,25 @@ wss.on('connection', (ws) => {
       const memGridSize = validMemGridSizes.includes(msg.memGridSize) ? msg.memGridSize : '6x6';
       s.edgeMode = edgeMode;
       const guest2Name = s.guest2?.name ?? (cqBotEnabled ? 'Computer' : null);
-      broadcast(s, { type: 'begin', seed: s.seed, startAt: null, gameType, rounds, mode, forfeitDuration, edgeMode, edgeLives, hiloMode, hiloCycles, hiloDeckSize, hiloVibeRamp, hiloLives, hiloVibeTarget, playerCount, guest2Name, stlDifficulty, stlForfeitCards, soDifficulty, btdForfeits, btdMode, btdGameMode, wiWinCondition, wiSpellLimit, diceVibeRule, lcTimer, lcMinutes, lcDeckSize, lcReward, bsGridSize, bsVibeMultiplier, unoSpecialPacks, snlMode, snlBoardSize, snlDensity, snlStakeMix, snlVibeScale, snlWinCondition, snlFinalRule, snlPowerups, snlCoopBetray, snlForfeitCards, snlForfeitLines, snlAmbient, snlTapOut, memMode, memForfeitLines, memVibeDurations, memGridSize, cqPublicMap: s.cqPublicMap ?? null, cqOwnership: s.cqOwnership ?? null, cqDicePool: s.cqDicePool ?? null, cqRoundCap: s.cqRoundCap ?? CQ_DEFAULT_ROUND_CAP, cqBaseDice: s.cqBaseDice ?? CQ_DEFAULT_BASE_DICE, cqPlayerRoles: s.cqPlayerRoles ?? null, cqBotRoles: s.cqBotRoles ?? [], cqReckoningForfeitText, cqGameForfeitText });
+      broadcast(s, { type: 'begin', seed: s.seed, startAt: null, gameType, rounds, mode, mmVariant, mmContinueUntilSolved, forfeitDuration, edgeMode, edgeLives, hiloMode, hiloCycles, hiloDeckSize, hiloVibeRamp, hiloLives, hiloVibeTarget, playerCount, guest2Name, stlDifficulty, stlForfeitCards, soDifficulty, btdForfeits, btdMode, btdGameMode, wiWinCondition, wiSpellLimit, diceVibeRule, lcTimer, lcMinutes, lcDeckSize, lcReward, bsGridSize, bsVibeMultiplier, unoSpecialPacks, snlMode, snlBoardSize, snlDensity, snlStakeMix, snlVibeScale, snlWinCondition, snlFinalRule, snlPowerups, snlCoopBetray, snlForfeitCards, snlForfeitLines, snlAmbient, snlTapOut, memMode, memForfeitLines, memVibeDurations, memGridSize, cqPublicMap: s.cqPublicMap ?? null, cqOwnership: s.cqOwnership ?? null, cqDicePool: s.cqDicePool ?? null, cqRoundCap: s.cqRoundCap ?? CQ_DEFAULT_ROUND_CAP, cqBaseDice: s.cqBaseDice ?? CQ_DEFAULT_BASE_DICE, cqPlayerRoles: s.cqPlayerRoles ?? null, cqBotRoles: s.cqBotRoles ?? [], cqReckoningForfeitText, cqGameForfeitText });
       return;
     }
 
     if (msg.type === 'mm_guess' && Array.isArray(msg.guess)) {
       broadcast(s, { type: 'mm_guess', guess: msg.guess.map(c => String(c)).slice(0, 7), role }, ws);
+      return;
+    }
+
+    // Head-to-head Mastermind: both players guess independently against the same code, so a
+    // near-simultaneous solve needs one authority. The server resolves it by arrival order —
+    // whichever solved=true guess it sees first for a given roundIndex wins, broadcast to both
+    // clients so they never disagree about the outcome.
+    if (msg.type === 'mm_h2h_guess' && Array.isArray(msg.guess)) {
+      broadcast(s, { type: 'mm_h2h_guess', guess: msg.guess.map(c => String(c)).slice(0, 7), role }, ws);
+      if (msg.solved && Number.isInteger(msg.roundIndex) && s.mmH2hSolvedRound !== msg.roundIndex) {
+        s.mmH2hSolvedRound = msg.roundIndex;
+        broadcast(s, { type: 'mm_h2h_result', roundIndex: msg.roundIndex, winnerRole: role });
+      }
       return;
     }
 
@@ -327,8 +351,11 @@ wss.on('connection', (ws) => {
       broadcast(s, {
         type: 'lobby_config',
         gameType: validGameTypes.includes(msg.gameType) ? msg.gameType : 'galactic',
+        randomPick: validGameTypes.includes(msg.randomPick) ? msg.randomPick : null,
         rounds: Number.isInteger(msg.rounds) && msg.rounds >= 1 && msg.rounds <= 5 ? msg.rounds : 3,
         mode: msg.mode === 'hard' ? 'hard' : 'easy',
+        mmVariant: msg.mmVariant === 'h2h' ? 'h2h' : 'turns',
+        mmContinueUntilSolved: !!msg.mmContinueUntilSolved,
         forfeitDuration: validDurations.includes(msg.forfeitDuration) ? msg.forfeitDuration : 30,
         edgeMode: !!msg.edgeMode,
         edgeLives: Number.isInteger(msg.edgeLives) && msg.edgeLives >= 1 && msg.edgeLives <= 10 ? msg.edgeLives : 3,
@@ -385,35 +412,35 @@ wss.on('connection', (ws) => {
 
     // ── Wizard Island messages ─────────────────────────────────────────────
     if (msg.type === 'wi_roll_ready') {
-      if (role === 'host') s.hostWiRollReady = true;
-      else s.guestWiRollReady = true;
-      if (s.hostWiRollReady && s.guestWiRollReady) {
-        s.hostWiRollReady = false;
-        s.guestWiRollReady = false;
+      s.wiRollReady[role] = true;
+      const roles = wiActiveRoles(s);
+      if (roles.every(r => s.wiRollReady[r])) {
+        roles.forEach(r => { s.wiRollReady[r] = false; });
         broadcast(s, { type: 'wi_roll_go' });
       }
       return;
     }
 
     if (msg.type === 'wi_battle_roll_ready') {
-      if (role === 'host') s.hostWiBattleReady = true;
-      else s.guestWiBattleReady = true;
-      broadcast(s, { type: 'wi_battle_roll_ready' }, ws);
-      if (s.hostWiBattleReady && s.guestWiBattleReady) {
-        s.hostWiBattleReady = false;
-        s.guestWiBattleReady = false;
+      s.wiBattleReady[role] = true;
+      // Optional target player-key — only meaningful for a 3-player island free-for-all,
+      // where the current attacker picks who among the other contestants they're hitting.
+      const target = ['A', 'B', 'C'].includes(msg.target) ? msg.target : undefined;
+      broadcast(s, { type: 'wi_battle_roll_ready', ...(target ? { target } : {}) }, ws);
+      const roles = wiActiveRoles(s);
+      if (roles.every(r => s.wiBattleReady[r])) {
+        roles.forEach(r => { s.wiBattleReady[r] = false; });
         broadcast(s, { type: 'wi_battle_roll_go' });
       }
       return;
     }
 
     if (msg.type === 'wi_forfeit_ack') {
-      if (role === 'host') s.hostWiForfeitAck = true;
-      else s.guestWiForfeitAck = true;
+      s.wiForfeitAck[role] = true;
       broadcast(s, { type: 'wi_opp_forfeit_ack' }, ws);
-      if (s.hostWiForfeitAck && s.guestWiForfeitAck) {
-        s.hostWiForfeitAck = false;
-        s.guestWiForfeitAck = false;
+      const roles = wiActiveRoles(s);
+      if (roles.every(r => s.wiForfeitAck[r])) {
+        roles.forEach(r => { s.wiForfeitAck[r] = false; });
       }
       return;
     }
@@ -435,8 +462,9 @@ wss.on('connection', (ws) => {
 
     if (msg.type === 'wi_spell_play') {
       if (typeof msg.spellName === 'string') {
-        // New-format spell play (spell name from card data)
-        broadcast(s, { type: 'wi_spell_play', spellName: msg.spellName.slice(0, 64) }, ws);
+        // New-format spell play (spell name from card data) — include which role played
+        // it so a 3-player session can tell the two other clients apart, not just "not me".
+        broadcast(s, { type: 'wi_spell_play', spellName: msg.spellName.slice(0, 64), role }, ws);
       } else if (typeof msg.spellId === 'string' && VALID_SPELL_IDS.has(msg.spellId)) {
         // Legacy spell play
         const targetIsland = Number.isInteger(msg.targetIsland) && msg.targetIsland >= 0 && msg.targetIsland <= 7 ? msg.targetIsland : -1;
@@ -446,7 +474,7 @@ wss.on('connection', (ws) => {
           const now = Date.now();
           if (!s._lastOverload || now - s._lastOverload > 6000) {
             s._lastOverload = now;
-            broadcast(s, { type: 'wi_haptic', intensity: 1.0, duration: 5000, target: role === 'host' ? 'A' : 'B' });
+            broadcast(s, { type: 'wi_haptic', intensity: 1.0, duration: 5000, target: wiRoleKey(role) });
           }
         }
         broadcast(s, { type: 'wi_spell_play', spellId: msg.spellId, targetIsland }, ws);
@@ -462,20 +490,44 @@ wss.on('connection', (ws) => {
     if (msg.type === 'wi_dest_ready') {
       const dest = msg.dest === 'wizard' ? 'wizard' : (Number.isInteger(msg.dest) && msg.dest >= 0 && msg.dest <= 7 ? msg.dest : null);
       if (dest === null) return;
-      if (role === 'host') { s.hostWiDestReady = true; s.hostWiDest = dest; }
-      else { s.guestWiDestReady = true; s.guestWiDest = dest; }
-      if (s.hostWiDestReady && s.guestWiDestReady) {
-        const destA = s.hostWiDest;
-        const destB = s.guestWiDest;
-        s.hostWiDestReady = false; s.guestWiDestReady = false;
-        s.hostWiDest = null; s.guestWiDest = null;
-        broadcast(s, { type: 'wi_dest_go', destA, destB });
+      s.wiDestReady[role] = true;
+      s.wiDest[role] = dest;
+      const roles = wiActiveRoles(s);
+      if (roles.every(r => s.wiDestReady[r])) {
+        const destA = s.wiDest.host;
+        const destB = s.wiDest.guest;
+        const destC = s.guest2 ? s.wiDest.guest2 : undefined;
+        // Track which roles actually chose the wizard tower this round — the
+        // cooperate/betray gate below waits only for these (not every active role),
+        // since in a 3-player session it's common for only 2 of 3 to be at the tower.
+        const atWizardRoles = roles.filter(r => s.wiDest[r] === 'wizard');
+        s.wiTowerRoles = atWizardRoles.length >= 2 ? atWizardRoles : null;
+        roles.forEach(r => { s.wiDestReady[r] = false; s.wiDest[r] = null; });
+        broadcast(s, { type: 'wi_dest_go', destA, destB, ...(destC !== undefined ? { destC } : {}) });
       }
       return;
     }
 
     if (msg.type === 'wi_wizard_stat' && ['attack', 'defence', 'armour'].includes(msg.stat)) {
       broadcast(s, { type: 'wi_wizard_stat', stat: msg.stat }, ws);
+      return;
+    }
+
+    // "Wear the vibe" forfeit automation — pure relay, same as the other wi_* messages
+    // above; the server never interprets or acts on the vibe payload itself.
+    if (msg.type === 'wi_vibe_ctrl') {
+      broadcast(s, {
+        type: 'wi_vibe_ctrl',
+        active: !!msg.active,
+        intensity: Math.max(0, Math.min(1, Number(msg.intensity) || 0)),
+        pattern: ['steady', 'wave', 'pulse'].includes(msg.pattern) ? msg.pattern : 'steady',
+        durationMs: Math.max(0, Math.min(30 * 60 * 1000, Number(msg.durationMs) || 0)),
+        label: typeof msg.label === 'string' ? msg.label.slice(0, 80) : '',
+        // Which player key this session is for — in a 3-player game broadcast() reaches
+        // two other clients, and only the one actually wearing this session should apply
+        // a given intensity/pattern update or early stop to themselves.
+        ...(['A', 'B', 'C'].includes(msg.target) ? { target: msg.target } : {}),
+      }, ws);
       return;
     }
 
@@ -486,13 +538,18 @@ wss.on('connection', (ws) => {
     }
 
     if (msg.type === 'wi_cooperate_choice' && ['cooperate', 'betray'].includes(msg.choice)) {
-      if (role === 'host') s.hostWiCoopChoice = msg.choice;
-      else s.guestWiCoopChoice = msg.choice;
-      if (s.hostWiCoopChoice && s.guestWiCoopChoice) {
-        const choiceA = s.hostWiCoopChoice;
-        const choiceB = s.guestWiCoopChoice;
-        s.hostWiCoopChoice = null; s.guestWiCoopChoice = null;
-        broadcast(s, { type: 'wi_cooperate_reveal', choiceA, choiceB });
+      s.wiCoopChoice[role] = msg.choice;
+      // Gate on the roles actually at the tower this round (see wi_dest_ready above),
+      // not every active role — otherwise a 2-of-3 tower encounter would wait forever
+      // on the uninvolved 3rd player, who never sends a choice for it.
+      const roles = (s.wiTowerRoles && s.wiTowerRoles.length) ? s.wiTowerRoles : wiActiveRoles(s);
+      if (roles.every(r => s.wiCoopChoice[r])) {
+        const choiceA = s.wiCoopChoice.host;
+        const choiceB = s.wiCoopChoice.guest;
+        const choiceC = s.guest2 ? s.wiCoopChoice.guest2 : undefined;
+        roles.forEach(r => { s.wiCoopChoice[r] = null; });
+        s.wiTowerRoles = null;
+        broadcast(s, { type: 'wi_cooperate_reveal', choiceA, choiceB, ...(choiceC !== undefined ? { choiceC } : {}) });
       }
       return;
     }

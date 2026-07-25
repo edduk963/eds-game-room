@@ -27,7 +27,7 @@ function guessesForSlots(slots, mode) {
 }
 
 export function getBaseConfig(mode = 'easy') {
-  const slots = 3;
+  const slots = mode === 'easy' ? 4 : 3;
   return { slots, guesses: guessesForSlots(slots, mode) };
 }
 

@@ -4,7 +4,7 @@ import * as haptics from './haptics.js';
 import { MSG } from './shared/messages.js';
 import { VIBE_MODES } from './vibeModes.js';
 
-const TEMPO_OPTIONS = [0.5, 1, 2, 5, 10];
+export const TEMPO_OPTIONS = [0.5, 1, 2, 5, 10];
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({

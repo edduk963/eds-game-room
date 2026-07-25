@@ -763,7 +763,7 @@ function renderClimber(root) {
       ${buildForfeitRecap()}
       <button id="snl-results" class="snl-btn-primary">Results →</button>
     </div>`);
-    modalEl.querySelector('#snl-results')?.addEventListener('click', () => { haptics.stopAll(); navigate('#/results'); });
+    modalEl.querySelector('#snl-results')?.addEventListener('click', () => { haptics.stopAll(); state.forfeitAlreadyResolved = true; navigate('#/results'); });
   }
 
   function triggerEnduranceLoss() {
@@ -779,7 +779,7 @@ function renderClimber(root) {
       <div class="snl-forfeit-text">${ENDURANCE_FORFEIT_CAP} forfeits was your limit — vibe for ${secs}s…</div>
       <button id="snl-results" class="snl-btn-primary" style="margin-top:14px">Results →</button>
     </div>`);
-    modalEl.querySelector('#snl-results')?.addEventListener('click', () => { haptics.stopAll(); navigate('#/results'); });
+    modalEl.querySelector('#snl-results')?.addEventListener('click', () => { haptics.stopAll(); state.forfeitAlreadyResolved = true; navigate('#/results'); });
   }
 
   function triggerFinale(winnerRole) {

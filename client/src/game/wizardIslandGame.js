@@ -45,7 +45,7 @@ export const STAMINA_CARDS = [
   { type: 'stamina', value: 2, label: '+2 Stamina', description: '' },
   { type: 'stamina', value: 3, label: '+3 Stamina', description: '' },
   { type: 'stamina', value: 1, label: '+1 Stamina', description: 'Do 20 press-ups for a bonus +1 stamina.' },
-  { type: 'stamina', value: 3, label: '+3 Stamina', description: 'Wear the vibe for 3 min per fight, opponent controls.' },
+  { type: 'stamina', value: 3, label: '+3 Stamina', description: 'Wear the vibe for 3 min per fight, opponent controls.', vibeDurationMs: 180000, vibeController: 'other' },
   { type: 'stamina', value: 1, label: '+1 Stamina (Testosterone)', description: 'Edge during battle to regain 1 stamina (once per battle).' },
 ];
 
@@ -69,7 +69,7 @@ export const SPELL_CARDS = [
   { type: 'spell', timing: 'immediate', name: 'Pegs', description: 'Immediately make the other player put on d3 pegs.' },
   { type: 'spell', timing: 'immediate', name: 'Expose Hand', description: 'Immediately show all your cards to the other player — they can swap any cards they wish.' },
   { type: 'spell', timing: 'immediate', name: 'Clothing Transfer', description: 'Immediately give one item of clothing you are wearing to the other player.' },
-  { type: 'spell', timing: 'immediate', name: 'Vibe 5 Minutes', description: 'Make the other player wear the vibe for 5 minutes while you control.' },
+  { type: 'spell', timing: 'immediate', name: 'Vibe 5 Minutes', description: 'Make the other player wear the vibe for 5 minutes while you control.', vibeDurationMs: 300000, vibeController: 'other' },
   { type: 'spell', timing: 'immediate', name: 'Nothing', description: 'Nothing happens.' },
   { type: 'spell', timing: 'immediate', name: 'Return Cards', description: 'Immediately return 3 cards of your choice to the deck.' },
   { type: 'spell', timing: 'immediate', name: 'Card Steal', description: 'The other player randomly picks 2 of your cards to return to the deck.' },
@@ -80,7 +80,7 @@ export const SPELL_CARDS = [
   { type: 'spell', timing: 'immediate', name: 'Summon Wizard (Enemy)', description: 'The dark wizard is immediately drawn to the other player\'s position.' },
   { type: 'spell', timing: 'immediate', name: 'No Surrender', description: 'For the rest of the game all battles last until all stamina on both sides is gone.' },
   { type: 'spell', timing: 'immediate', name: 'Bloodlust Quest', description: 'Engage in 3 battles in the next 4 rounds or lose all your cards, activating any spells.' },
-  { type: 'spell', timing: 'immediate', name: 'Vibe Edge', description: 'Vibe-edge the other player for 5 minutes. Gain 1 stamina per edge. If they orgasm you lose all your cards.' },
+  { type: 'spell', timing: 'immediate', name: 'Vibe Edge', description: 'Vibe-edge the other player for 5 minutes. Gain 1 stamina per edge. If they orgasm you lose all your cards.', vibeDurationMs: 300000, vibeController: 'other' },
   { type: 'spell', timing: 'immediate', name: 'Endless Battle', description: 'For the rest of the game all battles last as long as there is stamina for either player.' },
   { type: 'spell', timing: 'immediate', name: 'Halving (Islands 1–4)', description: 'For 5 turns players and the dark wizard can only move to islands 1–4.' },
   { type: 'spell', timing: 'immediate', name: 'Inventory Boost', description: 'Both players gain one inventory slot.' },
@@ -123,7 +123,7 @@ export const SPELL_CARDS = [
   { type: 'spell', timing: 'held', name: 'Mirror Spell', description: 'Make the other player repeat a spell or forfeit you must do.' },
   { type: 'spell', timing: 'held', name: 'Deflect', description: 'Deflect any forfeit or spell to the other player.' },
   { type: 'spell', timing: 'held', name: 'Wizard Rage', description: 'Put the wizard into rage (+20 attack/defence/armour). Rage ends — killing the wizard — after 3 battles.' },
-  { type: 'spell', timing: 'held', name: 'Delayed Punishment', description: 'The other player wears the vibe for 10 minutes at an intensity of your choice.' },
+  { type: 'spell', timing: 'held', name: 'Delayed Punishment', description: 'The other player wears the vibe for 10 minutes at an intensity of your choice.', vibeDurationMs: 600000, vibeController: 'other' },
   { type: 'spell', timing: 'held', name: 'Double Mode Held', description: 'Pick another game mode — if it doesn\'t conflict, play both.' },
   { type: 'spell', timing: 'held', name: 'Island 6 Refuge', description: 'Move to island 6 for d6 turns. You may collect cards.' },
   { type: 'spell', timing: 'held', name: 'Wizard Summons Held', description: 'Both players move to the dark wizard and battle him for at least two fights.' },
@@ -144,25 +144,28 @@ export const MODIFIER_CARDS = [
   { name: 'Locked Islands', description: 'If the dark wizard lands on the same island twice, that island is locked to all players.' },
 ];
 
+// Each entry is drawn as a forfeit against the player who lost the armour exchange
+// (see drawWizardSpell). vibeDurationMs/vibeController tag the entries that state an
+// actual timed vibe-wear session — see SPELL_CARDS above for the same convention.
 export const WIZARD_SPELL_POOL = [
-  'Edge once every time you lose all your armour for the rest of the game. Game continues.',
-  'Spank your balls d6 times each time you take a hit for the rest of the game. Game continues.',
-  'Edge once for each item of armour the other player currently has. They decide if game continues.',
-  'Wear the vibe for 5 minutes — other player can only make you edge. Game continues.',
-  'You are denied outside games until you\'ve made d3 people cum in a game. Game over.',
-  'After the game the other player can vibe you for 30 minutes at times of their choice. Game continues.',
-  'Wear the vibe under control for 10 min. If you do NOT cum then the game continues.',
-  'Wear the vibe under control for 10 min. If you cum then the game continues.',
-  'Return to the last space you were on and wait there until you collect an armour card. Game continues.',
-  'The winner can make you edge at any time (including nights) up to 3 times. Game continues.',
-  'The other player will immediately use the vibe to make you cum and post-cum. Game over.',
-  'The other player receives an extra life/chance in the next game you play together. Game continues.',
-  'The other player can design a game for you to play immediately, including rules and forfeits. Game over.',
-  'Keep this card — if you defeat the wizard, you can assign any dark wizard forfeit to another player. Game continues.',
-  'The other player will use the vibe to make you cum. Game over. OR play on with no forfeit — if you don\'t defeat the wizard, double the forfeit.',
-  'You will go on public cam and share a link to the vibe for the audience to control until cum. Game over.',
-  'The other player can design d3 games for you to play over an agreed period. Game over.',
-  'The other player can control you to cum at any time (including nights) up to d3 times. Game continues.',
+  { text: 'Edge once every time you lose all your armour for the rest of the game. Game continues.' },
+  { text: 'Spank your balls d6 times each time you take a hit for the rest of the game. Game continues.' },
+  { text: 'Edge once for each item of armour the other player currently has. They decide if game continues.' },
+  { text: 'Wear the vibe for 5 minutes — other player can only make you edge. Game continues.', vibeDurationMs: 300000, vibeController: null },
+  { text: 'You are denied outside games until you\'ve made d3 people cum in a game. Game over.' },
+  { text: 'After the game the other player can vibe you for 30 minutes at times of their choice. Game continues.' },
+  { text: 'Wear the vibe under control for 10 min. If you do NOT cum then the game continues.', vibeDurationMs: 600000, vibeController: 'other' },
+  { text: 'Wear the vibe under control for 10 min. If you cum then the game continues.', vibeDurationMs: 600000, vibeController: 'other' },
+  { text: 'Return to the last space you were on and wait there until you collect an armour card. Game continues.' },
+  { text: 'The winner can make you edge at any time (including nights) up to 3 times. Game continues.' },
+  { text: 'The other player will immediately use the vibe to make you cum and post-cum. Game over.' },
+  { text: 'The other player receives an extra life/chance in the next game you play together. Game continues.' },
+  { text: 'The other player can design a game for you to play immediately, including rules and forfeits. Game over.' },
+  { text: 'Keep this card — if you defeat the wizard, you can assign any dark wizard forfeit to another player. Game continues.' },
+  { text: 'The other player will use the vibe to make you cum. Game over. OR play on with no forfeit — if you don\'t defeat the wizard, double the forfeit.' },
+  { text: 'You will go on public cam and share a link to the vibe for the audience to control until cum. Game over.' },
+  { text: 'The other player can design d3 games for you to play over an agreed period. Game over.' },
+  { text: 'The other player can control you to cum at any time (including nights) up to d3 times. Game continues.' },
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -193,7 +196,9 @@ export function getArmourCount(player) {
 }
 
 // ── Game state factory ─────────────────────────────────────────────────────
-export function createGameState(seed, rng, nameA, nameB) {
+// nameC is optional — pass it (3-player sessions carry state.guest2Name) to add a
+// third player (key 'C'). Omitting it reproduces the 2-player game exactly.
+export function createGameState(seed, rng, nameA, nameB, nameC) {
   // Build and shuffle unified deck
   const allCards = [
     ...ATTACK_CARDS, ...DEFENCE_CARDS, ...STAMINA_CARDS,
@@ -218,10 +223,11 @@ export function createGameState(seed, rng, nameA, nameB) {
   const gs = {
     phase: 'choosing',
     turn: 0,
-    nameA, nameB,
+    nameA, nameB, nameC: nameC ?? null,
     players: {
       A: makePlayer(nameA, maxInventory),
       B: makePlayer(nameB, maxInventory),
+      ...(nameC ? { C: makePlayer(nameC, maxInventory) } : {}),
     },
     wizard: {
       island: wizStartIsland,
@@ -238,11 +244,16 @@ export function createGameState(seed, rng, nameA, nameB) {
     wizardSpellIdx: 0,
     modifier,
     armourBurnsMode: modifier.name === 'Armour Burn Mode',
-    activeRules: [],   // rule-changing spells in effect, shown to both players
+    activeRules: [],   // rule-changing spells in effect, shown to both/all players
   };
 
   dealIslands(gs);
   return gs;
+}
+
+// ── Player keys present in this game (['A','B'] or ['A','B','C']) ─────────
+export function playerKeys(gs) {
+  return gs.players.C ? ['A', 'B', 'C'] : ['A', 'B'];
 }
 
 function makePlayer(name, maxInventory) {
@@ -293,48 +304,60 @@ export function redealIslands(gs) {
   dealIslands(gs);
 }
 
-// ── Round resolution: takes both destination choices ──────────────────────
-// dest: 0-7 (island index) or 'wizard'
-export function resolveDestinations(gs, destA, destB) {
-  if (typeof destA === 'number') {
-    gs.players.A.prevIsland = destA;
-    gs.players.A.island = destA;
-  } else {
-    gs.players.A.island = null;
-  }
-  if (typeof destB === 'number') {
-    gs.players.B.prevIsland = destB;
-    gs.players.B.island = destB;
-  } else {
-    gs.players.B.island = null;
-  }
-  gs.players.A.choiceSubmitted = false;
-  gs.players.B.choiceSubmitted = false;
+// ── Round resolution: takes each player's destination choice ──────────────
+// dest: 0-7 (island index) or 'wizard'. destC is only read when gs.players.C exists —
+// passing it for a 2-player game is a no-op, so 2-player callers are unaffected.
+export function resolveDestinations(gs, destA, destB, destC) {
+  const keys = playerKeys(gs);
+  const dests = { A: destA, B: destB, C: destC };
+
+  keys.forEach(key => {
+    const dest = dests[key];
+    if (typeof dest === 'number') {
+      gs.players[key].prevIsland = dest;
+      gs.players[key].island = dest;
+    } else {
+      gs.players[key].island = null;
+    }
+    gs.players[key].choiceSubmitted = false;
+  });
   gs.turn++;
 
-  const aWiz = destA === 'wizard', bWiz = destB === 'wizard';
   const events = [];
   const inBattle = new Set();
 
-  if (aWiz && bWiz) {
-    events.push({ type: 'cooperate_or_betray' });
-    inBattle.add('A'); inBattle.add('B');
-  } else if (aWiz) {
-    events.push({ type: 'wizard_battle', player: 'A' });
-    inBattle.add('A');
-  } else if (bWiz) {
-    events.push({ type: 'wizard_battle', player: 'B' });
-    inBattle.add('B');
+  // Wizard tower: 2+ players landing there together triggers cooperate/betray —
+  // exactly today's 2-player rule when it's 2, majority rules when it's 3 (see
+  // planTowerFight). Exactly one player alone just gets a normal solo attack.
+  const atWizard = keys.filter(k => dests[k] === 'wizard');
+  if (atWizard.length >= 2) {
+    events.push({ type: 'cooperate_or_betray', players: atWizard });
+    atWizard.forEach(k => inBattle.add(k));
+  } else if (atWizard.length === 1) {
+    events.push({ type: 'wizard_battle', player: atWizard[0] });
+    inBattle.add(atWizard[0]);
   }
 
-  if (!aWiz && !bWiz && destA === destB) {
-    events.push({ type: 'pvp_battle', island: destA });
-    inBattle.add('A'); inBattle.add('B');
-  }
+  // Islands: group everyone (not already at the wizard) by destination island.
+  // 2+ sharing an island battle for the card — a free-for-all when all 3 land there,
+  // otherwise identical to today's 2-player pvp rule for that pair.
+  const islandGroups = {};
+  keys.forEach(k => {
+    if (atWizard.includes(k)) return;
+    const dest = dests[k];
+    if (typeof dest !== 'number') return;
+    (islandGroups[dest] ??= []).push(k);
+  });
+  Object.entries(islandGroups).forEach(([islandIdx, group]) => {
+    if (group.length >= 2) {
+      events.push({ type: 'pvp_battle', island: Number(islandIdx), players: group });
+      group.forEach(k => inBattle.add(k));
+    }
+  });
 
-  ['A', 'B'].forEach(key => {
+  keys.forEach(key => {
     if (inBattle.has(key)) return;
-    const dest = key === 'A' ? destA : destB;
+    const dest = dests[key];
     if (typeof dest !== 'number') return;
     if (gs.islands[dest]?.card) events.push({ type: 'island_card', player: key, island: dest });
   });
@@ -343,17 +366,45 @@ export function resolveDestinations(gs, destA, destB) {
   return events;
 }
 
+// ── Tower majority rules (see WIZARD_ISLAND.md) ────────────────────────────
+// choices: { [playerKey]: 'cooperate' | 'betray' } for everyone currently at the
+// wizard tower (exactly the 2 or 3 keys from a 'cooperate_or_betray' event).
+// Returns a plan describing how the fight(s) against the wizard proceed:
+//   coop_duo / coop_group        — cooperators merge stats and fight together
+//   betray_all                   — everyone fights solo, each drawing a spell first
+//   one_betrays                  — (2p only) betrayer sides with the wizard vs the cooperator
+//   coop_duo_plus_betrayer       — 2 cooperate (merged) vs a wizard boosted by the betrayer
+//   betray_duo_plus_cooperator   — 2 betray (solo + spell each), 1 cooperates solo, unboosted
+export function planTowerFight(choices) {
+  const keys = Object.keys(choices);
+  if (keys.length <= 2) {
+    const [k1, k2] = keys;
+    if (choices[k1] === 'cooperate' && choices[k2] === 'cooperate') return { type: 'coop_duo', cooperators: [k1, k2] };
+    if (choices[k1] === 'betray' && choices[k2] === 'betray') return { type: 'betray_all', betrayers: [k1, k2] };
+    const betrayer = choices[k1] === 'betray' ? k1 : k2;
+    const cooperator = betrayer === k1 ? k2 : k1;
+    return { type: 'one_betrays', betrayer, cooperator };
+  }
+  const cooperators = keys.filter(k => choices[k] === 'cooperate');
+  const betrayers = keys.filter(k => choices[k] === 'betray');
+  if (cooperators.length === 3) return { type: 'coop_group', cooperators };
+  if (betrayers.length === 3) return { type: 'betray_all', betrayers };
+  if (cooperators.length === 2) return { type: 'coop_duo_plus_betrayer', cooperators, betrayer: betrayers[0] };
+  return { type: 'betray_duo_plus_cooperator', betrayers, cooperator: cooperators[0] };
+}
+
 // ── Wizard moves to random unlocked island after turn ─────────────────────
+// attacksPlayer: first player found on the wizard's new island (kept for 2-player
+// callers — identical to before). attacksPlayers: everyone found there, in case more
+// than one player shares that space (only possible with a 3rd player on the board).
 export function moveWizardAfterTurn(gs, rng) {
-  if (gs.wizard.defeated) return { island: gs.wizard.island, attacksPlayer: null };
+  if (gs.wizard.defeated) return { island: gs.wizard.island, attacksPlayer: null, attacksPlayers: [] };
   const available = gs.islands.map((isl, i) => isl.locked ? -1 : i).filter(i => i >= 0);
-  if (!available.length) return { island: gs.wizard.island, attacksPlayer: null };
+  if (!available.length) return { island: gs.wizard.island, attacksPlayer: null, attacksPlayers: [] };
   const newIsland = available[rngInt(rng, 0, available.length - 1)];
   gs.wizard.island = newIsland;
-  let attacksPlayer = null;
-  if (gs.players.A.island === newIsland) attacksPlayer = 'A';
-  else if (gs.players.B.island === newIsland) attacksPlayer = 'B';
-  return { island: newIsland, attacksPlayer };
+  const attacksPlayers = playerKeys(gs).filter(k => gs.players[k].island === newIsland);
+  return { island: newIsland, attacksPlayer: attacksPlayers[0] ?? null, attacksPlayers };
 }
 
 // ── Collect island card ────────────────────────────────────────────────────
@@ -398,31 +449,89 @@ export function discardFromInventory(gs, playerKey, cardIdx) {
 
 // ── Battle: setup ──────────────────────────────────────────────────────────
 // type: 'pvp' | 'wizard'
-// playerKey: who fights the wizard (for wizard battles)
+// playerKey: who fights the wizard (for solo wizard battles)
 // islandIdx: island card at stake (for pvp, can be null)
-export function startBattle(gs, type, playerKey, islandIdx) {
-  const pA = gs.players.A, pB = gs.players.B;
-  let firstAttacker;
+// combatants: for pvp, the 2 (today's rule) or 3 (free-for-all) keys contesting the
+// island. Omitting it defaults to ['A','B'] — the only case a 2-player game can hit,
+// so existing 2-player pvp battles are unaffected.
+export function startBattle(gs, type, playerKey, islandIdx, combatants) {
   if (type === 'pvp') {
-    const aAtk = getAttack(pA), bAtk = getAttack(pB);
-    if (aAtk !== bAtk) firstAttacker = aAtk > bAtk ? 'A' : 'B';
-    else {
-      const aDef = getDefence(pA), bDef = getDefence(pB);
-      if (aDef !== bDef) firstAttacker = aDef > bDef ? 'A' : 'B';
-      else firstAttacker = getMaxStamina(pA) >= getMaxStamina(pB) ? 'A' : 'B';
+    const keys = combatants || ['A', 'B'];
+
+    if (keys.length >= 3) {
+      // Free-for-all: turn order by Attack, tie-break Defence then Stamina (desc).
+      const order = [...keys].sort((k1, k2) => {
+        const p1 = gs.players[k1], p2 = gs.players[k2];
+        if (getAttack(p2) !== getAttack(p1)) return getAttack(p2) - getAttack(p1);
+        if (getDefence(p2) !== getDefence(p1)) return getDefence(p2) - getDefence(p1);
+        return getMaxStamina(p2) - getMaxStamina(p1);
+      });
+      gs.battleState = {
+        type, mode: 'ffa', combatants: keys, islandIdx: islandIdx ?? null,
+        order, attackerKey: order[0], targetKey: null,
+        round: 0, cardWinner: null, log: [],
+        ended: false, winner: null, retreated: false, pendingWizardHit: false,
+        staminaLeft: null,
+      };
+      gs.phase = 'battle';
+      return;
     }
-  } else {
-    firstAttacker = playerKey;
+
+    // Exactly 2 combatants — today's duo mechanic, generalized to any pair of keys
+    // (identical output to before when the pair is ['A','B']).
+    const [k1, k2] = keys;
+    const p1 = gs.players[k1], p2 = gs.players[k2];
+    let firstAttacker;
+    const a1 = getAttack(p1), a2 = getAttack(p2);
+    if (a1 !== a2) firstAttacker = a1 > a2 ? k1 : k2;
+    else {
+      const d1 = getDefence(p1), d2 = getDefence(p2);
+      if (d1 !== d2) firstAttacker = d1 > d2 ? k1 : k2;
+      else firstAttacker = getMaxStamina(p1) >= getMaxStamina(p2) ? k1 : k2;
+    }
+    gs.battleState = {
+      type, combatants: keys, islandIdx: islandIdx ?? null,
+      attackerKey: firstAttacker,
+      round: 0,
+      cardWinner: null,
+      log: [],
+      ended: false, winner: null, retreated: false,
+      pendingWizardHit: false,
+      staminaLeft: { [k1]: getMaxStamina(p1), [k2]: getMaxStamina(p2) },
+    };
+    gs.phase = 'battle';
+    return;
   }
+
+  // Wizard battle: solo playerKey (works the same for A, B, or C).
   gs.battleState = {
     type, playerKey, islandIdx: islandIdx ?? null,
-    attackerKey: firstAttacker,
+    attackerKey: playerKey,
     round: 0,
     cardWinner: null,
     log: [],
     ended: false, winner: null, retreated: false,
     pendingWizardHit: false,
-    staminaLeft: { A: getMaxStamina(pA), B: getMaxStamina(pB) },
+    staminaLeft: { [playerKey]: getMaxStamina(gs.players[playerKey]) },
+  };
+  gs.phase = 'battle';
+}
+
+// ── Tower: merged-force wizard battle for 2 or 3 cooperators ───────────────
+// Only ever used for the NEW 3-player group-cooperation cases (all-3-cooperate, or
+// 2-cooperate-vs-a-boosted-wizard) — 2-player cooperate+cooperate keeps using its
+// existing "combine attack OR defence, one of us fights" mechanic untouched.
+export function startGroupWizardBattle(gs, groupKeys) {
+  const totalStamina = groupKeys.reduce((sum, k) => sum + getMaxStamina(gs.players[k]), 0);
+  gs.battleState = {
+    type: 'wizard', groupKeys, playerKey: null, islandIdx: null,
+    attackerKey: groupKeys[0],
+    round: 0,
+    cardWinner: null,
+    log: [],
+    ended: false, winner: null, retreated: false,
+    pendingWizardHit: false,
+    staminaLeft: { GROUP: totalStamina },
   };
   gs.phase = 'battle';
 }
@@ -433,6 +542,17 @@ export function startBattle(gs, type, playerKey, islandIdx) {
 export function doBattleRound(gs, rng) {
   const bs = gs.battleState;
   if (!bs || bs.ended) return null;
+
+  // New 3-player paths — each is a self-contained, deterministic branch that never
+  // touches gs.players.A/B directly, so the classic 2-player logic below (which always
+  // assumes exactly A and B) is completely untouched by these.
+  if (bs.type === 'pvp' && bs.mode === 'ffa') return doBattleRoundFFA(gs, rng);
+  if (bs.type === 'wizard' && bs.groupKeys) return doBattleRoundGroup(gs, rng);
+  if (bs.type === 'wizard' && bs.playerKey !== 'A' && bs.playerKey !== 'B') return doBattleRoundSolo(gs, rng, bs.playerKey);
+  if (bs.type === 'pvp' && bs.combatants && !(bs.combatants.includes('A') && bs.combatants.includes('B'))) {
+    return doBattleRoundDuo(gs, rng, bs.combatants);
+  }
+
   bs.round++;
   const pA = gs.players.A, pB = gs.players.B;
 
@@ -536,6 +656,209 @@ export function doBattleRound(gs, rng) {
   return { logEntry, events };
 }
 
+// ── 3-player battle branches ────────────────────────────────────────────────
+// None of these are reachable from a 2-player game (see the guards at the top of
+// doBattleRound above), so they carry no 2-player compatibility burden — each just
+// needs to be internally deterministic, which a pure function of shared gs state is.
+
+// Solo wizard battle for a player who isn't A or B (i.e. C) — same shape as the
+// classic A/B solo branch above, generalized to any single key.
+function doBattleRoundSolo(gs, rng, pk) {
+  const bs = gs.battleState;
+  bs.round++;
+  const player = gs.players[pk];
+  const pAtkRoll = rngInt(rng, 1, Math.max(1, getAttack(player)));
+  const pDefRoll = rngInt(rng, 1, Math.max(1, getDefence(player)));
+  const wAtkRoll = rngInt(rng, 1, Math.max(1, gs.wizard.attack));
+  const wDefRoll = rngInt(rng, 1, Math.max(1, gs.wizard.defence));
+  const coopAtkBoost = bs._coopAtkBoost ?? 0;
+  const coopDefBoost = bs._coopDefBoost ?? 0;
+  const effectivePAtkRoll = pAtkRoll + coopAtkBoost;
+  const effectivePDefRoll = pDefRoll + coopDefBoost;
+  const playerHitsWiz = effectivePAtkRoll > wDefRoll;
+  const wizHitsPlayer = wAtkRoll > effectivePDefRoll;
+
+  const logEntry = {
+    round: bs.round, type: 'wizard', playerKey: pk,
+    pAtkRoll: effectivePAtkRoll, wDefRoll, pAtkStat: getAttack(player) + coopAtkBoost,
+    wAtkRoll, pDefRoll: effectivePDefRoll, pDefStat: getDefence(player) + coopDefBoost,
+    wizAtk: gs.wizard.attack, wizDef: gs.wizard.defence, wizArm: gs.wizard.armour,
+    playerHitsWiz, wizHitsPlayer,
+  };
+  const events = [];
+
+  if (playerHitsWiz) {
+    if (gs.wizard.armour === 0) {
+      killWizard(gs, pk);
+      events.push({ type: 'wizard_killed', player: pk });
+    } else {
+      bs.pendingWizardHit = true;
+      events.push({ type: 'player_hits_wizard', player: pk });
+    }
+  }
+
+  if (wizHitsPlayer && !bs.ended) {
+    if (getArmourCount(player) > 0) {
+      const idx = player.inventory.findIndex(c => c.type === 'armour' && c.value > 0);
+      const removed = player.inventory.splice(idx, 1)[0];
+      if (!gs.armourBurnsMode) gs.discard.push(removed);
+      events.push({ type: 'armour_lost', player: pk, card: removed });
+    } else {
+      events.push({ type: 'wizard_spell_draw', player: pk, winner: 'wizard' });
+    }
+  }
+
+  bs.staminaLeft[pk] = Math.max(0, bs.staminaLeft[pk] - 1);
+  logEntry.staminaLeft = { ...bs.staminaLeft };
+  if (!bs.ended && bs.staminaLeft[pk] <= 0) { bs.ended = true; bs.winner = 'wizard'; }
+
+  bs.log.push(logEntry);
+  return { logEntry, events };
+}
+
+// Island duel between any 2 of the 3 players (at least one of whom isn't A or B) —
+// the same round-robin "both roll every round, first hit wins the card, battle runs
+// until both are out of stamina" mechanic as the classic A/B duo, just generalized
+// to whichever pair is actually contesting the island.
+function doBattleRoundDuo(gs, rng, combatants) {
+  const bs = gs.battleState;
+  bs.round++;
+  const [k1, k2] = combatants;
+  const p1 = gs.players[k1], p2 = gs.players[k2];
+  const r1_atk = rngInt(rng, 1, Math.max(1, getAttack(p1)));
+  const r2_def = rngInt(rng, 1, Math.max(1, getDefence(p2)));
+  const r2_atk = rngInt(rng, 1, Math.max(1, getAttack(p2)));
+  const r1_def = rngInt(rng, 1, Math.max(1, getDefence(p1)));
+
+  const atk = bs.attackerKey;
+  const def = atk === k1 ? k2 : k1;
+  const atkRoll = atk === k1 ? r1_atk : r2_atk;
+  const defRoll = def === k1 ? r1_def : r2_def;
+  const hit = atkRoll > defRoll;
+
+  const logEntry = {
+    round: bs.round, type: 'pvp', attacker: atk, defender: def,
+    atkRoll, defRoll, atkStat: getAttack(gs.players[atk]), defStat: getDefence(gs.players[def]), hit,
+  };
+  const events = [];
+
+  if (hit) {
+    if (!bs.cardWinner) bs.cardWinner = atk;
+    const defPlayer = gs.players[def];
+    if (getArmourCount(defPlayer) > 0) {
+      const idx = defPlayer.inventory.findIndex(c => c.type === 'armour' && c.value > 0);
+      const removed = defPlayer.inventory.splice(idx, 1)[0];
+      if (!gs.armourBurnsMode) gs.discard.push(removed);
+      events.push({ type: 'armour_lost', player: def, card: removed });
+    } else {
+      events.push({ type: 'wizard_spell_draw', player: def, winner: atk });
+    }
+  }
+
+  bs.staminaLeft[atk] = Math.max(0, bs.staminaLeft[atk] - 1);
+  bs.attackerKey = def;
+  logEntry.staminaLeft = { ...bs.staminaLeft };
+  if (bs.staminaLeft[k1] <= 0 && bs.staminaLeft[k2] <= 0) {
+    bs.ended = true; bs.winner = bs.cardWinner;
+  }
+
+  bs.log.push(logEntry);
+  return { logEntry, events };
+}
+
+// Island free-for-all between all 3 players — turn order rotates through bs.order;
+// the current attacker's chosen target (bs.targetKey, set before rolling) is attacked;
+// the first landed hit wins the card outright and ends the battle immediately. A miss
+// just rotates the attack to the next player in order.
+function doBattleRoundFFA(gs, rng) {
+  const bs = gs.battleState;
+  bs.round++;
+  const atk = bs.attackerKey;
+  const def = bs.targetKey;
+  const atkP = gs.players[atk], defP = gs.players[def];
+  const atkRoll = rngInt(rng, 1, Math.max(1, getAttack(atkP)));
+  const defRoll = rngInt(rng, 1, Math.max(1, getDefence(defP)));
+  const hit = atkRoll > defRoll;
+
+  const logEntry = {
+    round: bs.round, type: 'pvp', attacker: atk, defender: def,
+    atkRoll, defRoll, atkStat: getAttack(atkP), defStat: getDefence(defP), hit,
+  };
+  const events = [];
+
+  if (hit) {
+    bs.cardWinner = atk;
+    bs.ended = true;
+    bs.winner = atk;
+    events.push({ type: 'ffa_hit', attacker: atk, defender: def });
+  } else {
+    const order = bs.order;
+    const idx = order.indexOf(atk);
+    bs.attackerKey = order[(idx + 1) % order.length];
+    bs.targetKey = null;
+  }
+
+  bs.log.push(logEntry);
+  return { logEntry, events };
+}
+
+// Merged-force wizard battle (2 or 3 cooperators fighting together as one). Combined
+// attack/defence come from summing every cooperator's stats; the shared stamina pool
+// is the sum of theirs too. A wizard hit is spread across the whole group — each
+// member with armour loses a piece, each member with none draws their own spell.
+function doBattleRoundGroup(gs, rng) {
+  const bs = gs.battleState;
+  bs.round++;
+  const keys = bs.groupKeys;
+  const groupAtk = keys.reduce((sum, k) => sum + getAttack(gs.players[k]), 0);
+  const groupDef = keys.reduce((sum, k) => sum + getDefence(gs.players[k]), 0);
+  const pAtkRoll = rngInt(rng, 1, Math.max(1, groupAtk));
+  const pDefRoll = rngInt(rng, 1, Math.max(1, groupDef));
+  const wAtkRoll = rngInt(rng, 1, Math.max(1, gs.wizard.attack));
+  const wDefRoll = rngInt(rng, 1, Math.max(1, gs.wizard.defence));
+  const playerHitsWiz = pAtkRoll > wDefRoll;
+  const wizHitsPlayer = wAtkRoll > pDefRoll;
+
+  const logEntry = {
+    round: bs.round, type: 'wizard_group', groupKeys: keys,
+    pAtkRoll, wDefRoll, pAtkStat: groupAtk, wAtkRoll, pDefRoll, pDefStat: groupDef,
+    wizAtk: gs.wizard.attack, wizDef: gs.wizard.defence, wizArm: gs.wizard.armour,
+    playerHitsWiz, wizHitsPlayer,
+  };
+  const events = [];
+
+  if (playerHitsWiz) {
+    if (gs.wizard.armour === 0) {
+      killWizard(gs, keys.slice());
+      events.push({ type: 'wizard_killed', player: keys[0], group: keys });
+    } else {
+      bs.pendingWizardHit = true;
+      events.push({ type: 'player_hits_wizard', player: keys[0], group: keys });
+    }
+  }
+
+  if (wizHitsPlayer && !bs.ended) {
+    keys.forEach(k => {
+      const p = gs.players[k];
+      if (getArmourCount(p) > 0) {
+        const idx = p.inventory.findIndex(c => c.type === 'armour' && c.value > 0);
+        const removed = p.inventory.splice(idx, 1)[0];
+        if (!gs.armourBurnsMode) gs.discard.push(removed);
+        events.push({ type: 'armour_lost', player: k, card: removed });
+      } else {
+        events.push({ type: 'wizard_spell_draw', player: k, winner: 'wizard' });
+      }
+    });
+  }
+
+  bs.staminaLeft.GROUP = Math.max(0, bs.staminaLeft.GROUP - 1);
+  logEntry.staminaLeft = { ...bs.staminaLeft };
+  if (!bs.ended && bs.staminaLeft.GROUP <= 0) { bs.ended = true; bs.winner = 'wizard'; }
+
+  bs.log.push(logEntry);
+  return { logEntry, events };
+}
+
 // ── Wizard stat reduction (after player_hits_wizard event) ─────────────────
 export function reduceWizardStat(gs, stat) {
   const w = gs.wizard;
@@ -561,12 +884,14 @@ export function retreatFromBattle(gs) {
 }
 
 // ── Dark wizard spell draw ─────────────────────────────────────────────────
+// Returns the full pool entry (not just its text) so callers can see vibeDurationMs /
+// vibeController and automate "wear the vibe" forfeits instead of leaving them as text.
 export function drawWizardSpell(gs, victimKey) {
   const idx = gs.wizardSpellOrder[gs.wizardSpellIdx % gs.wizardSpellOrder.length];
   gs.wizardSpellIdx++;
-  const text = WIZARD_SPELL_POOL[idx];
-  gs.players[victimKey].forfeitLog.push({ text, turn: gs.turn });
-  return text;
+  const spell = WIZARD_SPELL_POOL[idx];
+  gs.players[victimKey].forfeitLog.push({ text: spell.text, turn: gs.turn });
+  return spell;
 }
 
 // ── Win condition ──────────────────────────────────────────────────────────

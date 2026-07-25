@@ -16,6 +16,8 @@ export function renderLobby(root) {
   let selectedGame = state.devMode ? (state.devPreselect || 'splitloot') : 'galactic';
   let selectedRounds = 3;
   let selectedMode = 'easy';
+  let selectedMmVariant = 'turns';
+  let selectedMmContinueUntilSolved = false;
   let selectedForfeit = 30;
   let selectedEdgeMode = false;
   let selectedEdgeLives = 3;
@@ -82,6 +84,7 @@ export function renderLobby(root) {
     { key: 'battleships', name: 'Battleships' },
     { key: 'standoff', name: 'Standoff' },
     { key: 'snakes', name: 'Vipers & Vines' },
+    { key: 'conquest', name: 'Conquest' },
   ];
 
   root.innerHTML = `
@@ -111,6 +114,9 @@ export function renderLobby(root) {
           ${RANDOM_GAME_POOL.map(g => `<button type="button" class="mm-rounds-btn mm-rounds-selected random-picker-btn" data-random-game="${g.key}">${g.name}</button>`).join('')}
         </div>
         <button id="randomize-btn">🎲 Randomize</button>
+        <div class="random-picker-grid" id="random-picker-force-grid" style="display:none;margin-top:10px;">
+          ${RANDOM_GAME_POOL.map(g => `<button type="button" class="mm-rounds-btn ghost random-picker-btn" data-force-random-game="${g.key}">${g.name}</button>`).join('')}
+        </div>
       </div>
       `}
       <h2>Choose a game</h2>
@@ -334,25 +340,25 @@ export function renderLobby(root) {
         </div>
       </div>
       <div id="cq-config" style="display:none">
-        <div class="mm-rounds-row">
+        <div class="mm-rounds-row" id="cq-rounds-row">
           <span>Rounds:</span>
           <div class="mm-rounds-btns" id="cq-rounds-btns">
             <button class="mm-rounds-btn ghost" data-cq-rounds="5">5</button>
             <button class="mm-rounds-btn mm-rounds-selected" data-cq-rounds="10">10</button>
           </div>
         </div>
-        <div class="mm-rounds-row">
+        <div class="mm-rounds-row" id="cq-bot-row">
           <span>Computer 3rd player:</span>
           <div class="mm-rounds-btns" id="cq-bot-btns">
             <button class="mm-rounds-btn mm-rounds-selected" data-cq-bot="off">Off</button>
             <button class="mm-rounds-btn ghost" data-cq-bot="on">On</button>
           </div>
         </div>
-        <div style="font-size:12px;color:var(--muted);line-height:1.55;margin-top:8px;">
+        <div id="cq-rounds-bot-desc" style="font-size:12px;color:var(--muted);line-height:1.55;margin-top:8px;">
           <strong>Rounds</strong> — the fallback round cap if no one reaches domination first (control ≥60% of the board for 3 straight rounds ends the match early regardless).<br>
           <strong>Computer 3rd player</strong> — adds a computer-controlled 3rd player if no one joins as player 3. It plays normally — claims territory, allocates dice each round, invokes claim abilities it holds — but is exempt from any forfeit that would need a physical response.
         </div>
-        <div class="mm-rounds-row" style="margin-top:8px;">
+        <div class="mm-rounds-row" id="cq-reckoning-row" style="margin-top:8px;">
           <span>The Reckoning:</span>
           <div class="mm-rounds-btns" id="cq-reckoning-btns">
             <button class="mm-rounds-btn ghost" data-cq-reckoning="off">Off</button>
@@ -360,7 +366,7 @@ export function renderLobby(root) {
             <button class="mm-rounds-btn ghost" data-cq-reckoning="on">On</button>
           </div>
         </div>
-        <div style="font-size:12px;color:var(--muted);line-height:1.55;">
+        <div id="cq-reckoning-desc" style="font-size:12px;color:var(--muted);line-height:1.55;">
           The end-of-match forfeit space. Off removes it from the map entirely; On guarantees it appears every match; Random (default) leaves it as one of the landmarks that may or may not show up — <strong>either way, it never actually appears unless you set a forfeit for it below.</strong>
         </div>
         <div class="mm-rounds-row" style="flex-direction:column;align-items:stretch;gap:6px;margin-top:8px;">
@@ -370,7 +376,7 @@ export function renderLobby(root) {
             style="width:100%;box-sizing:border-box;resize:vertical;font-size:13px;line-height:1.5;padding:8px 10px;border-radius:8px;border:1px solid #2a3556;background:#0f1626;color:var(--ink);font-family:inherit;"></textarea>
           <div id="cq-reckoning-note" style="font-size:11px;color:#e0a052;"></div>
         </div>
-        <div class="mm-rounds-row" style="flex-direction:column;align-items:stretch;gap:6px;margin-top:8px;">
+        <div class="mm-rounds-row" id="cq-locations-row" style="flex-direction:column;align-items:stretch;gap:6px;margin-top:8px;">
           <span>Special locations <span style="font-size:11px;color:var(--muted)">(tap to turn off — hover a button for what it does. Normally only 4 of these 5 landmarks appear per match anyway; Sanctuary &amp; Edge Post are otherwise always on)</span>:</span>
           <div class="mm-rounds-btns" id="cq-locations-btns" style="flex-wrap:wrap;">
             <button class="mm-rounds-btn mm-rounds-selected" data-cq-loc="dungeonGate" title="Invoke once per session to assign your opponent a 5-minute punishment forfeit.">Dungeon Gate</button>
@@ -382,7 +388,7 @@ export function renderLobby(root) {
             <button class="mm-rounds-btn mm-rounds-selected" data-cq-loc="edgePost" title="While held, every other player must edge once before each round starts.">Edge Post</button>
           </div>
         </div>
-        <div class="mm-rounds-row">
+        <div class="mm-rounds-row" id="cq-trap-count-row">
           <span>Traps <span style="font-size:11px;color:var(--muted)">(hidden — auto scales with player count)</span>:</span>
           <div class="mm-rounds-btns" id="cq-trap-count-btns">
             <button class="mm-rounds-btn mm-rounds-selected" data-cq-trap-count="auto">Auto</button>
@@ -393,7 +399,7 @@ export function renderLobby(root) {
             <button class="mm-rounds-btn ghost" data-cq-trap-count="4">4</button>
           </div>
         </div>
-        <div style="font-size:12px;color:var(--muted);line-height:1.55;">
+        <div id="cq-trap-count-desc" style="font-size:12px;color:var(--muted);line-height:1.55;">
           Traps look identical to a quiet, empty space — never marked on the map, even to whoever's standing on one. Capturing one starts a continuous vibe that only stops when you lose the tile.
         </div>
         <div class="mm-rounds-row" style="flex-direction:column;align-items:stretch;gap:6px;margin-top:8px;">
@@ -438,6 +444,20 @@ export function renderLobby(root) {
           <div class="mm-rounds-btns" id="mode-btns">
             <button class="mm-rounds-btn mm-rounds-selected" data-mode="easy" title="Dots appear in slot order — you can see exactly which positions are correct">Easy</button>
             <button class="mm-rounds-btn ghost" data-mode="hard" title="Dots are only a count — no positions revealed">Hard</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row">
+          <span>Match type:</span>
+          <div class="mm-rounds-btns" id="mm-variant-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-mmvariant="turns" title="One board — you and your opponent alternate guesses">Shared Board</button>
+            <button class="mm-rounds-btn ghost" data-mmvariant="h2h" title="Same code, both players guess independently at their own pace — first to crack it wins">Head-to-Head</button>
+          </div>
+        </div>
+        <div class="mm-rounds-row" id="mm-h2h-limit-row" style="display:none;">
+          <span>Guess limit:</span>
+          <div class="mm-rounds-btns" id="mm-h2h-limit-btns">
+            <button class="mm-rounds-btn mm-rounds-selected" data-h2h-limit="limited">Limited</button>
+            <button class="mm-rounds-btn ghost" data-h2h-limit="unlimited" title="No guess cap — keep guessing until you crack it">Continue Until Solved</button>
           </div>
         </div>
       </div>
@@ -734,6 +754,7 @@ export function renderLobby(root) {
   const gameList = root.querySelector('#game-list');
   const randomPickerGrid = root.querySelector('#random-picker-grid');
   const randomizeBtn = root.querySelector('#randomize-btn');
+  const randomPickerForceGrid = root.querySelector('#random-picker-force-grid');
   const unoConfig = root.querySelector('#uno-config');
   const unoRoundsBtns = root.querySelector('#uno-rounds-btns');
   const unoPacksBtns = root.querySelector('#uno-packs-btns');
@@ -751,8 +772,19 @@ export function renderLobby(root) {
   const cqReckoningForfeitInput = root.querySelector('#cq-reckoning-forfeit-input');
   const cqReckoningNote = root.querySelector('#cq-reckoning-note');
   const cqGameForfeitInput = root.querySelector('#cq-game-forfeit-input');
+  const cqRoundsRow = root.querySelector('#cq-rounds-row');
+  const cqBotRow = root.querySelector('#cq-bot-row');
+  const cqRoundsBotDesc = root.querySelector('#cq-rounds-bot-desc');
+  const cqReckoningRow = root.querySelector('#cq-reckoning-row');
+  const cqReckoningDesc = root.querySelector('#cq-reckoning-desc');
+  const cqLocationsRow = root.querySelector('#cq-locations-row');
+  const cqTrapCountRow = root.querySelector('#cq-trap-count-row');
+  const cqTrapCountDesc = root.querySelector('#cq-trap-count-desc');
   const roundsBtns = root.querySelector('#rounds-btns');
   const modeBtns = root.querySelector('#mode-btns');
+  const mmVariantBtns = root.querySelector('#mm-variant-btns');
+  const mmH2hLimitRow = root.querySelector('#mm-h2h-limit-row');
+  const mmH2hLimitBtns = root.querySelector('#mm-h2h-limit-btns');
   const forfeitRow = root.querySelector('#forfeit-row');
   const edgeModeRow = root.querySelector('#edge-mode-row');
   const forfeitBtns = root.querySelector('#forfeit-btns');
@@ -847,6 +879,11 @@ export function renderLobby(root) {
         b.disabled = state.role !== 'host';
       });
     }
+    if (randomPickerForceGrid) {
+      randomPickerForceGrid.querySelectorAll('[data-force-random-game]').forEach(b => {
+        b.disabled = state.role !== 'host';
+      });
+    }
     const isRandomLocked = randomDrawGame !== null && randomDrawGame === selectedGame;
     btdConfig.style.display = selectedGame === 'beatdealer' ? 'block' : 'none';
     btdModeBtns.querySelectorAll('[data-btd-mode]').forEach(b => {
@@ -928,7 +965,16 @@ export function renderLobby(root) {
       b.classList.toggle('ghost', !sel);
       b.disabled = state.role !== 'host';
     });
-    cqConfig.style.display = (selectedGame === 'conquest' && !isRandomLocked) ? 'block' : 'none';
+    cqConfig.style.display = selectedGame === 'conquest' ? 'block' : 'none';
+    const cqLocked = selectedGame === 'conquest' && isRandomLocked;
+    cqRoundsRow.style.display = cqLocked ? 'none' : '';
+    cqBotRow.style.display = cqLocked ? 'none' : '';
+    cqRoundsBotDesc.style.display = cqLocked ? 'none' : '';
+    cqReckoningRow.style.display = cqLocked ? 'none' : '';
+    cqReckoningDesc.style.display = cqLocked ? 'none' : '';
+    cqLocationsRow.style.display = cqLocked ? 'none' : '';
+    cqTrapCountRow.style.display = cqLocked ? 'none' : '';
+    cqTrapCountDesc.style.display = cqLocked ? 'none' : '';
     cqBotBtns.querySelectorAll('[data-cq-bot]').forEach(b => {
       const sel = (b.dataset.cqBot === 'on') === selectedCqBotEnabled;
       b.classList.toggle('mm-rounds-selected', sel);
@@ -1030,6 +1076,17 @@ export function renderLobby(root) {
     });
     modeBtns.querySelectorAll('[data-mode]').forEach(b => {
       const sel = b.dataset.mode === selectedMode;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+    });
+    mmVariantBtns.querySelectorAll('[data-mmvariant]').forEach(b => {
+      const sel = b.dataset.mmvariant === selectedMmVariant;
+      b.classList.toggle('mm-rounds-selected', sel);
+      b.classList.toggle('ghost', !sel);
+    });
+    mmH2hLimitRow.style.display = selectedMmVariant === 'h2h' ? '' : 'none';
+    mmH2hLimitBtns.querySelectorAll('[data-h2h-limit]').forEach(b => {
+      const sel = (b.dataset.h2hLimit === 'unlimited') === selectedMmContinueUntilSolved;
       b.classList.toggle('mm-rounds-selected', sel);
       b.classList.toggle('ghost', !sel);
     });
@@ -1187,7 +1244,8 @@ export function renderLobby(root) {
       b.classList.toggle('mm-rounds-selected', sel);
       b.classList.toggle('ghost', !sel);
     });
-    edgeLivesRow.style.display = selectedEdgeMode ? 'flex' : 'none';
+    // Mastermind's edge mode is self-paced (loser edges between rounds) and doesn't use lives.
+    edgeLivesRow.style.display = (selectedEdgeMode && selectedGame !== 'mastermind') ? 'flex' : 'none';
     edgeLivesBtns.querySelectorAll('[data-lives]').forEach(b => {
       const sel = parseInt(b.dataset.lives, 10) === selectedEdgeLives;
       b.classList.toggle('mm-rounds-selected', sel);
@@ -1210,8 +1268,11 @@ export function renderLobby(root) {
     type: MSG.LOBBY_CONFIG,
     devMode: state.devMode,
     gameType: selectedGame,
+    randomPick: randomDrawGame,
     rounds: selectedRounds,
     mode: selectedMode,
+    mmVariant: selectedMmVariant,
+    mmContinueUntilSolved: selectedMmContinueUntilSolved,
     forfeitDuration: selectedForfeit,
     edgeMode: selectedEdgeMode,
     edgeLives: selectedEdgeLives,
@@ -1298,8 +1359,11 @@ export function renderLobby(root) {
     const modeChanged = ev.detail.devMode !== undefined && !!ev.detail.devMode !== state.devMode;
     if (ev.detail.devMode !== undefined) state.devMode = !!ev.detail.devMode;
     selectedGame      = ev.detail.gameType        || selectedGame;
+    if ('randomPick' in ev.detail) randomDrawGame = ev.detail.randomPick;
     selectedRounds    = ev.detail.rounds          || selectedRounds;
     selectedMode      = ev.detail.mode            || selectedMode;
+    selectedMmVariant = ev.detail.mmVariant       || selectedMmVariant;
+    if (ev.detail.mmContinueUntilSolved !== undefined) selectedMmContinueUntilSolved = !!ev.detail.mmContinueUntilSolved;
     selectedForfeit   = ev.detail.forfeitDuration || selectedForfeit;
     if (ev.detail.edgeMode !== undefined) selectedEdgeMode = !!ev.detail.edgeMode;
     if (ev.detail.edgeLives)              selectedEdgeLives = ev.detail.edgeLives;
@@ -1409,6 +1473,7 @@ export function renderLobby(root) {
       case 'mastermind':
         selectedRounds = 5;
         selectedMode = 'hard';
+        selectedMmVariant = Math.random() < 0.5 ? 'turns' : 'h2h';
         selectedForfeit = 30;
         break;
       case 'dice':
@@ -1450,6 +1515,15 @@ export function renderLobby(root) {
         selectedSnlForfeitCards = ['vibe', 'edge', 'task', 'surrender'];
         selectedSnlForfeitLines = [];
         break;
+      case 'conquest':
+        selectedCqBotEnabled = false;
+        selectedCqRounds = 10;
+        selectedCqReckoning = 'random';
+        selectedCqReckoningForfeitText = '';
+        selectedCqGameForfeitText = '';
+        selectedCqDisabledLocations = [];
+        selectedCqTrapCount = 'auto';
+        break;
     }
     paintOptions();
     sendConfig();
@@ -1458,8 +1532,14 @@ export function renderLobby(root) {
   }
 
   if (randomizeBtn) {
-    randomizeBtn.addEventListener('click', () => {
+    randomizeBtn.addEventListener('click', (e) => {
       if (state.role !== 'host') return;
+      if (e.ctrlKey || e.metaKey) {
+        if (randomPickerForceGrid) {
+          randomPickerForceGrid.style.display = randomPickerForceGrid.style.display === 'none' ? 'flex' : 'none';
+        }
+        return;
+      }
       const included = new Set(
         Array.from(randomPickerGrid.querySelectorAll('[data-random-game]'))
           .filter(b => b.classList.contains('mm-rounds-selected'))
@@ -1472,6 +1552,16 @@ export function renderLobby(root) {
       }
       const pick = pool[Math.floor(Math.random() * pool.length)];
       applyRandomPreset(pick.key);
+    });
+  }
+
+  if (randomPickerForceGrid) {
+    randomPickerForceGrid.addEventListener('click', (e) => {
+      if (state.role !== 'host') return;
+      const btn = e.target.closest('[data-force-random-game]');
+      if (!btn) return;
+      randomPickerForceGrid.style.display = 'none';
+      applyRandomPreset(btn.dataset.forceRandomGame);
     });
   }
 
@@ -1489,6 +1579,24 @@ export function renderLobby(root) {
     const btn = e.target.closest('[data-mode]');
     if (!btn) return;
     selectedMode = btn.dataset.mode;
+    paintOptions();
+    sendConfig();
+  });
+
+  mmVariantBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-mmvariant]');
+    if (!btn) return;
+    selectedMmVariant = btn.dataset.mmvariant;
+    paintOptions();
+    sendConfig();
+  });
+
+  mmH2hLimitBtns.addEventListener('click', (e) => {
+    if (state.role !== 'host') return;
+    const btn = e.target.closest('[data-h2h-limit]');
+    if (!btn) return;
+    selectedMmContinueUntilSolved = btn.dataset.h2hLimit === 'unlimited';
     paintOptions();
     sendConfig();
   });
@@ -1617,7 +1725,7 @@ export function renderLobby(root) {
   });
 
   startBtn.addEventListener('click', () => {
-    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedGame === 'uno' ? selectedUnoRounds : selectedRounds, mode: selectedMode, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives, hiloMode: selectedHiloMode, hiloCycles: selectedHiloCycles, hiloDeckSize: selectedHiloDeckSize, hiloVibeRamp: selectedHiloVibeRamp, hiloLives: selectedHiloLives, hiloVibeTarget: selectedHiloVibeTarget, stlDifficulty: selectedStlDifficulty, stlForfeitCards: selectedStlForfeitCards, soDifficulty: selectedSoDifficulty, cqBotEnabled: selectedCqBotEnabled, cqRounds: selectedCqRounds, cqReckoning: selectedCqReckoning, cqReckoningForfeitText: selectedCqReckoningForfeitText, cqGameForfeitText: selectedCqGameForfeitText, cqDisabledLocations: selectedCqDisabledLocations, cqTrapCount: selectedCqTrapCount, btdForfeits: selectedBtdForfeits, btdMode: selectedBtdMode, btdGameMode: selectedBtdGameMode, wiWinCondition: selectedWiWinCondition, wiSpellLimit: selectedWiSpellLimit, diceVibeRule: selectedDiceVibeRule, lcTimer: selectedLcTimer, lcMinutes: selectedLcMinutes, lcDeckSize: selectedLcDeckSize, lcReward: selectedLcReward, bsGridSize: selectedBsGridSize, bsVibeMultiplier: selectedBsVibeMultiplier, unoRounds: selectedUnoRounds, unoSpecialPacks: selectedUnoSpecialPacks, snlMode: selectedSnlMode, snlBoardSize: selectedSnlBoardSize, snlDensity: selectedSnlDensity, snlStakeMix: selectedSnlStakeMix, snlVibeScale: selectedSnlVibeScale, snlWinCondition: selectedSnlWinCondition, snlFinalRule: selectedSnlFinalRule, snlPowerups: selectedSnlPowerups, snlCoopBetray: selectedSnlCoopBetray, snlForfeitCards: selectedSnlForfeitCards, snlForfeitLines: selectedSnlForfeitLines, snlAmbient: selectedSnlAmbient, snlTapOut: selectedSnlTapOut, memMode: selectedMemMode, memForfeitLines: selectedMemForfeitLines, memVibeDurations: selectedMemVibeDurations, memGridSize: selectedMemGridSize });
+    socket.send({ type: MSG.START, gameType: selectedGame, rounds: selectedGame === 'uno' ? selectedUnoRounds : selectedRounds, mode: selectedMode, mmVariant: selectedMmVariant, mmContinueUntilSolved: selectedMmContinueUntilSolved, forfeitDuration: selectedForfeit, edgeMode: selectedEdgeMode, edgeLives: selectedEdgeLives, hiloMode: selectedHiloMode, hiloCycles: selectedHiloCycles, hiloDeckSize: selectedHiloDeckSize, hiloVibeRamp: selectedHiloVibeRamp, hiloLives: selectedHiloLives, hiloVibeTarget: selectedHiloVibeTarget, stlDifficulty: selectedStlDifficulty, stlForfeitCards: selectedStlForfeitCards, soDifficulty: selectedSoDifficulty, cqBotEnabled: selectedCqBotEnabled, cqRounds: selectedCqRounds, cqReckoning: selectedCqReckoning, cqReckoningForfeitText: selectedCqReckoningForfeitText, cqGameForfeitText: selectedCqGameForfeitText, cqDisabledLocations: selectedCqDisabledLocations, cqTrapCount: selectedCqTrapCount, btdForfeits: selectedBtdForfeits, btdMode: selectedBtdMode, btdGameMode: selectedBtdGameMode, wiWinCondition: selectedWiWinCondition, wiSpellLimit: selectedWiSpellLimit, diceVibeRule: selectedDiceVibeRule, lcTimer: selectedLcTimer, lcMinutes: selectedLcMinutes, lcDeckSize: selectedLcDeckSize, lcReward: selectedLcReward, bsGridSize: selectedBsGridSize, bsVibeMultiplier: selectedBsVibeMultiplier, unoRounds: selectedUnoRounds, unoSpecialPacks: selectedUnoSpecialPacks, snlMode: selectedSnlMode, snlBoardSize: selectedSnlBoardSize, snlDensity: selectedSnlDensity, snlStakeMix: selectedSnlStakeMix, snlVibeScale: selectedSnlVibeScale, snlWinCondition: selectedSnlWinCondition, snlFinalRule: selectedSnlFinalRule, snlPowerups: selectedSnlPowerups, snlCoopBetray: selectedSnlCoopBetray, snlForfeitCards: selectedSnlForfeitCards, snlForfeitLines: selectedSnlForfeitLines, snlAmbient: selectedSnlAmbient, snlTapOut: selectedSnlTapOut, memMode: selectedMemMode, memForfeitLines: selectedMemForfeitLines, memVibeDurations: selectedMemVibeDurations, memGridSize: selectedMemGridSize });
   });
 
   wiWinBtns.addEventListener('click', (e) => {
