@@ -2,6 +2,7 @@ import './style.css';
 import { socket } from './net/socket.js';
 import { MSG } from './shared/messages.js';
 import * as haptics from './haptics.js';
+import { initHardStop } from './hardStop.js';
 import { state, reset } from './state.js';
 import { renderLanding } from './screens/landing.js';
 import { renderLobby } from './screens/lobby.js';
@@ -189,6 +190,7 @@ function route() {
 }
 
 window.addEventListener('hashchange', route);
+initHardStop();
 
 socket.addEventListener('opp_final', (ev) => {
   state.oppFinal = ev.detail.value;

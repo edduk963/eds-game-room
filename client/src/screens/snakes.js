@@ -352,6 +352,40 @@ function renderClimber(root) {
   let vibeDriveTargets = null; // roles whose vibe MY slider currently drives (null = the
                                // lone active victim, for the snake-driver default)
   let forkFallbackTimer = null; // auto-resolves a fork-reveal wait if the partner vanishes
+
+  // ── vibe window ── A driver's SNL_VIBE_CTRL only counts while a vibe is actually
+  // running on this client. Without this check, a slider drag sent just as the timer ran
+  // out could arrive after the stop and restart the vibe for the full safety cap, with no
+  // banner or countdown (the "timer ended but it kept going" bug). Every stop path closes
+  // the window; the expiry is a backstop. Infinity = untimed (Finale, Watched mode).
+  let vibeWindowUntil = 0;
+  let persistentWindow = false; // untimed control (Finale/Watched) that outlives ordinary stops
+  let victimFallbackTimer = null;
+  function openVibeWindow(secs) {
+    if (secs == null) persistentWindow = true;
+    vibeWindowUntil = secs == null ? Infinity : performance.now() + (secs + 6) * 1000;
+  }
+  // A plain close falls back to the untimed window if one is active, so the Finale
+  // winner's Stop/Start and the Watched controller's ambient slider keep working.
+  // force=true shuts it completely (the loser's own "Stop My Vibe").
+  function closeVibeWindow(force = false) {
+    clearTimeout(victimFallbackTimer);
+    if (force) persistentWindow = false;
+    vibeWindowUntil = persistentWindow ? Infinity : 0;
+  }
+  const vibeWindowOpen = () => performance.now() < vibeWindowUntil;
+
+  // Stop my device and clear every vibe UI element, whatever flow started it.
+  function hardLocalVibeStop(force = false) {
+    closeVibeWindow(force);
+    haptics.stopAll();
+    haptics.setWaveVibeMode(false); // don't leak wave patterns into the next/results vibe
+    mirrorVibeActive = false;
+    vibeDriveTargets = null;
+    clearInterval(vibeInt);
+    vibeRow.style.display = 'none';
+    stopVibeBanner();
+  }
   const departedRoles = new Set(); // roles whose socket has disconnected mid-game
 
   // ── prominent vibe countdown, shown to whoever is being vibed or is driving ──
@@ -790,6 +824,7 @@ function renderClimber(root) {
     gameOver = true;
     rollBtn.disabled = true;
     haptics.losePattern();
+    openVibeWindow(null); // untimed — the winner drives until they finish or I stop it
     socket.send({ type: 'final', value: pos[role], vibeSeconds: 0 });
     // oppOf(role) is only a fallback for a stale peer that hasn't sent its role yet —
     // with 2 non-winners in a 3P game it can name the wrong one, so prefer the real
@@ -801,7 +836,9 @@ function renderClimber(root) {
       <button id="snl-finale-selfstop" class="snl-btn-secondary" style="margin-top:10px">Stop My Vibe</button>
     </div>`);
     modalEl.querySelector('#snl-finale-selfstop')?.addEventListener('click', ev => {
-      haptics.stopAll();
+      // Close the window as well, otherwise the winner's next slider move would just
+      // start it again.
+      hardLocalVibeStop(true);
       ev.currentTarget.disabled = true;
       ev.currentTarget.textContent = 'Stopped ✓';
     });
@@ -916,7 +953,7 @@ function renderClimber(root) {
       haptics.setWaveVibeMode(true); // randomly-cycling pattern for the whole vibe
       startVibeBanner(secs, '🐍 Snake vibe!');
       setStatus(`Snake vibe — ${secs}s!`);
-      const finish = () => { vibeSkipHandler = null; stopVibeBanner(); haptics.stopAll(); afterResolution(); };
+      const finish = () => { vibeSkipHandler = null; closeVibeWindow(); stopVibeBanner(); haptics.stopAll(); afterResolution(); };
       const t = setTimeout(finish, secs * 1000);
       vibeSkipHandler = () => { clearTimeout(t); finish(); };
       return;
@@ -925,6 +962,7 @@ function renderClimber(root) {
     const driver = hijacker || autoTarget(role);
     const mirrored = mirrorNext;
     if (mirrored) { mirrorNext = false; paintActivePowerups(); }
+    openVibeWindow(secs);
     haptics.startForfeitVibe(secs);
     haptics.setWaveVibeMode(true); // randomly-cycling pattern for the whole vibe
     startVibeBanner(secs, mirrored
@@ -941,6 +979,7 @@ function renderClimber(root) {
     // Advance turn when we receive SNL_VIBE_STOP
     const onStop = () => {
       vibeSkipHandler = null;
+      closeVibeWindow();
       haptics.stopAll();
       stopVibeBanner();
       afterResolution();
@@ -1182,18 +1221,24 @@ function renderClimber(root) {
         ? `🪜 ${name(ev.detail.driver || activeRole())} climbed a vine ${bottom}→${top} — you're vibed ${secs}s`
         : `🐍 Deflected onto you — you're vibed ${secs}s`);
       setStatus(`You're being vibed for ${secs}s.`);
+      openVibeWindow(secs);
+      // The driver normally sends the stop. If it never arrives (message lost, driver
+      // closed the tab) stop on our own shortly after the advertised time — this path
+      // used to have no fallback and could run for the full hour-long safety cap.
+      clearTimeout(victimFallbackTimer);
+      victimFallbackTimer = setTimeout(() => hardLocalVibeStop(), (secs + 4) * 1000);
       return;
     }
     mirrorVibeActive = !!ev.detail.mirror;
     vibeDriveTargets = null; // snake: my slider drives the lone active victim (the faller)
     vibeSlider.value = 50; vibePctEl.textContent = '50%';
-    if (mirrorVibeActive) { haptics.startForfeitVibe(secs); haptics.setWaveVibeMode(true); } // Mirror: I feel what I dish out
+    if (mirrorVibeActive) { openVibeWindow(secs); haptics.startForfeitVibe(secs); haptics.setWaveVibeMode(true); } // Mirror: I feel what I dish out
     startVibeBanner(secs, mirrorVibeActive
       ? `🐍 ${name(activeRole())} hit a snake — Mirror! You're driving AND feeling it`
       : `🐍 ${name(activeRole())} hit a snake — you're driving!`);
     startSliderCountdown(secs, () => {
       socket.send({ type: MSG.SNL_VIBE_STOP });
-      if (mirrorVibeActive) { haptics.stopAll(); haptics.setWaveVibeMode(false); mirrorVibeActive = false; }
+      if (mirrorVibeActive) { closeVibeWindow(); haptics.stopAll(); haptics.setWaveVibeMode(false); mirrorVibeActive = false; }
       stopVibeBanner();
     });
     setStatus(`${name(activeRole())} hit a snake — drive the vibe!${mirrorVibeActive ? ' (Mirrored — you feel it too)' : ''}`);
@@ -1204,7 +1249,15 @@ function renderClimber(root) {
   // open-ended — every other flow here always sends its own SNL_VIBE_STOP well before
   // that cap would matter, so this only changes behavior for the untimed Finale case.
   const onVibeCtrl = ev => {
-    if (!haptics.isForfeitActive()) haptics.addForfeitSeconds(FINALE_VIBE_SAFETY_CAP_SECS);
+    if (!vibeWindowOpen()) return; // late/stale control message — never restart from one
+    if (!haptics.isForfeitActive()) {
+      // Re-arm only for the time the window has left: the untimed Finale/Watched flows
+      // get the big safety cap, a timed vibe gets just its remaining seconds.
+      const remain = vibeWindowUntil === Infinity
+        ? FINALE_VIBE_SAFETY_CAP_SECS
+        : Math.max(1, Math.ceil((vibeWindowUntil - performance.now()) / 1000));
+      haptics.addForfeitSeconds(remain);
+    }
     haptics.setForfeitIntensity(ev.detail.intensity || 0);
     if (ev.detail.pattern) haptics.setWaveVibeMode(ev.detail.pattern === 'wave');
     // Shared-slider vibes (mutual betrayal): I'm both driving and feeling it, so reflect
@@ -1216,15 +1269,17 @@ function renderClimber(root) {
   };
 
   // Vibe ended — stop haptics (I'm victim) and hide slider (I'm driver)
-  const onVibeStop = ev => {
-    haptics.stopAll();
-    haptics.setWaveVibeMode(false); // don't leak wave patterns into the next/results vibe
-    mirrorVibeActive = false;
-    vibeDriveTargets = null;
-    clearInterval(vibeInt);
-    vibeRow.style.display = 'none';
-    stopVibeBanner();
+  const onVibeStop = () => hardLocalVibeStop();
+
+  // Hard Stop pressed (here or by another player, see hardStop.js). The device is
+  // already off; finish whatever wait was in progress so the turn moves on, then
+  // clear any vibe UI that's still showing.
+  const onPanic = () => {
+    if (vibeSkipHandler || vibeOnExpire) skipCurrentVibe();
+    hardLocalVibeStop();
+    setStatus('Hard stop — all vibes stopped.');
   };
+  window.addEventListener('vibe-panic', onPanic);
 
   // Fork — active player chose; I respond (only if I'm the actual fork partner — in a
   // 3-player game the third, uninvolved player must never see or answer this).
@@ -1258,7 +1313,7 @@ function renderClimber(root) {
 
     if (!iDrive && !iVictim) { finishLander(); return; } // 3P bystander to this fork
 
-    if (iVictim) { haptics.startForfeitVibe(secs); haptics.setWaveVibeMode(true); }
+    if (iVictim) { openVibeWindow(secs); haptics.startForfeitVibe(secs); haptics.setWaveVibeMode(true); }
 
     if (iDrive) {
       // I hold a slider. mirrorVibeActive means I also feel what I dish out (mutual
@@ -1272,7 +1327,7 @@ function renderClimber(root) {
       startSliderCountdown(secs, () => {
         vibeDriveTargets?.forEach(t => socket.send({ type: MSG.SNL_VIBE_STOP, target: t }));
         vibeDriveTargets = null;
-        if (iVictim) { haptics.stopAll(); haptics.setWaveVibeMode(false); mirrorVibeActive = false; }
+        if (iVictim) { closeVibeWindow(); haptics.stopAll(); haptics.setWaveVibeMode(false); mirrorVibeActive = false; }
         stopVibeBanner();
         finishLander();
       });
@@ -1280,7 +1335,7 @@ function renderClimber(root) {
       // Pure victim — the betrayer controls my intensity via SNL_VIBE_CTRL; end when
       // their SNL_VIBE_STOP lands (with a safety fallback if it goes missing).
       startVibeBanner(secs, labels.victim);
-      const onStop = () => { vibeSkipHandler = null; haptics.stopAll(); haptics.setWaveVibeMode(false); stopVibeBanner(); finishLander(); };
+      const onStop = () => { vibeSkipHandler = null; closeVibeWindow(); haptics.stopAll(); haptics.setWaveVibeMode(false); stopVibeBanner(); finishLander(); };
       const onRemoteStop = () => { clearTimeout(fb); onStop(); };
       const fb = setTimeout(() => { socket.removeEventListener(MSG.SNL_VIBE_STOP, onRemoteStop); onStop(); }, (secs + 6) * 1000);
       socket.addEventListener(MSG.SNL_VIBE_STOP, onRemoteStop, { once: true });
@@ -1385,6 +1440,8 @@ function renderClimber(root) {
     clearInterval(vibeInt);
     clearInterval(bannerInt);
     clearTimeout(forkFallbackTimer);
+    closeVibeWindow(true);
+    window.removeEventListener('vibe-panic', onPanic);
     bw.__snlResizeObs?.disconnect();
     haptics.stopAll();
     socket.removeEventListener(MSG.SNL_ROLL_GO,       onRollGo);
@@ -1404,6 +1461,9 @@ function renderClimber(root) {
     socket.removeEventListener('peer_reconnected',    onPeerReconnected);
     if (vibeModeBarInstance) { vibeModeBarInstance.destroy(); vibeModeBarInstance = null; }
   }, { once: true });
+
+  // Watched mode: the controller's ambient slider can drive me at any moment, untimed.
+  if (isWatched) openVibeWindow(null);
 
   // ── initial paint ──
   repaintBoard(); paintHand(); paintTurnInd();

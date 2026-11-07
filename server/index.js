@@ -780,6 +780,12 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    // Hard stop: relay to every other client in the session, whatever game is running.
+    if (msg.type === 'vibe_panic') {
+      broadcast(s, { type: 'vibe_panic', role }, ws);
+      return;
+    }
+
     if (msg.type === 'forfeit_toggle') {
       broadcast(s, { type: 'forfeit_toggle', running: !!msg.running });
       return;

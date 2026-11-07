@@ -17,6 +17,20 @@ let vibeSeconds = 0;
 let vibeTickInterval = null;
 let missSpikeUntil = 0; // timestamp until which an explicit pulse() should win over ambient loops
 
+// Hard-stop gate. Every command to a device goes through vibe(), so while this window is
+// open nothing can drive the toy — not a pattern tick, a late network message, or an
+// in-flight promise that resolves after the stop.
+let suppressUntil = 0;
+const suppressed = () => performance.now() < suppressUntil;
+
+// One-shot pattern steps (win/lose) — tracked so a stop can cancel the ones still
+// pending instead of letting them vibe again after it.
+let _patternTimers = [];
+function patternTimeout(fn, ms) {
+  const id = setTimeout(() => { _patternTimers = _patternTimers.filter(t => t !== id); fn(); }, ms);
+  _patternTimers.push(id);
+}
+
 function stopAllDevices() {
   devices.forEach(d => d.stop().catch(() => {}));
 }
@@ -67,12 +81,12 @@ export async function connect(mode = 'bluetooth') {
 }
 
 async function vibe(intensity) {
-  if (devices.length === 0) return;
+  if (devices.length === 0 || suppressed()) return;
   await Promise.all(devices.map(d => d.vibrate(intensity).catch(() => {})));
 }
 
 export async function pulse(intensity, durationMs) {
-  if (devices.length === 0) return;
+  if (devices.length === 0 || suppressed()) return;
   if (vibeSeconds > 0) return;
   clearTimeout(stopTimer);
   // Win over any ambient loop (e.g. forfeit vibe) for the pulse's duration, so an
@@ -86,6 +100,7 @@ export async function pulse(intensity, durationMs) {
 }
 
 export function addVibeSeconds(n) {
+  if (suppressed()) return;
   vibeSeconds = Math.max(0, vibeSeconds + n);
   if (!vibeTickInterval) {
     vibe(1.0);
@@ -103,20 +118,20 @@ export function addVibeSeconds(n) {
 export const getVibeSeconds = () => vibeSeconds;
 
 export async function winPattern() {
-  if (devices.length === 0) return;
+  if (devices.length === 0 || suppressed()) return;
   for (const [i, t, d] of [[0.4, 0, 200], [0.7, 350, 200], [1.0, 700, 300]]) {
-    setTimeout(async () => {
+    patternTimeout(async () => {
       await vibe(i);
-      setTimeout(() => stopAllDevices(), d);
+      patternTimeout(() => stopAllDevices(), d);
     }, t);
   }
 }
 
 export async function losePattern() {
-  if (devices.length === 0) return;
+  if (devices.length === 0 || suppressed()) return;
+  patternTimeout(() => vibe(0.3), 600);
+  patternTimeout(() => stopAllDevices(), 1200);
   await vibe(0.6);
-  setTimeout(() => vibe(0.3), 600);
-  setTimeout(() => stopAllDevices(), 1200);
 }
 
 export const isConnected = () => devices.length > 0;
@@ -154,7 +169,7 @@ function waveIntensity(base) {
 }
 
 export function startForfeitVibe(seconds) {
-  if (devices.length === 0) return;
+  if (devices.length === 0 || suppressed()) return;
   forfeitSeconds = seconds;
   vibe(forfeitIntensity);
   if (forfeitTickInterval) clearInterval(forfeitTickInterval);
@@ -196,7 +211,7 @@ export function setForfeitIntensity(level) {
 }
 
 export function addForfeitSeconds(n) {
-  if (devices.length === 0) return;
+  if (devices.length === 0 || suppressed()) return;
   forfeitSeconds += n;
   vibe(_waveVibeMode ? waveIntensity(forfeitIntensity) : forfeitIntensity);
   if (!forfeitTickInterval) {
@@ -231,6 +246,7 @@ let shootVibeIntensity = 0;
 let shootVibeInterval = null;
 
 export function addShootVibe(intensity, seconds) {
+  if (suppressed()) return;
   shootVibeSeconds = Math.max(0, shootVibeSeconds + seconds);
   shootVibeIntensity = Math.min(1, Math.max(0, intensity));
   if (!shootVibeInterval) {
@@ -276,6 +292,7 @@ let _testPreviewBase = 0;
 // tempo) instead of a flat level — used by the lobby's Test Vibe overlay so the
 // pattern/tempo selectors there have something to preview.
 export function startTestPreview(base) {
+  if (suppressed()) return;
   _testPreviewBase = Math.max(0, Math.min(1, base));
   if (_testPreviewBase === 0) { stopTestPreview(); return; }
   setWaveVibeMode(true);
@@ -331,6 +348,7 @@ let continuousInterval = null;
 // pattern is audible here too). Calling again while already running just updates the level —
 // the next 500ms tick picks it up, so a live slider can drive this without restarting it.
 export function startContinuousVibe(intensity) {
+  if (suppressed()) return;
   continuousLevel = Math.max(0, Math.min(1, intensity));
   if (!continuousInterval) {
     vibe(_waveVibeMode ? waveIntensity(continuousLevel) : continuousLevel);
@@ -349,16 +367,21 @@ export function stopContinuousVibe() {
 
 // Escalating ramp toward a forced climax cue, then a flat lower-intensity cooldown —
 // Conquest's "The Reckoning" end-of-match effect.
+let _reckoningRamp = null;
+let _reckoningTail = null;
 export function triggerReckoning(postCumSeconds = 180) {
+  if (suppressed()) return;
   let lvl = 0.5;
   setWaveVibeMode(false);
   addShootVibe(lvl, 6);
-  const ramp = setInterval(() => {
+  clearInterval(_reckoningRamp); clearTimeout(_reckoningTail);
+  _reckoningRamp = setInterval(() => {
     lvl = Math.min(1, lvl + 0.1);
     addShootVibe(lvl, 1);
     if (lvl >= 1) {
-      clearInterval(ramp);
-      setTimeout(() => {
+      clearInterval(_reckoningRamp); _reckoningRamp = null;
+      _reckoningTail = setTimeout(() => {
+        _reckoningTail = null;
         startForfeitVibe(postCumSeconds);
         setForfeitIntensity(0.3);
       }, 1500);
@@ -368,15 +391,49 @@ export function triggerReckoning(postCumSeconds = 180) {
 
 export const getWaveState = () => _waveVibeMode ? vibeModeLabel(_getVibeMode()) : 'Steady';
 
-export function stopAll() {
-  if (vibeTickInterval)    { clearInterval(vibeTickInterval);    vibeTickInterval    = null; }
-  if (forfeitTickInterval) { clearInterval(forfeitTickInterval); forfeitTickInterval = null; }
-  if (shootVibeInterval)   { clearInterval(shootVibeInterval);   shootVibeInterval   = null; }
-  if (continuousInterval)  { clearInterval(continuousInterval);  continuousInterval  = null; }
-  vibeSeconds    = 0;
-  forfeitSeconds = 0;
+// Clears every timer this module owns. stopAll() used to miss the pulse timer, the two
+// pending rAF intensity updates and the lobby test-preview loop — any of which could
+// send one more vibrate after the "stop".
+function clearAllChannels() {
+  if (vibeTickInterval)     { clearInterval(vibeTickInterval);     vibeTickInterval     = null; }
+  if (forfeitTickInterval)  { clearInterval(forfeitTickInterval);  forfeitTickInterval  = null; }
+  if (shootVibeInterval)    { clearInterval(shootVibeInterval);    shootVibeInterval    = null; }
+  if (continuousInterval)   { clearInterval(continuousInterval);   continuousInterval   = null; }
+  if (_testPreviewInterval) { clearInterval(_testPreviewInterval); _testPreviewInterval = null; }
+  if (_intensityRaf)        { cancelAnimationFrame(_intensityRaf); _intensityRaf        = 0; }
+  if (_testRaf)             { cancelAnimationFrame(_testRaf);      _testRaf             = 0; }
+  clearTimeout(stopTimer); stopTimer = null;
+  _patternTimers.forEach(clearTimeout); _patternTimers = [];
+  if (_reckoningRamp) { clearInterval(_reckoningRamp); _reckoningRamp = null; }
+  if (_reckoningTail) { clearTimeout(_reckoningTail);  _reckoningTail = null; }
+  vibeSeconds      = 0;
+  forfeitSeconds   = 0;
   shootVibeSeconds = 0;
-  continuousLevel = 0;
-  _waveVibeMode = false;
+  continuousLevel  = 0;
+  _testPreviewBase = 0;
+  _testLevel       = 0;
+  _pendingIntensity = 0;
+  missSpikeUntil   = 0;
+  _waveVibeMode    = false;
+}
+
+export function stopAll() {
+  clearAllChannels();
   stopAllDevices();
 }
+
+// Emergency stop: kill every channel, block all new vibrate commands for a short
+// window, and repeat the stop a few times in case a vibrate was already queued in the
+// Bluetooth stack ahead of it.
+let _panicStopTimers = [];
+export function panicStop(holdMs = 2000) {
+  suppressUntil = performance.now() + holdMs;
+  clearAllChannels();
+  _panicStopTimers.forEach(clearTimeout);
+  stopAllDevices();
+  _panicStopTimers = [150, 400, 900, 1600].map(ms => setTimeout(stopAllDevices, ms));
+}
+
+export const isAnyVibeActive = () =>
+  vibeSeconds > 0 || forfeitSeconds > 0 || shootVibeSeconds > 0 ||
+  !!continuousInterval || !!_testPreviewInterval;
